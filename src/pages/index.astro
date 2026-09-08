@@ -10,6 +10,13 @@ const user = Astro.locals.user;
     <p style="color:var(--color-muted);margin:0;">Your role: <span class={`badge badge-${user.role}`}>{user.role}</span></p>
   </div>
 
+  {(user.role === 'admin' || user.role === 'manager') && (
+    <a href="/admin" id="approvals-alert" class="card" style="display:none;border-color:#fbbf24;background:#fffbeb;text-decoration:none;color:inherit;">
+      <h2><Icon name="bell" size={18} class="icon-inline" /> Pending Approvals <span id="approvals-count" class="badge badge-pending">0</span></h2>
+      <p class="card-sub" style="margin:0;">Shift requests, time-off, and shift-swap volunteers waiting on your review. Tap to open Manage.</p>
+    </a>
+  )}
+
   <div class="card">
     <h2><Icon name="calendar" size={18} class="icon-inline" /> My Upcoming Shifts</h2>
     <div id="shifts-list"><p class="empty">Loading...</p></div>
@@ -58,6 +65,18 @@ const user = Astro.locals.user;
       const data = await res.json();
       const today = todayISO();
 
+      const alertCard = document.getElementById('approvals-alert');
+      if (alertCard) {
+        const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending').length;
+        const pendingClaims = (data.swapClaims || []).filter((c) => c.status === 'pending').length;
+        const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending').length;
+        const total = pendingTimeOff + pendingClaims + pendingShiftReqs;
+        if (total > 0) {
+          document.getElementById('approvals-count').textContent = total;
+          alertCard.style.display = 'block';
+        }
+      }
+
       const myShifts = data.shifts
         .filter((s) => s.user_id === data.me.id && s.date >= today)
         .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time))
@@ -72,7 +91,6 @@ const user = Astro.locals.user;
               <div class="who">${formatDate(s.date, { short: true })}</div>
               <div class="meta">${formatTime12(s.start_time)} – ${formatTime12(s.end_time)}</div>
             </div>
-            ${s.department ? `<span class="badge badge-${s.department.toLowerCase()}">${escapeHtml(s.department)}</span>` : ''}
           </div>
         `).join('');
 

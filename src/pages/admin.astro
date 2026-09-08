@@ -65,7 +65,7 @@ const user = Astro.locals.user;
     <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
       POST the CSV to <code>/api/public/shift-imports</code> with header <code>Authorization: Bearer &lt;key&gt;</code>
       and <code>Content-Type: text/csv</code> (or JSON <code>{`{ "rows": [...] }`}</code>). Same columns as the
-      template above: username, date, start_time, end_time, department, notes.
+      template above: username, date, start_time, end_time, notes.
     </p>
     <button class="btn-primary" id="add-key-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Create API key</button>
     <div id="keys-list"><p class="empty">Loading...</p></div>

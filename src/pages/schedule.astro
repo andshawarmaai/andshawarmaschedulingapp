@@ -54,13 +54,6 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
         <div class="field"><label for="ed-date">Date</label><input type="date" id="ed-date" class="input" /></div>
         <div class="field"><label for="ed-start">Start time</label><input type="time" id="ed-start" class="input" value="11:00" /></div>
         <div class="field"><label for="ed-end">End time</label><input type="time" id="ed-end" class="input" value="19:00" /></div>
-        <div class="field"><label for="ed-dept">Department</label>
-          <select id="ed-dept" class="input">
-            <option value="">—</option>
-            <option value="FOH">Front of House</option>
-            <option value="BOH">Back of House</option>
-          </select>
-        </div>
         <div class="field"><label for="ed-notes">Notes</label><input type="text" id="ed-notes" class="input" placeholder="Optional" /></div>
       </div>
       <div class="modal-footer">
@@ -144,8 +137,7 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
         const lines = dayShifts.slice(0, 3).map((s) => {
           const blocked = isBlocked(data.timeOffApproved, c.iso, s.user_id);
           const firstName = userName(s.user_id).split(' ')[0];
-          const cls = s.department ? s.department.toLowerCase() : '';
-          return `<span class="shift-line ${cls}${blocked ? ' on-leave' : ''}"><strong>${escapeHtml(firstName)}</strong> ${formatTime12(s.start_time)}</span>`;
+          return `<span class="shift-line${blocked ? ' on-leave' : ''}"><strong>${escapeHtml(firstName)}</strong> ${formatTime12(s.start_time)}</span>`;
         }).join('');
         const more = dayShifts.length > 3 ? `<span class="shift-line">+${dayShifts.length - 3} more</span>` : '';
         // Outlook-style block: the bar only carries the name + reason on the
@@ -176,12 +168,11 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
     }
 
     function renderDayShift(s) {
-      const cls = s.department ? s.department.toLowerCase() : '';
       const pending = pendingRequestForShift(s.id);
       const canAct = canRequestOn(s);
       const editBtn = canAct ? `<button class="btn-secondary" data-edit="${s.id}">${ctx.canEdit ? 'Edit' : 'Request change'}</button>` : '';
       const pendingBadge = pending ? ` <span class="badge badge-pending">${pending.action} pending</span>` : '';
-      return `<div class="day-shift ${cls}">
+      return `<div class="day-shift">
         <div class="day-shift-main">
           <div class="day-shift-name">${escapeHtml(userName(s.user_id))}${slotBadge(s.date, s.start_time)}${pendingBadge}</div>
           <div class="day-shift-time">${formatTime12(s.start_time)} – ${formatTime12(s.end_time)}</div>
@@ -230,7 +221,6 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
       document.getElementById('ed-date').value = shift ? shift.date : iso;
       document.getElementById('ed-start').value = shift ? shift.start_time : '11:00';
       document.getElementById('ed-end').value = shift ? shift.end_time : '19:00';
-      document.getElementById('ed-dept').value = shift && shift.department ? shift.department : '';
       document.getElementById('ed-notes').value = shift && shift.notes ? shift.notes : '';
       document.getElementById('ed-delete').hidden = !shift;
       document.getElementById('ed-delete').textContent = ctx.canEdit ? 'Delete' : 'Request removal';
@@ -255,7 +245,6 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
         date: document.getElementById('ed-date').value,
         start_time: document.getElementById('ed-start').value,
         end_time: document.getElementById('ed-end').value,
-        department: document.getElementById('ed-dept').value || null,
         notes: document.getElementById('ed-notes').value.trim() || null,
       };
       let r;

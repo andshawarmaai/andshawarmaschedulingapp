@@ -5,7 +5,6 @@
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
-const DEPARTMENTS = new Set(['', 'FOH', 'BOH']);
 
 // Minimal CSV parser: handles quoted fields with embedded commas and ""
 // escaped quotes, which is all the template format needs.
@@ -57,7 +56,6 @@ export function validateShiftRows(rows, users) {
     const date = String(row.date || '').trim();
     const start_time = String(row.start_time || '').trim();
     const end_time = String(row.end_time || '').trim();
-    const department = String(row.department || '').trim().toUpperCase();
     const notes = row.notes ? String(row.notes).trim() : null;
 
     const user = byUsername.get(username.toLowerCase());
@@ -69,10 +67,9 @@ export function validateShiftRows(rows, users) {
     if (TIME_RE.test(start_time) && TIME_RE.test(end_time) && start_time >= end_time) {
       errors.push(`Row ${line}: start_time must be before end_time.`);
     }
-    if (!DEPARTMENTS.has(department)) errors.push(`Row ${line}: department must be FOH, BOH, or blank (got "${department}").`);
 
     if (user && DATE_RE.test(date) && TIME_RE.test(start_time) && TIME_RE.test(end_time)) {
-      resolved.push({ user_id: user.id, date, start_time, end_time, department: department || null, notes });
+      resolved.push({ user_id: user.id, date, start_time, end_time, notes });
     }
   });
 
