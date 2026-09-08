@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS shift_imports (
 CREATE TABLE IF NOT EXISTS shifts (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   user_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
-  date          DATE NOT NULL,
+  date          TEXT NOT NULL, -- 'YYYY-MM-DD'
   start_time    TEXT NOT NULL, -- 'HH:MM', 24h
   end_time      TEXT NOT NULL,
   department    TEXT,          -- 'FOH' | 'BOH' | NULL
@@ -42,8 +42,8 @@ CREATE INDEX IF NOT EXISTS shifts_import_idx ON shifts (import_id);
 CREATE TABLE IF NOT EXISTS time_off_requests (
   id             TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  start_date     DATE NOT NULL,
-  end_date       DATE NOT NULL,
+  start_date     TEXT NOT NULL, -- 'YYYY-MM-DD'
+  end_date       TEXT NOT NULL, -- 'YYYY-MM-DD'
   reason         TEXT,
   status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
   denial_reason  TEXT,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS shift_requests (
   user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   action         TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),
   shift_id       TEXT REFERENCES shifts(id) ON DELETE CASCADE, -- null for 'create'
-  date           DATE,
+  date           TEXT, -- 'YYYY-MM-DD'
   start_time     TEXT,
   end_time       TEXT,
   department     TEXT,
@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS shift_requests_user_idx ON shift_requests (user_id);
 
 CREATE TABLE IF NOT EXISTS day_caps (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  date          DATE NOT NULL,
+  date          TEXT NOT NULL, -- 'YYYY-MM-DD'
   window_start  TEXT NOT NULL,
   window_end    TEXT NOT NULL,
   max_shifts    INTEGER NOT NULL,
