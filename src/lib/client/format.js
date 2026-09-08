@@ -52,9 +52,12 @@ export function getMonthCells(year, month) {
   return cells;
 }
 
+// Callers always pass the already-approved-only timeOffApproved list (see
+// api/state.js), which doesn't carry a status field, so this doesn't
+// re-check status — it just tests date range + owner.
 export function isBlocked(timeOff, iso, userId) {
   return timeOff.some(
-    (t) => t.user_id === userId && t.status === 'approved' && iso >= t.start_date && iso <= t.end_date
+    (t) => t.user_id === userId && iso >= t.start_date && iso <= t.end_date
   );
 }
 
