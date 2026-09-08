@@ -85,6 +85,22 @@ CREATE TABLE IF NOT EXISTS shift_requests (
 );
 CREATE INDEX IF NOT EXISTS shift_requests_user_idx ON shift_requests (user_id);
 
+-- API keys for programmatic access (e.g. an AI agent posting a bulk shift
+-- import CSV). Keys are shown in full exactly once at creation, then only
+-- the hash + a short identifying prefix are kept — same pattern as a
+-- password. Revoking one doesn't touch any other key.
+CREATE TABLE IF NOT EXISTS api_keys (
+  id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  label         TEXT NOT NULL,
+  key_prefix    TEXT NOT NULL,
+  key_hash      TEXT NOT NULL,
+  created_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at  TIMESTAMPTZ,
+  revoked       BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS api_keys_prefix_idx ON api_keys (key_prefix);
+
 CREATE TABLE IF NOT EXISTS day_caps (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   date          TEXT NOT NULL, -- 'YYYY-MM-DD'

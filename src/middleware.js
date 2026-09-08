@@ -31,6 +31,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   if (isApi) {
     if (pathname === '/api/auth/login') return next();
+    // API-key-authenticated routes do their own auth (see apiKey.js) —
+    // they're reachable with no session cookie at all, by design.
+    if (pathname.startsWith('/api/public/')) return next();
     if (!user) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }

@@ -56,6 +56,36 @@ const user = Astro.locals.user;
     <div id="imports-list"><p class="empty">Loading...</p></div>
   </div>
 
+  <div class="card">
+    <h2>API Keys</h2>
+    <p class="card-sub">
+      Let an AI agent or script send a bulk shift import directly, without anyone logging in. Give each
+      key a name, hand the key to that agent, and revoke it any time — revoking one key never touches the others.
+    </p>
+    <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
+      POST the CSV to <code>/api/public/shift-imports</code> with header <code>Authorization: Bearer &lt;key&gt;</code>
+      and <code>Content-Type: text/csv</code> (or JSON <code>{`{ "rows": [...] }`}</code>). Same columns as the
+      template above: username, date, start_time, end_time, department, notes.
+    </p>
+    <button class="btn-primary" id="add-key-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Create API key</button>
+    <div id="keys-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <!-- New API key modal: shows the plaintext key exactly once -->
+  <div class="modal-backdrop" id="new-key-modal">
+    <div class="modal">
+      <div class="modal-header"><h2>New API key</h2><button class="modal-close" id="new-key-close" type="button">&times;</button></div>
+      <div class="modal-body">
+        <p class="card-sub" style="margin-top:0;">Copy this now — it won't be shown again. If it's ever lost, revoke it and create a new one.</p>
+        <div class="field">
+          <input type="text" id="new-key-value" class="input" readonly style="font-family:ui-monospace,monospace;font-size:0.8125rem;" />
+        </div>
+        <button class="btn-secondary" id="new-key-copy" type="button">Copy to clipboard</button>
+      </div>
+      <div class="modal-footer"><button class="btn-primary" id="new-key-done" type="button">Done</button></div>
+    </div>
+  </div>
+
   <!-- Add user modal -->
   <div class="modal-backdrop" id="add-user-modal">
     <div class="modal">
@@ -485,12 +515,66 @@ const user = Astro.locals.user;
       });
     }
 
+    // ----- API keys -----
+
+    function renderKeys() {
+      const el = document.getElementById('keys-list');
+      const keys = (data.apiKeys || []).filter((k) => !k.revoked);
+      if (keys.length === 0) {
+        el.innerHTML = '<p class="empty">No API keys yet.</p>';
+        return;
+      }
+      el.innerHTML = keys.map((k) => `
+        <div class="list-item">
+          <div>
+            <div class="who">${escapeHtml(k.label)}</div>
+            <div class="meta">${escapeHtml(k.key_prefix)}••••••••••••••••••• · created ${formatDate(k.created_at.slice(0, 10), { short: true })}${k.last_used_at ? ' · last used ' + formatDate(k.last_used_at.slice(0, 10), { short: true }) : ' · never used'}</div>
+          </div>
+          <button class="btn-danger" data-revoke-key="${k.id}">Revoke</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('[data-revoke-key]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const k = keys.find((x) => x.id === b.getAttribute('data-revoke-key'));
+          if (!k) return;
+          if (!confirm(`Revoke "${k.label}"? Anything using this key will stop working immediately.`)) return;
+          const r = await window.shawarmaApi('DELETE', `/api/admin/api-keys/${k.id}`);
+          if (!r.ok) { window.shawarmaToast(r.error || 'Revoke failed'); return; }
+          window.shawarmaToast('Key revoked');
+          await refreshAndRender();
+        });
+      });
+    }
+
+    document.getElementById('add-key-btn').addEventListener('click', async () => {
+      const label = prompt('Name this key (e.g. "Hermes" or "Telegram bot"):');
+      if (!label) return;
+      const r = await window.shawarmaApi('POST', '/api/admin/api-keys', { label: label.trim() });
+      if (!r.ok) { window.shawarmaToast(r.error || 'Could not create key'); return; }
+      document.getElementById('new-key-value').value = r.key;
+      document.getElementById('new-key-modal').classList.add('show');
+      await refreshAndRender();
+    });
+    document.getElementById('new-key-close').addEventListener('click', () => document.getElementById('new-key-modal').classList.remove('show'));
+    document.getElementById('new-key-done').addEventListener('click', () => document.getElementById('new-key-modal').classList.remove('show'));
+    document.getElementById('new-key-copy').addEventListener('click', async () => {
+      const input = document.getElementById('new-key-value');
+      input.select();
+      try {
+        await navigator.clipboard.writeText(input.value);
+        window.shawarmaToast('Copied');
+      } catch {
+        window.shawarmaToast('Copy failed — select and copy manually');
+      }
+    });
+
     async function refreshAndRender() {
       await loadState();
       renderApprovals();
       renderUsers();
       renderCaps();
       renderImports();
+      renderKeys();
     }
 
     refreshAndRender();

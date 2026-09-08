@@ -38,6 +38,7 @@ function seedData() {
     swap_claims: [],
     shift_requests: [],
     shift_imports: [],
+    api_keys: [],
     day_caps: [],
   };
 }
@@ -54,6 +55,7 @@ function load() {
   const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   if (!data.shift_requests) data.shift_requests = [];
   if (!data.shift_imports) data.shift_imports = [];
+  if (!data.api_keys) data.api_keys = [];
   return data;
 }
 
@@ -458,6 +460,50 @@ export async function deleteDayCap({ date, window_start, window_end }) {
   d.day_caps = d.day_caps.filter(
     (c) => !(c.date === date && c.window_start === window_start && c.window_end === window_end)
   );
+  save(d);
+  return true;
+}
+
+// ----- API keys (programmatic access, e.g. an AI agent posting a CSV) -----
+
+export async function listApiKeys() {
+  return load()
+    .api_keys.slice()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export async function findApiKeyByPrefix(prefix) {
+  return load().api_keys.find((k) => k.key_prefix === prefix && !k.revoked) || null;
+}
+
+export async function createApiKeyRecord({ label, key_prefix, key_hash, created_by }) {
+  const d = load();
+  const row = {
+    id: id(),
+    label,
+    key_prefix,
+    key_hash,
+    created_by,
+    created_at: new Date().toISOString(),
+    last_used_at: null,
+    revoked: false,
+  };
+  d.api_keys.push(row);
+  save(d);
+  return row;
+}
+
+export async function touchApiKey(keyId) {
+  const d = load();
+  const row = d.api_keys.find((k) => k.id === keyId);
+  if (row) { row.last_used_at = new Date().toISOString(); save(d); }
+}
+
+export async function revokeApiKey(keyId) {
+  const d = load();
+  const row = d.api_keys.find((k) => k.id === keyId);
+  if (!row) return false;
+  row.revoked = true;
   save(d);
   return true;
 }

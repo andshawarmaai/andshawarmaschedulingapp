@@ -348,3 +348,30 @@ export async function deleteDayCap({ date, window_start, window_end }) {
   `;
   return true;
 }
+
+// ----- API keys (programmatic access, e.g. an AI agent posting a CSV) -----
+
+export async function listApiKeys() {
+  return sql`SELECT * FROM api_keys ORDER BY created_at DESC`;
+}
+
+export async function findApiKeyByPrefix(prefix) {
+  return row0(await sql`SELECT * FROM api_keys WHERE key_prefix = ${prefix} AND revoked = FALSE`);
+}
+
+export async function createApiKeyRecord({ label, key_prefix, key_hash, created_by }) {
+  return row0(await sql`
+    INSERT INTO api_keys (label, key_prefix, key_hash, created_by)
+    VALUES (${label}, ${key_prefix}, ${key_hash}, ${created_by})
+    RETURNING *
+  `);
+}
+
+export async function touchApiKey(keyId) {
+  await sql`UPDATE api_keys SET last_used_at = now() WHERE id = ${keyId}`;
+}
+
+export async function revokeApiKey(keyId) {
+  await sql`UPDATE api_keys SET revoked = TRUE WHERE id = ${keyId}`;
+  return true;
+}

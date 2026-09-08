@@ -38,6 +38,11 @@ export async function GET(context) {
   if (isStaffOrAbove) {
     body.timeOffAll = timeOff;
     body.shiftImports = await db.listShiftImports();
+    const apiKeys = await db.listApiKeys();
+    body.apiKeys = apiKeys.map((k) => ({
+      id: k.id, label: k.label, key_prefix: k.key_prefix, created_by: k.created_by,
+      created_at: k.created_at, last_used_at: k.last_used_at, revoked: k.revoked,
+    }));
   }
 
   return new Response(JSON.stringify(body), {
