@@ -13,7 +13,7 @@ const user = Astro.locals.user;
   {(user.role === 'admin' || user.role === 'manager') && (
     <a href="/admin" id="approvals-alert" class="card" style="display:none;border-color:#fbbf24;background:#fffbeb;text-decoration:none;color:inherit;">
       <h2><Icon name="bell" size={18} class="icon-inline" /> Pending Approvals <span id="approvals-count" class="badge badge-pending">0</span></h2>
-      <p class="card-sub" style="margin:0;">Shift requests, time-off, and shift-swap volunteers waiting on your review. Tap to open Manage.</p>
+      <p class="card-sub" style="margin:0;">Shift requests, time-off, shift-swap volunteers, and password reset requests waiting on your review. Tap to open Manage.</p>
     </a>
   )}
 
@@ -70,7 +70,8 @@ const user = Astro.locals.user;
         const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending').length;
         const pendingClaims = (data.swapClaims || []).filter((c) => c.status === 'pending').length;
         const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending').length;
-        const total = pendingTimeOff + pendingClaims + pendingShiftReqs;
+        const pendingPasswordResets = (data.passwordResetRequests || []).length;
+        const total = pendingTimeOff + pendingClaims + pendingShiftReqs + pendingPasswordResets;
         if (total > 0) {
           document.getElementById('approvals-count').textContent = total;
           alertCard.style.display = 'block';

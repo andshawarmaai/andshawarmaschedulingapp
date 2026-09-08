@@ -35,9 +35,23 @@ import Icon from '../components/Icon.astro';
         <div class="field">
           <label for="password">Password</label>
           <input type="password" id="password" name="password" class="input" autocomplete="current-password" required />
+          <p id="capslock-warning" class="error" hidden style="margin:0.5rem 0 0;">
+            <Icon name="alert" size={14} /> <span>Caps Lock is on</span>
+          </p>
         </div>
         <button type="submit" class="btn-primary btn-block" id="signin-btn">Sign in</button>
       </form>
+
+      <p style="text-align:center;margin-top:1rem;font-size:0.75rem;">
+        <a href="#" id="forgot-link">Forgot your password?</a>
+      </p>
+
+      <div id="forgot-panel" hidden style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--color-border);">
+        <label for="forgot-username">Username</label>
+        <input type="text" id="forgot-username" class="input" autocomplete="username" />
+        <button type="button" class="btn-secondary btn-block" id="forgot-submit" style="margin-top:0.5rem;">Notify an admin</button>
+        <p id="forgot-status" class="card-sub" style="margin:0.5rem 0 0;text-align:center;"></p>
+      </div>
 
       <p style="text-align:center;margin-top:1rem;font-size:0.75rem;color:var(--color-muted);">
         Need access? Ask an admin to create an account for you.
@@ -58,6 +72,54 @@ import Icon from '../components/Icon.astro';
     function hideError() {
       errBox.hidden = true;
     }
+
+    // Live Caps Lock warning while typing the password — the login is
+    // genuinely case-sensitive, and this is the single most common reason
+    // a correct password gets rejected.
+    const passwordInput = document.getElementById('password');
+    const capsWarning = document.getElementById('capslock-warning');
+    function checkCapsLock(e) {
+      if (typeof e.getModifierState !== 'function') return;
+      capsWarning.hidden = !e.getModifierState('CapsLock');
+    }
+    passwordInput.addEventListener('keydown', checkCapsLock);
+    passwordInput.addEventListener('keyup', checkCapsLock);
+    passwordInput.addEventListener('blur', () => { capsWarning.hidden = true; });
+
+    // "Forgot your password?" — there's no email sender configured, so this
+    // files a request an admin sees on their dashboard instead of sending a
+    // reset link. Always shows the same confirmation regardless of whether
+    // the username exists, so this can't be used to probe valid usernames.
+    const forgotLink = document.getElementById('forgot-link');
+    const forgotPanel = document.getElementById('forgot-panel');
+    const forgotStatus = document.getElementById('forgot-status');
+    forgotLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      forgotPanel.hidden = !forgotPanel.hidden;
+      if (!forgotPanel.hidden) {
+        document.getElementById('forgot-username').value = document.getElementById('username').value;
+        document.getElementById('forgot-username').focus();
+      }
+    });
+    document.getElementById('forgot-submit').addEventListener('click', async () => {
+      const submitBtn = document.getElementById('forgot-submit');
+      const username = document.getElementById('forgot-username').value.trim();
+      if (!username) { forgotStatus.textContent = 'Enter your username first.'; return; }
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/auth/request-password-reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        });
+        const data = await res.json().catch(() => null);
+        forgotStatus.textContent = (data && data.message) || 'Request submitted.';
+      } catch {
+        forgotStatus.textContent = 'Network error — try again.';
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();

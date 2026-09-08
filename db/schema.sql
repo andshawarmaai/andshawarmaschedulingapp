@@ -101,6 +101,19 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 CREATE INDEX IF NOT EXISTS api_keys_prefix_idx ON api_keys (key_prefix);
 
+-- A staff member can't reset their own password (there's no email sender
+-- configured), so "Forgot password?" on the login screen files a request
+-- here instead — it shows up as a pending item admin sees on the
+-- dashboard, same as any other approval.
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+  id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requested_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at   TIMESTAMPTZ,
+  resolved_by   TEXT REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_requests (user_id);
+
 CREATE TABLE IF NOT EXISTS day_caps (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   date          TEXT NOT NULL, -- 'YYYY-MM-DD'

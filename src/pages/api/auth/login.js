@@ -33,7 +33,7 @@ export async function POST(context) {
 
   const user = await db.getUserByUsername(username);
   if (!user) {
-    return json({ error: 'Incorrect username or password.' }, 401);
+    return json({ error: 'Incorrect username or password. Both are case-sensitive — check your Caps Lock key.' }, 401);
   }
   if (user.disabled) {
     return json({ error: 'This account has been disabled. Contact an admin.' }, 403);
@@ -41,7 +41,7 @@ export async function POST(context) {
 
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) {
-    return json({ error: 'Incorrect username or password.' }, 401);
+    return json({ error: 'Incorrect username or password. Both are case-sensitive — check your Caps Lock key.' }, 401);
   }
 
   const token = createSessionToken(user);

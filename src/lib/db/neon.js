@@ -375,3 +375,18 @@ export async function revokeApiKey(keyId) {
   await sql`UPDATE api_keys SET revoked = TRUE WHERE id = ${keyId}`;
   return true;
 }
+
+// ----- password reset requests -----
+
+export async function createPasswordResetRequest(userId) {
+  return row0(await sql`INSERT INTO password_reset_requests (user_id) VALUES (${userId}) RETURNING *`);
+}
+export async function listPasswordResetRequests() {
+  return sql`SELECT * FROM password_reset_requests ORDER BY requested_at DESC`;
+}
+export async function resolvePasswordResetRequest(requestId, resolvedBy) {
+  return row0(await sql`
+    UPDATE password_reset_requests SET resolved_at = now(), resolved_by = ${resolvedBy || null}
+    WHERE id = ${requestId} RETURNING *
+  `);
+}

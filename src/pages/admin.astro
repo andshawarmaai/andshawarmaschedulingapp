@@ -33,13 +33,16 @@ const user = Astro.locals.user;
   </div>
 
   <div class="card">
-    <h2>Bulk Shift Import</h2>
+    <h2>Bulk Schedule Import</h2>
     <p class="card-sub">
-      Download the template below, hand it to whatever AI tool you use (fill in username/date/times per row),
-      then upload the result here. The template's columns never change, so the same file always works.
+      Download the template — it's generated fresh from your current staff list every time, with a reference
+      list of valid usernames built in, so an AI assistant filling it out always matches real names. One file
+      handles three kinds of rows (set the <code>type</code> column): <strong>shift</strong> (add a shift),
+      <strong>cap</strong> (set a slot limit for a time window), and <strong>swap</strong> (post an existing
+      shift for swap). Fill it out, then upload the result here.
     </p>
     <p style="margin-bottom:0.75rem;">
-      <a href="/shift-import-template.csv" download class="btn-secondary" style="text-decoration:none;display:inline-flex;">Download CSV template</a>
+      <a href="/api/admin/shift-import-template" class="btn-secondary" style="text-decoration:none;display:inline-flex;">Download CSV template</a>
     </p>
     <div class="field">
       <label for="import-file">CSV file</label>
@@ -48,11 +51,11 @@ const user = Astro.locals.user;
     <div id="import-errors" class="error" hidden></div>
     <div id="import-preview" style="display:none;margin-bottom:0.75rem;">
       <p class="card-sub" id="import-preview-text" style="margin:0 0 0.5rem;"></p>
-      <button class="btn-primary" id="import-confirm" type="button">Import these shifts</button>
+      <button class="btn-primary" id="import-confirm" type="button">Import</button>
       <button class="btn-secondary" id="import-cancel" type="button">Cancel</button>
     </div>
     <h3 style="font-size:0.95rem;margin:1rem 0 0.5rem;">Import History</h3>
-    <p class="card-sub">Remove an upload to undo it — every shift it created is removed from the calendar too.</p>
+    <p class="card-sub">Removing an upload undoes the shifts it created. Slot caps and swap postings from the same upload aren't part of that undo — clear a cap from Slot Caps above, or cancel a post from the Shift Swap board.</p>
     <div id="imports-list"><p class="empty">Loading...</p></div>
   </div>
 
@@ -64,8 +67,8 @@ const user = Astro.locals.user;
     </p>
     <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
       POST the CSV to <code>/api/public/shift-imports</code> with header <code>Authorization: Bearer &lt;key&gt;</code>
-      and <code>Content-Type: text/csv</code> (or JSON <code>{`{ "rows": [...] }`}</code>). Same columns as the
-      template above: username, date, start_time, end_time, notes.
+      and <code>Content-Type: text/csv</code> (or JSON <code>{`{ "rows": [...] }`}</code>). Same
+      <code>type</code>-column format as the template above (shift / cap / swap).
     </p>
     <button class="btn-primary" id="add-key-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Create API key</button>
     <div id="keys-list"><p class="empty">Loading...</p></div>
@@ -148,10 +151,12 @@ const user = Astro.locals.user;
   </script>
   <script>
     import { formatDate, formatTime12, escapeHtml } from '../lib/client/format.js';
+    import { parseCsv } from '../lib/shiftImport.js';
 
     const ctx = window.__adminCtx;
     let data = null;
     let editingUserId = null;
+    let pendingResetRequestId = null;
 
     async function loadState() {
       const res = await fetch('/api/state');
@@ -171,14 +176,26 @@ const user = Astro.locals.user;
       const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
       const pendingClaims = data.swapClaims.filter((c) => c.status === 'pending');
       const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending');
-      document.getElementById('pending-count').textContent = pendingTimeOff.length + pendingClaims.length + pendingShiftReqs.length;
+      const pendingResets = data.passwordResetRequests || [];
+      document.getElementById('pending-count').textContent = pendingTimeOff.length + pendingClaims.length + pendingShiftReqs.length + pendingResets.length;
 
-      if (pendingTimeOff.length === 0 && pendingClaims.length === 0 && pendingShiftReqs.length === 0) {
+      if (pendingTimeOff.length === 0 && pendingClaims.length === 0 && pendingShiftReqs.length === 0 && pendingResets.length === 0) {
         list.innerHTML = '<p class="empty">No pending requests.</p>';
         return;
       }
 
       let html = '';
+      pendingResets.forEach((r) => {
+        html += `<div class="list-item" style="align-items:flex-start;">
+          <div>
+            <div><span class="badge badge-denied">password reset</span> <strong>${escapeHtml(userName(r.user_id))}</strong></div>
+            <div class="meta">requested ${new Date(r.requested_at).toLocaleString()}</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn-primary" data-reset-user="${r.user_id}" data-reset-request="${r.id}">Reset password</button>
+          </div>
+        </div>`;
+      });
       pendingShiftReqs.forEach((r) => {
         const label = r.action === 'create' ? 'new shift' : r.action === 'delete' ? 'remove shift' : 'change shift';
         const detail = r.date ? `${formatDate(r.date, { short: true })} · ${formatTime12(r.start_time)}–${formatTime12(r.end_time)}` : '—';
@@ -222,6 +239,11 @@ const user = Astro.locals.user;
       });
       list.innerHTML = html;
 
+      list.querySelectorAll('[data-reset-user]').forEach((b) => b.addEventListener('click', () => {
+        openEditUser(b.getAttribute('data-reset-user'));
+        pendingResetRequestId = b.getAttribute('data-reset-request');
+        document.getElementById('eu-new-password').focus();
+      }));
       list.querySelectorAll('[data-approve-to]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true;
         const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-approve-to')}`, { status: 'approved' });
@@ -309,6 +331,7 @@ const user = Astro.locals.user;
       const u = data.users.find((x) => x.id === uid);
       if (!u) return;
       editingUserId = uid;
+      pendingResetRequestId = null;
       document.getElementById('edit-user-title').textContent = 'Edit: ' + u.display_name;
       document.getElementById('eu-name').value = u.display_name;
       document.getElementById('eu-phone').value = u.phone || '';
@@ -321,6 +344,7 @@ const user = Astro.locals.user;
     document.getElementById('edit-user-close').addEventListener('click', () => {
       document.getElementById('edit-user-modal').classList.remove('show');
       editingUserId = null;
+      pendingResetRequestId = null;
     });
     document.getElementById('eu-generate').addEventListener('click', () => {
       document.getElementById('eu-new-password').value = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
@@ -337,9 +361,13 @@ const user = Astro.locals.user;
       if (newPw) updates.password = newPw;
       const r = await window.shawarmaApi('PATCH', `/api/users/${editingUserId}`, updates);
       if (!r.ok) { window.shawarmaToast(r.error || 'Save failed'); return; }
+      if (newPw && pendingResetRequestId) {
+        await window.shawarmaApi('PATCH', `/api/admin/password-resets/${pendingResetRequestId}`, {});
+      }
       document.getElementById('edit-user-modal').classList.remove('show');
       window.shawarmaToast(newPw ? 'Password reset' : 'Saved changes');
       editingUserId = null;
+      pendingResetRequestId = null;
       await refreshAndRender();
     });
     document.getElementById('eu-delete').addEventListener('click', async () => {
@@ -401,42 +429,6 @@ const user = Astro.locals.user;
 
     // ----- Bulk shift import -----
 
-    function parseCsv(text) {
-      // Minimal CSV parser: handles quoted fields with embedded commas and
-      // "" escaped quotes, which is all the template format needs.
-      const rows = [];
-      let row = [];
-      let field = '';
-      let inQuotes = false;
-      for (let i = 0; i < text.length; i++) {
-        const c = text[i];
-        if (inQuotes) {
-          if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
-          else if (c === '"') { inQuotes = false; }
-          else { field += c; }
-        } else if (c === '"') {
-          inQuotes = true;
-        } else if (c === ',') {
-          row.push(field); field = '';
-        } else if (c === '\n' || c === '\r') {
-          if (c === '\r' && text[i + 1] === '\n') i++;
-          row.push(field); field = '';
-          if (row.some((f) => f !== '')) rows.push(row);
-          row = [];
-        } else {
-          field += c;
-        }
-      }
-      if (field !== '' || row.length > 0) { row.push(field); if (row.some((f) => f !== '')) rows.push(row); }
-      if (rows.length === 0) return [];
-      const header = rows[0].map((h) => h.trim().toLowerCase());
-      return rows.slice(1).map((r) => {
-        const obj = {};
-        header.forEach((h, i) => { obj[h] = (r[i] || '').trim(); });
-        return obj;
-      });
-    }
-
     let pendingImportRows = null;
 
     document.getElementById('import-file').addEventListener('change', async (e) => {
@@ -482,7 +474,12 @@ const user = Astro.locals.user;
       document.getElementById('import-preview').style.display = 'none';
       document.getElementById('import-file').value = '';
       pendingImportRows = null;
-      window.shawarmaToast(`Imported ${r.count} shift${r.count === 1 ? '' : 's'}`);
+      const b = r.breakdown || {};
+      const parts = [];
+      if (b.shifts) parts.push(`${b.shifts} shift${b.shifts === 1 ? '' : 's'}`);
+      if (b.caps) parts.push(`${b.caps} cap${b.caps === 1 ? '' : 's'}`);
+      if (b.swaps) parts.push(`${b.swaps} swap post${b.swaps === 1 ? '' : 's'}`);
+      window.shawarmaToast(`Imported: ${parts.join(', ') || r.count}`);
       await refreshAndRender();
     });
 

@@ -39,6 +39,7 @@ function seedData() {
     shift_requests: [],
     shift_imports: [],
     api_keys: [],
+    password_reset_requests: [],
     day_caps: [],
   };
 }
@@ -56,6 +57,7 @@ function load() {
   if (!data.shift_requests) data.shift_requests = [];
   if (!data.shift_imports) data.shift_imports = [];
   if (!data.api_keys) data.api_keys = [];
+  if (!data.password_reset_requests) data.password_reset_requests = [];
   return data;
 }
 
@@ -506,4 +508,28 @@ export async function revokeApiKey(keyId) {
   row.revoked = true;
   save(d);
   return true;
+}
+
+// ----- password reset requests -----
+
+export async function createPasswordResetRequest(userId) {
+  const d = load();
+  const row = { id: id(), user_id: userId, requested_at: new Date().toISOString(), resolved_at: null, resolved_by: null };
+  d.password_reset_requests.push(row);
+  save(d);
+  return row;
+}
+export async function listPasswordResetRequests() {
+  return load()
+    .password_reset_requests.slice()
+    .sort((a, b) => b.requested_at.localeCompare(a.requested_at));
+}
+export async function resolvePasswordResetRequest(requestId, resolvedBy) {
+  const d = load();
+  const row = d.password_reset_requests.find((r) => r.id === requestId);
+  if (!row) return null;
+  row.resolved_at = new Date().toISOString();
+  row.resolved_by = resolvedBy || null;
+  save(d);
+  return row;
 }

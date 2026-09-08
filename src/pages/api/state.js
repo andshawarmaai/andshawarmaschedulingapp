@@ -43,6 +43,7 @@ export async function GET(context) {
       id: k.id, label: k.label, key_prefix: k.key_prefix, created_by: k.created_by,
       created_at: k.created_at, last_used_at: k.last_used_at, revoked: k.revoked,
     }));
+    body.passwordResetRequests = (await db.listPasswordResetRequests()).filter((r) => !r.resolved_at);
   }
 
   return new Response(JSON.stringify(body), {
