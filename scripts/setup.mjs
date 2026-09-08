@@ -37,24 +37,46 @@ if (!whoami) {
 console.log(`Logged into Vercel as: ${whoami.trim()}`);
 
 // 2. Link the project
-if (!fs.existsSync('.vercel/project.json')) {
+let linked = null;
+if (fs.existsSync('.vercel/project.json')) {
+  try {
+    linked = JSON.parse(fs.readFileSync('.vercel/project.json', 'utf8'));
+  } catch {
+    console.log('.vercel/project.json exists but is not valid JSON (an interrupted run?) — re-linking.');
+    fs.rmSync('.vercel', { recursive: true, force: true });
+  }
+}
+if (!linked) {
   step('Linking Vercel project (creates one if none exists)...');
   sh('vercel link --yes');
 } else {
-  const proj = JSON.parse(fs.readFileSync('.vercel/project.json', 'utf8'));
-  console.log(`Already linked to Vercel project: ${proj.projectName}`);
+  console.log(`Already linked to Vercel project: ${linked.projectName}`);
 }
 
 // 3. Neon database via Vercel's marketplace integration
+//
+// Deliberately NOT passing --non-interactive here. The first time any
+// given Vercel TEAM installs a marketplace integration, Vercel requires
+// accepting that integration's terms interactively (their CLI's own
+// --help says as much for `accept-terms`) — forcing non-interactive mode
+// blocks that one-time prompt from ever appearing and fails in a way
+// that looks like an auth/permission problem, when the real issue is
+// just "this needs a human to click accept once." Running it plain lets
+// it prompt when it needs to and skip the prompt when it doesn't (e.g.
+// this team already has Neon installed elsewhere).
 let envList = shQuiet('vercel env ls production') || '';
 if (!envList.includes('DATABASE_URL')) {
   step('Provisioning a Neon database (Vercel marketplace integration)...');
-  const result = spawnSync('vercel', ['integration', 'add', 'neon', '--non-interactive'], { stdio: 'inherit' });
+  const result = spawnSync('vercel', ['integration', 'add', 'neon'], { stdio: 'inherit' });
   if (result.status !== 0) {
     fail(
-      'Could not provision Neon non-interactively — first-time installs sometimes need a one-time\n' +
-      'browser approval of marketplace terms. Run `vercel integration add neon` yourself, complete\n' +
-      'any prompt it opens, then re-run `npm run setup`.'
+      'Neon provisioning did not finish. This almost always means this Vercel TEAM has never\n' +
+      'installed the Neon integration before and needs a one-time interactive approval — re-run\n' +
+      '`vercel integration add neon` directly in a real terminal (not piped/backgrounded) and accept\n' +
+      'whatever prompt or browser tab it opens, then re-run `npm run setup`.\n\n' +
+      "If it instead fails with something that sounds like an auth or password error, check Vercel's\n" +
+      'dashboard -> this project -> Storage tab, and https://console.neon.tech, for a Neon resource\n' +
+      'that got half-created from a previous attempt — delete it in both places, then try again.'
     );
   }
   envList = shQuiet('vercel env ls production') || '';

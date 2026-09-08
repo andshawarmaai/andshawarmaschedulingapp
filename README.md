@@ -129,6 +129,92 @@ logged in as admin/manager) should return a CSV with the real roster
 baked into its comments — that's a quick sanity check that
 `DATABASE_URL` is wired correctly.
 
+### How the database connection actually works
+
+There is no "install a password" step to do by hand — Neon and Vercel
+handle the database credential for you. The full chain:
+
+1. `vercel integration add neon` creates a real Postgres database on
+   Neon's infrastructure, with Neon generating its own username +
+   password for it. You never see or choose this password.
+2. Vercel writes that connection as a **connection string** — a single
+   URL with everything embedded: `postgresql://user:password@host/dbname?sslmode=require`
+   — into this Vercel project's environment variables, as `DATABASE_URL`
+   (a pooled connection, for the running app) and `DATABASE_URL_UNPOOLED`
+   (a direct connection, for one-off scripts like `db/apply-schema.mjs`).
+3. `src/lib/db/index.js` checks `process.env.DATABASE_URL` at runtime: if
+   it's set, every database call goes to Neon over that connection
+   string; if it's unset (e.g. plain local dev), it falls back to a local
+   JSON file instead. **This is the only thing that decides which
+   database the app talks to** — there's no separate config file, no
+   hardcoded host, nothing else to point anywhere.
+4. `vercel env pull .env.local` downloads whatever's currently set on the
+   Vercel project (including that `DATABASE_URL`) into a local file, so a
+   one-off script run from a terminal (like `db/apply-schema.mjs` or
+   `db/seed.mjs`) can read `process.env.DATABASE_URL` the same way the
+   deployed app does.
+
+So "installing" the database connection is really just: run the
+integration once (step 2 above), and everything downstream reads that
+same `DATABASE_URL` automatically. If a deploy can't reach the database,
+the fix is never to hand-edit a password — it's to confirm `DATABASE_URL`
+exists on the project (`vercel env ls production`) and, if not, redo the
+Neon integration step.
+
+`SESSION_SECRET` is unrelated to the database — it's a value **this app
+generates itself** (a random 32-byte hex string) purely to sign session
+cookies, so it never depends on Neon or Vercel at all; it's just stored
+as a Vercel environment variable the same way `DATABASE_URL` is, so both
+reach the running app the same way.
+
+### Environment variables reference
+
+| Variable | Required? | Where it comes from | Read by |
+|---|---|---|---|
+| `DATABASE_URL` | Yes in production | Auto-set by `vercel integration add neon` | `src/lib/db/index.js` |
+| `DATABASE_URL_UNPOOLED` | No (Neon sets it alongside `DATABASE_URL`) | Same as above | not used directly by app code |
+| `SESSION_SECRET` | Yes in production | Generate yourself (see step 3), set via `vercel env add` | `src/lib/session.js` |
+| `LLM_PROVIDER` | No | You choose: `anthropic` or `openai` | `src/lib/llm/index.js` |
+| `ANTHROPIC_API_KEY` | Only if `LLM_PROVIDER=anthropic` | Your Anthropic account | `src/lib/llm/anthropic.js` |
+| `OPENAI_API_KEY` | Only if `LLM_PROVIDER=openai` | Your OpenAI account | `src/lib/llm/openai.js` |
+| `LLM_MODEL` | No | Optional override of that provider's default model | `src/lib/llm/anthropic.js` / `openai.js` |
+
+Nothing here is a shared/global secret — every value above is scoped to
+one Vercel project, so a second deployment (a different customer, a
+different environment) gets entirely its own copies with no overlap.
+
+### Troubleshooting: Vercel ↔ Neon fails with something that looks like an auth problem
+
+This is almost always **not** an account/credentials problem — it's
+Vercel requiring a one-time human approval that got skipped:
+
+- Vercel requires accepting a marketplace integration's terms
+  **interactively**, the first time any given Vercel *team* installs it —
+  this is true even if that Vercel account has Neon connected on some
+  *other* team or project already; approval is per-team, not per-account.
+- If `vercel integration add neon` was ever run with `--non-interactive`,
+  in CI, or through anything that isn't a real terminal, that approval
+  prompt has nowhere to appear and the command fails — sometimes with an
+  error that reads like an authentication failure rather than "you need
+  to approve this."
+
+**Fix**: run `vercel integration add neon` yourself, plain, no flags, in
+an actual interactive terminal. Accept whatever prompt or browser tab it
+opens. Then re-run `npm run setup` (or just `vercel env pull .env.local`)
+— it picks up from there.
+
+If it fails a *different* way — something that specifically mentions a
+password, role, or permission error rather than a missing approval —
+that usually means a previous attempt partially created a Neon resource
+without finishing the link. Check both places for a leftover/orphaned
+one and delete it before retrying:
+- Vercel dashboard → this project → **Storage** tab
+- https://console.neon.tech → your projects list
+
+After fixing either case, environment variables only take effect on a
+fresh deploy — run `npm run setup` again (or `vercel --prod --yes`) once
+`DATABASE_URL` shows up in `vercel env ls production`.
+
 ## Project structure
 
 ```
