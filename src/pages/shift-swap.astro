@@ -1,0 +1,242 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import Icon from '../components/Icon.astro';
+const user = Astro.locals.user;
+---
+<AppLayout title="&Shawarma — Shift Swap" active="swap">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <h2><Icon name="raise-hand" size={18} class="icon-inline" /> Open Shifts</h2>
+      <button class="btn-secondary" id="refresh-btn"><Icon name="refresh" size={14} /></button>
+    </div>
+    <p class="card-sub">Shifts other staff have posted. Volunteer to take one — admin then approves the swap.</p>
+    <div id="open-shifts"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2><Icon name="calendar" size={18} class="icon-inline" /> My Upcoming Shifts</h2>
+    <p class="card-sub">Post one of your shifts to offer it up for swap.</p>
+    <div id="my-shifts"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2>My Swap Activity</h2>
+    <div id="swap-activity"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="modal-backdrop" id="claim-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Swap with a shift?</h2>
+        <button class="modal-close" id="claim-close" type="button">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="claim-summary" class="card-sub" style="margin-top:0;"></p>
+        <div class="field">
+          <label for="claim-select">Your shift to offer (optional)</label>
+          <select id="claim-select" class="input">
+            <option value="">— Take it without offering a shift —</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="claim-cancel" type="button">Cancel</button>
+        <button class="btn-primary" id="claim-confirm" type="button">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script define:vars={{ myUserId: user.id, myDisplayName: user.display_name }}>
+    window.__swapCtx = { myUserId, myDisplayName };
+  </script>
+  <script>
+    import { formatDate, formatTime12, todayISO, escapeHtml, slotStatus } from '../lib/client/format.js';
+
+    const ctx = window.__swapCtx;
+    const today = todayISO();
+    let data = null;
+    let claimPost = null;
+
+    async function loadState() {
+      const res = await fetch('/api/state');
+      data = await res.json();
+    }
+
+    function shiftById(id) {
+      return data.shifts.find((s) => s.id === id);
+    }
+    function userName(id) {
+      const u = data.users.find((x) => x.id === id);
+      return u ? u.display_name : 'Unknown';
+    }
+
+    function renderMyShifts() {
+      const el = document.getElementById('my-shifts');
+      const mine = data.shifts
+        .filter((s) => s.user_id === ctx.myUserId && s.date >= today)
+        .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+      const alreadyPosted = new Set(
+        data.swapPosts.filter((p) => p.status === 'open' && p.user_id === ctx.myUserId).map((p) => p.shift_id)
+      );
+      if (mine.length === 0) {
+        el.innerHTML = '<p class="empty">No upcoming shifts.</p>';
+        return;
+      }
+      el.innerHTML = mine.map((s) => `
+        <div class="list-item">
+          <div>
+            <div class="who">${formatDate(s.date, { short: true })}</div>
+            <div class="meta">${formatTime12(s.start_time)} – ${formatTime12(s.end_time)}</div>
+          </div>
+          ${alreadyPosted.has(s.id)
+            ? '<span class="badge badge-open">posted</span>'
+            : `<button class="btn-secondary" data-post="${s.id}">Post for swap</button>`}
+        </div>
+      `).join('');
+      el.querySelectorAll('[data-post]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const shiftId = b.getAttribute('data-post');
+          const r = await window.shawarmaApi('POST', '/api/swap/posts', { shift_id: shiftId });
+          if (!r.ok) { window.shawarmaToast(r.error || 'Could not post shift'); return; }
+          window.shawarmaToast('Posted to the open shifts board');
+          await refreshAndRender();
+        });
+      });
+    }
+
+    function renderOpenShifts() {
+      const el = document.getElementById('open-shifts');
+      const open = data.swapPosts.filter((p) => p.status === 'open');
+      if (open.length === 0) {
+        el.innerHTML = '<p class="empty">No open shifts right now.</p>';
+        return;
+      }
+      el.innerHTML = open.map((p) => {
+        const shift = shiftById(p.shift_id);
+        if (!shift) return '';
+        const claims = data.swapClaims.filter((c) => c.post_id === p.id);
+        const isMine = p.user_id === ctx.myUserId;
+        const status = slotStatus(data.dayCaps, data.shifts, shift.date, shift.start_time);
+        const slotBadge = status
+          ? (status.full ? ' <span class="badge badge-full">SLOT FULL</span>' : ` <span class="badge badge-count">${status.count}/${status.cap.max_shifts}</span>`)
+          : '';
+        const myClaim = claims.find((c) => c.claimant_id === ctx.myUserId && c.status === 'pending');
+        let action;
+        if (isMine) {
+          action = `<button class="btn-secondary" data-cancel-post="${p.id}">Cancel post</button>`;
+        } else if (myClaim) {
+          action = '<span class="badge badge-pending">You volunteered</span>';
+        } else if (status && status.full) {
+          action = '<span class="badge badge-full">Slot full — cannot volunteer</span>';
+        } else {
+          action = `<button class="btn-primary" data-claim="${p.id}">I'll take it</button>`;
+        }
+        const claimsHtml = claims.length > 0
+          ? `<div class="takers-list">${claims.map((c) => `<span class="taker-pill">${escapeHtml(userName(c.claimant_id))} <span class="badge badge-${c.status}">${c.status}</span></span>`).join('')}</div>`
+          : '';
+        return `
+          <div class="list-item" style="align-items:flex-start;flex-direction:column;">
+            <div style="width:100%;display:flex;justify-content:space-between;gap:0.5rem;">
+              <div>
+                <div class="who"><strong>${escapeHtml(userName(p.user_id))}</strong> needs a cover${isMine ? ' <span class="badge badge-open">your post</span>' : ''}${slotBadge}</div>
+                <div class="meta">${formatDate(shift.date, { short: true })} · ${formatTime12(shift.start_time)}–${formatTime12(shift.end_time)}</div>
+                ${p.reason ? `<div class="meta" style="font-style:italic;">${escapeHtml(p.reason)}</div>` : ''}
+              </div>
+            </div>
+            ${claimsHtml}
+            <div style="margin-top:0.5rem;">${action}</div>
+          </div>
+        `;
+      }).join('');
+
+      el.querySelectorAll('[data-claim]').forEach((b) => {
+        b.addEventListener('click', () => openClaimModal(b.getAttribute('data-claim')));
+      });
+      el.querySelectorAll('[data-cancel-post]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          if (!confirm('Take this shift off the Open Shifts board?')) return;
+          const r = await window.shawarmaApi('DELETE', `/api/swap/posts/${b.getAttribute('data-cancel-post')}`);
+          if (!r.ok) { window.shawarmaToast(r.error || 'Cancel failed'); return; }
+          window.shawarmaToast('Post cancelled');
+          await refreshAndRender();
+        });
+      });
+    }
+
+    function openClaimModal(postId) {
+      claimPost = data.swapPosts.find((p) => p.id === postId);
+      if (!claimPost) return;
+      const shift = shiftById(claimPost.shift_id);
+      document.getElementById('claim-summary').textContent =
+        `${userName(claimPost.user_id)} needs a cover for ${formatDate(shift.date, { short: true })} · ${formatTime12(shift.start_time)}–${formatTime12(shift.end_time)}.`;
+      const myUpcoming = data.shifts.filter((s) => s.user_id === ctx.myUserId && s.date >= today && s.id !== shift.id)
+        .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+      const select = document.getElementById('claim-select');
+      select.innerHTML = '<option value="">— Take it without offering a shift —</option>' +
+        myUpcoming.map((s) => `<option value="${s.id}">${formatDate(s.date, { short: true })} · ${formatTime12(s.start_time)}–${formatTime12(s.end_time)}</option>`).join('');
+      document.getElementById('claim-modal').classList.add('show');
+    }
+
+    document.getElementById('claim-close').addEventListener('click', () => document.getElementById('claim-modal').classList.remove('show'));
+    document.getElementById('claim-cancel').addEventListener('click', () => document.getElementById('claim-modal').classList.remove('show'));
+    document.getElementById('claim-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'claim-modal') e.target.classList.remove('show');
+    });
+    document.getElementById('claim-confirm').addEventListener('click', async () => {
+      if (!claimPost) return;
+      const offerShiftId = document.getElementById('claim-select').value || undefined;
+      const btn = document.getElementById('claim-confirm');
+      btn.disabled = true;
+      const r = await window.shawarmaApi('POST', '/api/swap/claims', { post_id: claimPost.id, offer_shift_id: offerShiftId });
+      btn.disabled = false;
+      if (!r.ok) { window.shawarmaToast(r.error || 'Could not volunteer'); return; }
+      window.shawarmaToast('Volunteered — waiting for admin approval');
+      document.getElementById('claim-modal').classList.remove('show');
+      await refreshAndRender();
+    });
+
+    function renderActivity() {
+      const el = document.getElementById('swap-activity');
+      const myPosts = data.swapPosts.filter((p) => p.user_id === ctx.myUserId);
+      const myClaims = data.swapClaims.filter((c) => c.claimant_id === ctx.myUserId);
+      if (myPosts.length === 0 && myClaims.length === 0) {
+        el.innerHTML = '<p class="empty">No swap activity yet.</p>';
+        return;
+      }
+      let html = '';
+      myPosts.forEach((p) => {
+        const shift = shiftById(p.shift_id);
+        if (!shift) return;
+        html += `<div class="list-item">
+          <div><div class="who">You posted: ${formatDate(shift.date, { short: true })} · ${formatTime12(shift.start_time)}–${formatTime12(shift.end_time)}</div></div>
+          <span class="badge badge-${p.status}">${p.status}</span>
+        </div>`;
+      });
+      myClaims.forEach((c) => {
+        const post = data.swapPosts.find((p) => p.id === c.post_id);
+        const shift = post ? shiftById(post.shift_id) : null;
+        if (!shift) return;
+        html += `<div class="list-item">
+          <div><div class="who">You're covering: ${formatDate(shift.date, { short: true })} · ${formatTime12(shift.start_time)}–${formatTime12(shift.end_time)}</div>
+          <div class="meta">For ${escapeHtml(userName(post.user_id))}</div></div>
+          <span class="badge badge-${c.status}">${c.status}</span>
+        </div>`;
+      });
+      el.innerHTML = html;
+    }
+
+    async function refreshAndRender() {
+      await loadState();
+      renderOpenShifts();
+      renderMyShifts();
+      renderActivity();
+    }
+
+    document.getElementById('refresh-btn').addEventListener('click', async () => {
+      await refreshAndRender();
+      window.shawarmaToast('Refreshed');
+    });
+
+    refreshAndRender();
+  </script>
+</AppLayout>

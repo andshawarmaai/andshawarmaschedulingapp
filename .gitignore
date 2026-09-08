@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.astro/
+.env
+.env.local
+db/.local-data.json
+.DS_Store
+db/backups/

@@ -1,0 +1,281 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+const user = Astro.locals.user;
+const canEdit = user.role === 'admin' || user.role === 'manager';
+---
+<AppLayout title="&Shawarma — Schedule" active="schedule">
+  <div class="calendar-nav">
+    <button class="btn-secondary" id="prev-period">Prev</button>
+    <h2 id="period-label">Loading...</h2>
+    <button class="btn-secondary" id="next-period">Next</button>
+  </div>
+  <div class="calendar-nav" style="margin-top:-0.5rem;">
+    <div class="view-toggle" id="view-toggle">
+      <button data-view="month" class="active">Month</button>
+      <button data-view="day">Day</button>
+    </div>
+  </div>
+
+  <div id="view-container"><p class="empty">Loading...</p></div>
+
+  <div class="modal-backdrop" id="day-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">Day</h2>
+        <button class="modal-close" id="modal-close" aria-label="Close" type="button">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="modal-shifts"></div>
+        <div id="modal-actions"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="editor-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="editor-title">New shift</h2>
+        <button class="modal-close" id="editor-close" aria-label="Close" type="button">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field" id="editor-staff-field">
+          <label for="ed-user">Staff</label>
+          <select id="ed-user" class="input"></select>
+        </div>
+        <div class="field"><label for="ed-date">Date</label><input type="date" id="ed-date" class="input" /></div>
+        <div class="field"><label for="ed-start">Start time</label><input type="time" id="ed-start" class="input" value="11:00" /></div>
+        <div class="field"><label for="ed-end">End time</label><input type="time" id="ed-end" class="input" value="19:00" /></div>
+        <div class="field"><label for="ed-dept">Department</label>
+          <select id="ed-dept" class="input">
+            <option value="">—</option>
+            <option value="FOH">Front of House</option>
+            <option value="BOH">Back of House</option>
+          </select>
+        </div>
+        <div class="field"><label for="ed-notes">Notes</label><input type="text" id="ed-notes" class="input" placeholder="Optional" /></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-danger" id="ed-delete" hidden>Delete</button>
+        <button class="btn-primary" id="ed-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script define:vars={{ canEdit, myUserId: user.id }}>
+    window.__scheduleCtx = { canEdit, myUserId };
+  </script>
+  <script>
+    import { formatDate, formatTime12, todayISO, getMonthCells, isBlocked, escapeHtml, slotStatus } from '../lib/client/format.js';
+
+    const ctx = window.__scheduleCtx;
+    let data = null;
+    let view = 'month';
+    const today = todayISO();
+    const t0 = new Date(today + 'T00:00:00');
+    let viewYear = t0.getFullYear();
+    let viewMonth = t0.getMonth() + 1;
+    let viewDay = t0.getDate();
+    let editingShiftId = null;
+
+    async function loadState() {
+      const res = await fetch('/api/state');
+      data = await res.json();
+    }
+
+    function userName(id) {
+      const u = data.users.find((x) => x.id === id);
+      return u ? u.display_name : 'Unassigned';
+    }
+
+    function shiftsForDate(iso) {
+      return data.shifts.filter((s) => s.date === iso).sort((a, b) => a.start_time.localeCompare(b.start_time));
+    }
+
+    function slotBadge(iso, startTime) {
+      const status = slotStatus(data.dayCaps, data.shifts, iso, startTime);
+      if (!status) return '';
+      return status.full
+        ? ' <span class="badge badge-full">FULL</span>'
+        : ` <span class="badge badge-count">${status.count}/${status.cap.max_shifts}</span>`;
+    }
+
+    function render() {
+      const container = document.getElementById('view-container');
+      const label = document.getElementById('period-label');
+
+      if (view === 'day') {
+        const iso = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(viewDay).padStart(2, '0')}`;
+        label.textContent = formatDate(iso);
+        const shifts = shiftsForDate(iso);
+        const addBtn = ctx.canEdit ? '<button class="btn-primary" id="day-add" style="margin-top:0.5rem;">+ Add shift</button>' : '';
+        container.innerHTML = (shifts.length === 0
+          ? '<p class="empty">No shifts on this day.</p>'
+          : `<div class="day-view">${shifts.map(renderDayShift).join('')}</div>`) + addBtn;
+        wireDayView(iso, shifts);
+        return;
+      }
+
+      label.textContent = formatDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-01`, { monthYear: true });
+      const cells = getMonthCells(viewYear, viewMonth);
+      const head = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="calendar-head">${d}</div>`).join('');
+      const body = cells.map((c) => {
+        const dayShifts = shiftsForDate(c.iso);
+        const timeOffHere = data.timeOffApproved.filter((b) => c.iso >= b.start_date && c.iso <= b.end_date);
+        const lines = dayShifts.slice(0, 3).map((s) => {
+          const blocked = isBlocked(data.timeOffApproved, c.iso, s.user_id);
+          const firstName = userName(s.user_id).split(' ')[0];
+          const cls = s.department ? s.department.toLowerCase() : '';
+          return `<span class="shift-line ${cls}${blocked ? ' on-leave' : ''}"><strong>${escapeHtml(firstName)}</strong> ${formatTime12(s.start_time)}</span>`;
+        }).join('');
+        const more = dayShifts.length > 3 ? `<span class="shift-line">+${dayShifts.length - 3} more</span>` : '';
+        const offBar = timeOffHere.length > 0
+          ? `<div class="time-off-bar">${escapeHtml(userName(timeOffHere[0].user_id))} — off</div>`
+          : '';
+        const isToday = c.iso === today;
+        return `<div class="calendar-day${c.other ? ' other-month' : ''}${isToday ? ' today' : ''}${timeOffHere.length ? ' has-timeoff' : ''}" data-iso="${c.iso}">
+          <span class="day-num">${parseInt(c.iso.slice(8, 10), 10)}</span>
+          ${offBar}${lines}${more}
+        </div>`;
+      }).join('');
+      container.innerHTML = `<div class="calendar-grid">${head}${body}</div>`;
+      container.querySelectorAll('.calendar-day').forEach((el) => {
+        el.addEventListener('click', () => openDay(el.getAttribute('data-iso')));
+      });
+    }
+
+    function renderDayShift(s) {
+      const cls = s.department ? s.department.toLowerCase() : '';
+      const editBtn = ctx.canEdit ? `<button class="btn-secondary" data-edit="${s.id}">Edit</button>` : '';
+      return `<div class="day-shift ${cls}">
+        <div class="day-shift-main">
+          <div class="day-shift-name">${escapeHtml(userName(s.user_id))}${slotBadge(s.date, s.start_time)}</div>
+          <div class="day-shift-time">${formatTime12(s.start_time)} – ${formatTime12(s.end_time)}</div>
+          ${s.notes ? `<div class="day-shift-notes">${escapeHtml(s.notes)}</div>` : ''}
+        </div>
+        <div>${editBtn}</div>
+      </div>`;
+    }
+
+    function wireDayView(iso, shifts) {
+      const addBtn = document.getElementById('day-add');
+      if (addBtn) addBtn.addEventListener('click', () => openEditor(iso, null));
+      document.querySelectorAll('#view-container [data-edit]').forEach((b) => {
+        b.addEventListener('click', () => openEditor(iso, b.getAttribute('data-edit')));
+      });
+    }
+
+    function openDay(iso) {
+      const shifts = shiftsForDate(iso);
+      document.getElementById('modal-title').textContent = formatDate(iso);
+      document.getElementById('modal-shifts').innerHTML = shifts.length === 0
+        ? '<p class="empty">No shifts scheduled.</p>'
+        : shifts.map(renderDayShift).join('');
+      const addBtn = ctx.canEdit ? '<button class="btn-primary" id="modal-add-shift">+ Add shift</button>' : '';
+      document.getElementById('modal-actions').innerHTML = addBtn;
+      const addBtnEl = document.getElementById('modal-add-shift');
+      if (addBtnEl) addBtnEl.addEventListener('click', () => openEditor(iso, null));
+      document.querySelectorAll('#modal-shifts [data-edit]').forEach((b) => {
+        b.addEventListener('click', () => openEditor(iso, b.getAttribute('data-edit')));
+      });
+      document.getElementById('day-modal').classList.add('show');
+    }
+
+    function openEditor(iso, shiftId) {
+      if (!ctx.canEdit) return;
+      editingShiftId = shiftId;
+      const shift = shiftId ? data.shifts.find((s) => s.id === shiftId) : null;
+      document.getElementById('editor-title').textContent = shift ? 'Edit shift' : 'New shift';
+      const userSelect = document.getElementById('ed-user');
+      userSelect.innerHTML = data.users.filter((u) => !u.disabled).map((u) =>
+        `<option value="${u.id}" ${shift && shift.user_id === u.id ? 'selected' : ''}>${escapeHtml(u.display_name)}</option>`
+      ).join('');
+      document.getElementById('ed-date').value = shift ? shift.date : iso;
+      document.getElementById('ed-start').value = shift ? shift.start_time : '11:00';
+      document.getElementById('ed-end').value = shift ? shift.end_time : '19:00';
+      document.getElementById('ed-dept').value = shift && shift.department ? shift.department : '';
+      document.getElementById('ed-notes').value = shift && shift.notes ? shift.notes : '';
+      document.getElementById('ed-delete').hidden = !shift;
+      document.getElementById('day-modal').classList.remove('show');
+      document.getElementById('editor-modal').classList.add('show');
+    }
+
+    function closeEditor() {
+      document.getElementById('editor-modal').classList.remove('show');
+      editingShiftId = null;
+    }
+
+    async function refreshAndRender() {
+      await loadState();
+      render();
+    }
+
+    document.getElementById('ed-save').addEventListener('click', async () => {
+      const payload = {
+        user_id: document.getElementById('ed-user').value,
+        date: document.getElementById('ed-date').value,
+        start_time: document.getElementById('ed-start').value,
+        end_time: document.getElementById('ed-end').value,
+        department: document.getElementById('ed-dept').value || null,
+        notes: document.getElementById('ed-notes').value.trim() || null,
+      };
+      const r = editingShiftId
+        ? await window.shawarmaApi('PATCH', `/api/shifts/${editingShiftId}`, payload)
+        : await window.shawarmaApi('POST', '/api/shifts', payload);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed'); return; }
+      window.shawarmaToast(editingShiftId ? 'Shift updated' : 'Shift added');
+      closeEditor();
+      await refreshAndRender();
+    });
+
+    document.getElementById('ed-delete').addEventListener('click', async () => {
+      if (!editingShiftId) return;
+      if (!confirm('Delete this shift? It will be removed from the calendar immediately.')) return;
+      const r = await window.shawarmaApi('DELETE', `/api/shifts/${editingShiftId}`);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Delete failed'); return; }
+      window.shawarmaToast('Shift deleted');
+      closeEditor();
+      await refreshAndRender();
+    });
+
+    document.getElementById('editor-close').addEventListener('click', closeEditor);
+    document.getElementById('modal-close').addEventListener('click', () => document.getElementById('day-modal').classList.remove('show'));
+    document.getElementById('day-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'day-modal') e.target.classList.remove('show');
+    });
+    document.getElementById('editor-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'editor-modal') closeEditor();
+    });
+
+    document.querySelectorAll('#view-toggle button').forEach((b) => {
+      b.addEventListener('click', () => {
+        view = b.getAttribute('data-view');
+        document.querySelectorAll('#view-toggle button').forEach((x) => x.classList.toggle('active', x === b));
+        render();
+      });
+    });
+    document.getElementById('prev-period').addEventListener('click', () => {
+      if (view === 'day') {
+        const d = new Date(viewYear, viewMonth - 1, viewDay); d.setDate(d.getDate() - 1);
+        viewYear = d.getFullYear(); viewMonth = d.getMonth() + 1; viewDay = d.getDate();
+      } else {
+        viewMonth--; if (viewMonth < 1) { viewMonth = 12; viewYear--; }
+      }
+      render();
+    });
+    document.getElementById('next-period').addEventListener('click', () => {
+      if (view === 'day') {
+        const d = new Date(viewYear, viewMonth - 1, viewDay); d.setDate(d.getDate() + 1);
+        viewYear = d.getFullYear(); viewMonth = d.getMonth() + 1; viewDay = d.getDate();
+      } else {
+        viewMonth++; if (viewMonth > 12) { viewMonth = 1; viewYear++; }
+      }
+      render();
+    });
+
+    if (!ctx.canEdit) {
+      document.getElementById('editor-staff-field').style.display = 'none';
+    }
+
+    refreshAndRender();
+  </script>
+</AppLayout>

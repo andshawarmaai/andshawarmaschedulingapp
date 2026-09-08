@@ -1,0 +1,328 @@
+---
+// middleware.js already restricts /admin to admin/manager roles.
+import AppLayout from '../layouts/AppLayout.astro';
+import Icon from '../components/Icon.astro';
+const user = Astro.locals.user;
+---
+<AppLayout title="&Shawarma — Manage" active="admin">
+  <div class="card">
+    <h2><Icon name="bell" size={18} class="icon-inline" /> Pending Approvals <span id="pending-count" class="badge badge-pending">0</span></h2>
+    <p class="card-sub">Time-off requests and shift-swap volunteers waiting on a decision.</p>
+    <div id="approvals-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2><Icon name="users" size={18} class="icon-inline" /> Users</h2>
+    <p class="card-sub">Manage who can log in. Disabled users can't sign in but their schedule data is kept.</p>
+    <button class="btn-primary" id="add-user-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Add user</button>
+    <div id="users-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Slot Caps</h2>
+    <p class="card-sub">Cap how many staff can work a time window on a date. Informational — shows on the schedule and swap board.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin-bottom:0.75rem;">
+      <div class="field" style="margin:0;"><label style="font-size:0.75rem;">Date</label><input type="date" id="cap-date" class="input" /></div>
+      <div class="field" style="margin:0;flex:0 0 6rem;"><label style="font-size:0.75rem;">From</label><input type="time" id="cap-start" class="input" /></div>
+      <div class="field" style="margin:0;flex:0 0 6rem;"><label style="font-size:0.75rem;">To</label><input type="time" id="cap-end" class="input" value="23:59" /></div>
+      <div class="field" style="margin:0;flex:0 0 5rem;"><label style="font-size:0.75rem;">Max</label><input type="number" id="cap-max" class="input" min="0" step="1" /></div>
+      <div class="field" style="margin:0;flex:1 1 10rem;"><label style="font-size:0.75rem;">Note</label><input type="text" id="cap-note" class="input" placeholder="optional" /></div>
+      <button class="btn-primary" id="cap-save" type="button">Save</button>
+    </div>
+    <div id="caps-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <!-- Add user modal -->
+  <div class="modal-backdrop" id="add-user-modal">
+    <div class="modal">
+      <div class="modal-header"><h2>Add new user</h2><button class="modal-close" id="add-user-close" type="button">&times;</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Full name</label><input type="text" id="au-name" class="input" required /></div>
+        <div class="field"><label>Username</label><input type="text" id="au-username" class="input" required /></div>
+        <div class="field"><label>Password</label><input type="text" id="au-password" class="input" required /></div>
+        <div class="field"><label>Role</label>
+          <select id="au-role" class="input">
+            <option value="staff">Staff</option>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="field"><label>Phone</label><input type="tel" id="au-phone" class="input" /></div>
+        <div class="field"><label>Email</label><input type="email" id="au-email" class="input" /></div>
+      </div>
+      <div class="modal-footer"><button class="btn-primary" id="au-save" type="button">Create user</button></div>
+    </div>
+  </div>
+
+  <!-- Edit user modal -->
+  <div class="modal-backdrop" id="edit-user-modal">
+    <div class="modal">
+      <div class="modal-header"><h2 id="edit-user-title">Edit user</h2><button class="modal-close" id="edit-user-close" type="button">&times;</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Full name</label><input type="text" id="eu-name" class="input" /></div>
+        <div class="field"><label>Phone</label><input type="tel" id="eu-phone" class="input" /></div>
+        <div class="field"><label>Email</label><input type="email" id="eu-email" class="input" /></div>
+        <div class="field"><label>Role</label>
+          <select id="eu-role" class="input">
+            <option value="staff">Staff</option>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <hr class="divider" />
+        <div class="field"><label>Reset password</label>
+          <div style="display:flex;gap:0.5rem;">
+            <input type="text" id="eu-new-password" class="input" placeholder="Leave blank to keep current" />
+            <button class="btn-secondary" id="eu-generate" type="button">Generate</button>
+          </div>
+        </div>
+        <hr class="divider" />
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:400;">
+          <input type="checkbox" id="eu-disabled" style="width:1rem;height:1rem;" />
+          <span>Disable this account</span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-danger" id="eu-delete" style="margin-right:auto;" type="button">Delete user</button>
+        <button class="btn-primary" id="eu-save" type="button">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script define:vars={{ myUserId: user.id }}>
+    window.__adminCtx = { myUserId };
+  </script>
+  <script>
+    import { formatDate, formatTime12, escapeHtml } from '../lib/client/format.js';
+
+    const ctx = window.__adminCtx;
+    let data = null;
+    let editingUserId = null;
+
+    async function loadState() {
+      const res = await fetch('/api/state');
+      data = await res.json();
+    }
+
+    function userName(id) {
+      const u = data.users.find((x) => x.id === id);
+      return u ? u.display_name : 'Unknown';
+    }
+    function shiftById(id) {
+      return data.shifts.find((s) => s.id === id);
+    }
+
+    function renderApprovals() {
+      const list = document.getElementById('approvals-list');
+      const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
+      const pendingClaims = data.swapClaims.filter((c) => c.status === 'pending');
+      document.getElementById('pending-count').textContent = pendingTimeOff.length + pendingClaims.length;
+
+      if (pendingTimeOff.length === 0 && pendingClaims.length === 0) {
+        list.innerHTML = '<p class="empty">No pending requests.</p>';
+        return;
+      }
+
+      let html = '';
+      pendingTimeOff.forEach((t) => {
+        html += `<div class="list-item" style="align-items:flex-start;">
+          <div>
+            <div><span class="badge badge-boh">time off</span> <strong>${escapeHtml(userName(t.user_id))}</strong></div>
+            <div class="meta">${formatDate(t.start_date, { short: true })} – ${formatDate(t.end_date, { short: true })} · ${escapeHtml(t.reason || '—')}</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn-primary" data-approve-to="${t.id}">Approve</button>
+            <button class="btn-secondary" data-deny-to="${t.id}">Deny</button>
+          </div>
+        </div>`;
+      });
+      pendingClaims.forEach((c) => {
+        const post = data.swapPosts.find((p) => p.id === c.post_id);
+        const shift = post ? shiftById(post.shift_id) : null;
+        const detail = shift ? `${formatDate(shift.date, { short: true })} · ${formatTime12(shift.start_time)}–${formatTime12(shift.end_time)}` : '—';
+        html += `<div class="list-item" style="align-items:flex-start;">
+          <div>
+            <div><span class="badge badge-foh">shift swap</span> <strong>${escapeHtml(userName(c.claimant_id))}</strong> → covering ${escapeHtml(post ? userName(post.user_id) : '?')}</div>
+            <div class="meta">${detail}</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn-primary" data-approve-claim="${c.id}">Approve</button>
+            <button class="btn-secondary" data-deny-claim="${c.id}">Deny</button>
+          </div>
+        </div>`;
+      });
+      list.innerHTML = html;
+
+      list.querySelectorAll('[data-approve-to]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true;
+        const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-approve-to')}`, { status: 'approved' });
+        window.shawarmaToast(r.ok ? 'Approved' : (r.error || 'Failed'));
+        await refreshAndRender();
+      }));
+      list.querySelectorAll('[data-deny-to]').forEach((b) => b.addEventListener('click', async () => {
+        const reason = prompt('Why are you denying this request? (shown to the staff member)');
+        if (reason === null) return;
+        b.disabled = true;
+        const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-deny-to')}`, { status: 'denied', denial_reason: reason || 'No reason given' });
+        window.shawarmaToast(r.ok ? 'Denied' : (r.error || 'Failed'));
+        await refreshAndRender();
+      }));
+      list.querySelectorAll('[data-approve-claim]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true;
+        const r = await window.shawarmaApi('PATCH', `/api/swap/claims/${b.getAttribute('data-approve-claim')}`, { status: 'approved' });
+        window.shawarmaToast(r.ok ? 'Approved — shift updated' : (r.error || 'Failed'));
+        await refreshAndRender();
+      }));
+      list.querySelectorAll('[data-deny-claim]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true;
+        const r = await window.shawarmaApi('PATCH', `/api/swap/claims/${b.getAttribute('data-deny-claim')}`, { status: 'denied' });
+        window.shawarmaToast(r.ok ? 'Denied' : (r.error || 'Failed'));
+        await refreshAndRender();
+      }));
+    }
+
+    function renderUsers() {
+      const el = document.getElementById('users-list');
+      el.innerHTML = data.users.map((u) => `
+        <div class="user-row">
+          <div class="info">
+            <div class="name">${escapeHtml(u.display_name)}${u.disabled ? ' <span class="badge badge-denied">disabled</span>' : ''}</div>
+            <div class="username">@${escapeHtml(u.username)}</div>
+          </div>
+          <span class="badge badge-${u.role}">${u.role}</span>
+          <button class="btn-secondary" data-edit-user="${u.id}" style="margin-left:0.5rem;">Edit</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('[data-edit-user]').forEach((b) => b.addEventListener('click', () => openEditUser(b.getAttribute('data-edit-user'))));
+    }
+
+    function openAddUser() {
+      ['au-name', 'au-username', 'au-password', 'au-phone', 'au-email'].forEach((id) => document.getElementById(id).value = '');
+      document.getElementById('au-role').value = 'staff';
+      document.getElementById('add-user-modal').classList.add('show');
+    }
+    document.getElementById('add-user-btn').addEventListener('click', openAddUser);
+    document.getElementById('add-user-close').addEventListener('click', () => document.getElementById('add-user-modal').classList.remove('show'));
+    document.getElementById('au-save').addEventListener('click', async () => {
+      const payload = {
+        display_name: document.getElementById('au-name').value.trim(),
+        username: document.getElementById('au-username').value.trim(),
+        password: document.getElementById('au-password').value,
+        role: document.getElementById('au-role').value,
+        phone: document.getElementById('au-phone').value.trim() || null,
+        email: document.getElementById('au-email').value.trim() || null,
+      };
+      if (!payload.display_name || !payload.username || !payload.password) {
+        window.shawarmaToast('Name, username, and password are required'); return;
+      }
+      const r = await window.shawarmaApi('POST', '/api/users', payload);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Could not create user'); return; }
+      document.getElementById('add-user-modal').classList.remove('show');
+      window.shawarmaToast('User created: ' + payload.username);
+      await refreshAndRender();
+    });
+
+    function openEditUser(uid) {
+      const u = data.users.find((x) => x.id === uid);
+      if (!u) return;
+      editingUserId = uid;
+      document.getElementById('edit-user-title').textContent = 'Edit: ' + u.display_name;
+      document.getElementById('eu-name').value = u.display_name;
+      document.getElementById('eu-phone').value = u.phone || '';
+      document.getElementById('eu-email').value = u.email || '';
+      document.getElementById('eu-role').value = u.role;
+      document.getElementById('eu-new-password').value = '';
+      document.getElementById('eu-disabled').checked = !!u.disabled;
+      document.getElementById('edit-user-modal').classList.add('show');
+    }
+    document.getElementById('edit-user-close').addEventListener('click', () => {
+      document.getElementById('edit-user-modal').classList.remove('show');
+      editingUserId = null;
+    });
+    document.getElementById('eu-generate').addEventListener('click', () => {
+      document.getElementById('eu-new-password').value = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+    });
+    document.getElementById('eu-save').addEventListener('click', async () => {
+      const updates = {
+        display_name: document.getElementById('eu-name').value.trim(),
+        phone: document.getElementById('eu-phone').value.trim() || null,
+        email: document.getElementById('eu-email').value.trim() || null,
+        role: document.getElementById('eu-role').value,
+        disabled: document.getElementById('eu-disabled').checked,
+      };
+      const newPw = document.getElementById('eu-new-password').value;
+      if (newPw) updates.password = newPw;
+      const r = await window.shawarmaApi('PATCH', `/api/users/${editingUserId}`, updates);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed'); return; }
+      document.getElementById('edit-user-modal').classList.remove('show');
+      window.shawarmaToast(newPw ? 'Password reset' : 'Saved changes');
+      editingUserId = null;
+      await refreshAndRender();
+    });
+    document.getElementById('eu-delete').addEventListener('click', async () => {
+      if (editingUserId === ctx.myUserId) { window.shawarmaToast('You cannot delete yourself'); return; }
+      const u = data.users.find((x) => x.id === editingUserId);
+      if (!u || !confirm(`Delete user ${u.username}? Their shifts will be unassigned but kept.`)) return;
+      const r = await window.shawarmaApi('DELETE', `/api/users/${editingUserId}`);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Delete failed'); return; }
+      document.getElementById('edit-user-modal').classList.remove('show');
+      window.shawarmaToast('User deleted');
+      editingUserId = null;
+      await refreshAndRender();
+    });
+
+    function renderCaps() {
+      const el = document.getElementById('caps-list');
+      const entries = data.dayCaps.slice().sort((a, b) => (a.date + a.window_start).localeCompare(b.date + b.window_start));
+      if (entries.length === 0) {
+        el.innerHTML = '<p class="empty">No slot caps set.</p>';
+        return;
+      }
+      el.innerHTML = entries.map((c) => {
+        const count = data.shifts.filter((s) => s.date === c.date && s.start_time >= c.window_start && s.start_time < c.window_end).length;
+        return `<div class="list-item">
+          <div>
+            <div class="who">${formatDate(c.date, { short: true })} · ${formatTime12(c.window_start)}–${formatTime12(c.window_end)}</div>
+            <div class="meta">${count}/${c.max_shifts} scheduled${c.note ? ' · ' + escapeHtml(c.note) : ''}</div>
+          </div>
+          <button class="btn-danger" data-clear-cap="${c.date}|${c.window_start}|${c.window_end}">Clear</button>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-clear-cap]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const [date, window_start, window_end] = b.getAttribute('data-clear-cap').split('|');
+          const r = await window.shawarmaApi('DELETE', `/api/admin/day-caps?date=${encodeURIComponent(date)}&window_start=${encodeURIComponent(window_start)}&window_end=${encodeURIComponent(window_end)}`);
+          if (!r.ok) { window.shawarmaToast(r.error || 'Clear failed'); return; }
+          window.shawarmaToast('Cap cleared');
+          await refreshAndRender();
+        });
+      });
+    }
+
+    document.getElementById('cap-save').addEventListener('click', async () => {
+      const date = document.getElementById('cap-date').value;
+      const window_start = document.getElementById('cap-start').value;
+      const window_end = document.getElementById('cap-end').value;
+      const max_shifts = parseInt(document.getElementById('cap-max').value, 10);
+      const note = document.getElementById('cap-note').value.trim() || null;
+      if (!date || !window_start || !window_end || !Number.isInteger(max_shifts) || max_shifts < 0) {
+        window.shawarmaToast('Fill in date, times, and a valid max'); return;
+      }
+      const r = await window.shawarmaApi('POST', '/api/admin/day-caps', { date, window_start, window_end, max_shifts, note });
+      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed'); return; }
+      window.shawarmaToast('Slot cap saved');
+      document.getElementById('cap-max').value = '';
+      document.getElementById('cap-note').value = '';
+      await refreshAndRender();
+    });
+
+    async function refreshAndRender() {
+      await loadState();
+      renderApprovals();
+      renderUsers();
+      renderCaps();
+    }
+
+    refreshAndRender();
+  </script>
+</AppLayout>

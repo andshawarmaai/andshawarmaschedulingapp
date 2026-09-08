@@ -1,0 +1,107 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import Icon from '../components/Icon.astro';
+
+const user = Astro.locals.user;
+---
+<AppLayout title="&Shawarma" active="home">
+  <div class="card">
+    <h1>Welcome, {user.display_name}</h1>
+    <p style="color:var(--color-muted);margin:0;">Your role: <span class={`badge badge-${user.role}`}>{user.role}</span></p>
+  </div>
+
+  <div class="card">
+    <h2><Icon name="calendar" size={18} class="icon-inline" /> My Upcoming Shifts</h2>
+    <div id="shifts-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="grid-2">
+    <a href="/schedule" class="tile">
+      <div class="tile-icon"><Icon name="calendar" size={28} /></div>
+      <div class="tile-title">Full Schedule</div>
+      <div class="tile-sub">View all shifts</div>
+    </a>
+    <a href="/shift-swap" class="tile">
+      <div class="tile-icon"><Icon name="swap" size={28} /></div>
+      <div class="tile-title">Shift Swap</div>
+      <div class="tile-sub">Request a swap</div>
+    </a>
+    <a href="/time-off" class="tile">
+      <div class="tile-icon"><Icon name="timeoff" size={28} /></div>
+      <div class="tile-title">Time Off</div>
+      <div class="tile-sub">Request / view</div>
+    </a>
+    {(user.role === 'admin' || user.role === 'manager') && (
+      <a href="/admin" class="tile">
+        <div class="tile-icon"><Icon name="admin" size={28} /></div>
+        <div class="tile-title">Manage</div>
+        <div class="tile-sub">Admin tools</div>
+      </a>
+    )}
+  </div>
+
+  <div class="card">
+    <h2><Icon name="users" size={18} class="icon-inline" /> Team Roster</h2>
+    <p class="card-sub">Everyone on the &amp;Shawarma crew and how to reach them.</p>
+    <div class="roster-grid" id="roster-grid"><p class="empty">Loading...</p></div>
+  </div>
+
+  <script>
+    import { formatDate, formatTime12, todayISO, escapeHtml } from '../lib/client/format.js';
+
+    async function init() {
+      const res = await fetch('/api/state');
+      if (!res.ok) {
+        document.getElementById('shifts-list').innerHTML = '<p class="empty">Could not load data.</p>';
+        return;
+      }
+      const data = await res.json();
+      const today = todayISO();
+
+      const myShifts = data.shifts
+        .filter((s) => s.user_id === data.me.id && s.date >= today)
+        .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time))
+        .slice(0, 5);
+
+      const shiftsList = document.getElementById('shifts-list');
+      shiftsList.innerHTML = myShifts.length === 0
+        ? '<p class="empty">No upcoming shifts scheduled.</p>'
+        : myShifts.map((s) => `
+          <div class="list-item">
+            <div>
+              <div class="who">${formatDate(s.date, { short: true })}</div>
+              <div class="meta">${formatTime12(s.start_time)} – ${formatTime12(s.end_time)}</div>
+            </div>
+            ${s.department ? `<span class="badge badge-${s.department.toLowerCase()}">${escapeHtml(s.department)}</span>` : ''}
+          </div>
+        `).join('');
+
+      const rosterGrid = document.getElementById('roster-grid');
+      const roster = data.users.filter((u) => !u.disabled).sort((a, b) => a.display_name.localeCompare(b.display_name));
+      rosterGrid.innerHTML = roster.map((u) => {
+        const next = data.shifts
+          .filter((s) => s.user_id === u.id && s.date >= today)
+          .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time))[0];
+        const nextHtml = next
+          ? `<div class="roster-card-next">${formatDate(next.date, { short: true })} · ${formatTime12(next.start_time)}</div>`
+          : '<div class="roster-card-next off">No upcoming shifts</div>';
+        const contact = [
+          u.phone ? `<a href="tel:${escapeHtml(u.phone)}">${escapeHtml(u.phone)}</a>` : '',
+          u.email ? `<a href="mailto:${escapeHtml(u.email)}">${escapeHtml(u.email)}</a>` : '',
+        ].filter(Boolean).join('');
+        return `
+          <div class="roster-card">
+            <div class="roster-card-head">
+              <span class="roster-card-name">${escapeHtml(u.display_name)}</span>
+              <span class="badge badge-${u.role}">${u.role}</span>
+            </div>
+            ${nextHtml}
+            ${contact ? `<div class="roster-card-contact">${contact}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    init();
+  </script>
+</AppLayout>

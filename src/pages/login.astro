@@ -1,0 +1,106 @@
+---
+import '../styles/global.css';
+import Icon from '../components/Icon.astro';
+// middleware.js already redirects to "/" if a valid session cookie exists,
+// so if we're rendering at all, the visitor is genuinely signed out.
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#dc2626" />
+  <title>Sign in — &amp;Shawarma</title>
+  <link rel="icon" type="image/jpeg" href="/logo.jpg" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-header">
+        <img src="/logo.jpg" alt="&Shawarma" />
+        <h1 class="login-title">Sign in</h1>
+        <p class="login-sub">Enter your credentials to view the schedule</p>
+      </div>
+
+      <div class="error" id="err" hidden>
+        <Icon name="alert" size={16} />
+        <span id="err-text"></span>
+      </div>
+
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" class="input" autocomplete="username" required autofocus />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" class="input" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn-primary btn-block" id="signin-btn">Sign in</button>
+      </form>
+
+      <p style="text-align:center;margin-top:1rem;font-size:0.75rem;color:var(--color-muted);">
+        Need access? Ask an admin to create an account for you.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const errBox = document.getElementById('err');
+    const errText = document.getElementById('err-text');
+    const btn = document.getElementById('signin-btn');
+
+    function showError(message) {
+      errText.textContent = message;
+      errBox.hidden = false;
+    }
+    function hideError() {
+      errBox.hidden = true;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError();
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      if (!username || !password) {
+        showError('Enter both a username and a password.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Signing in...';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        let data = null;
+        try { data = await res.json(); } catch { /* no body */ }
+
+        if (!res.ok) {
+          showError((data && data.error) || 'Sign in failed. Please try again.');
+          btn.disabled = false;
+          btn.textContent = 'Sign in';
+          document.getElementById('password').focus();
+          return;
+        }
+
+        // Server set an httpOnly session cookie. A full navigation (not a
+        // fetch) is what lets the browser send it back, so middleware.js can
+        // verify it on the very next request and let us through.
+        btn.textContent = 'Loading...';
+        window.location.href = '/';
+      } catch (err) {
+        showError('Network error — check your connection and try again.');
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    });
+  </script>
+</body>
+</html>

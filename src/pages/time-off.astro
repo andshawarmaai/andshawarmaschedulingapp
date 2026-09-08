@@ -1,0 +1,148 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import Icon from '../components/Icon.astro';
+const user = Astro.locals.user;
+const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
+---
+<AppLayout title="&Shawarma — Time Off" active="timeoff">
+  <div class="card">
+    <h2><Icon name="timeoff" size={18} class="icon-inline" /> Request Time Off</h2>
+    <form id="request-form">
+      <div class="field"><label for="start_date">Start date</label><input type="date" id="start_date" class="input" required /></div>
+      <div class="field"><label for="end_date">End date</label><input type="date" id="end_date" class="input" required /></div>
+      <div class="field"><label for="reason">Reason</label><input type="text" id="reason" class="input" placeholder="Vacation, appointment, etc." required /></div>
+      <button type="submit" class="btn-primary">Submit request</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>My Time-Off Requests</h2>
+    <div id="my-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  {isStaffOrAbove && (
+    <div class="card">
+      <h2>All Time-Off Requests</h2>
+      <p class="card-sub">Manager / admin only.</p>
+      <div id="all-list"><p class="empty">Loading...</p></div>
+    </div>
+  )}
+
+  <script define:vars={{ myUserId: user.id, isStaffOrAbove }}>
+    window.__timeOffCtx = { myUserId, isStaffOrAbove };
+  </script>
+  <script>
+    import { formatDate, escapeHtml } from '../lib/client/format.js';
+
+    const ctx = window.__timeOffCtx;
+    let data = null;
+
+    async function loadState() {
+      const res = await fetch('/api/state');
+      data = await res.json();
+    }
+
+    function userName(id) {
+      const u = data.users.find((x) => x.id === id);
+      return u ? u.display_name : 'Unknown';
+    }
+
+    function renderMine() {
+      const el = document.getElementById('my-list');
+      const mine = data.timeOffMine.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
+      if (mine.length === 0) {
+        el.innerHTML = '<p class="empty">No requests yet.</p>';
+        return;
+      }
+      el.innerHTML = mine.map((it) => {
+        const denialHtml = it.status === 'denied' && it.denial_reason
+          ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">Admin says: ${escapeHtml(it.denial_reason)}</div>`
+          : '';
+        const cancelBtn = `<button class="btn-danger" data-cancel="${it.id}">${it.status === 'pending' ? 'Cancel' : 'Remove'}</button>`;
+        return `<div class="list-item" style="align-items:flex-start;">
+          <div>
+            <div class="who">${formatDate(it.start_date, { short: true })} – ${formatDate(it.end_date, { short: true })}</div>
+            <div class="meta">${escapeHtml(it.reason || '—')}</div>
+            ${denialHtml}
+          </div>
+          <div style="display:flex;gap:0.375rem;align-items:center;">
+            <span class="badge badge-${it.status}">${it.status}</span>
+            ${cancelBtn}
+          </div>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-cancel]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          if (!confirm('Remove this time-off request?')) return;
+          const r = await window.shawarmaApi('DELETE', `/api/timeoff/${b.getAttribute('data-cancel')}`);
+          if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
+          window.shawarmaToast('Removed');
+          await refreshAndRender();
+        });
+      });
+    }
+
+    function renderAll() {
+      if (!ctx.isStaffOrAbove) return;
+      const el = document.getElementById('all-list');
+      if (!el) return;
+      const all = (data.timeOffAll || []).slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
+      if (all.length === 0) {
+        el.innerHTML = '<p class="empty">No requests.</p>';
+        return;
+      }
+      el.innerHTML = all.map((it) => {
+        const actions = it.status === 'pending'
+          ? `<button class="btn-primary" data-approve="${it.id}">Approve</button> <button class="btn-secondary" data-deny="${it.id}">Deny</button>`
+          : `<span class="badge badge-${it.status}">${it.status}</span>`;
+        return `<div class="list-item" style="align-items:flex-start;">
+          <div>
+            <div class="who">${escapeHtml(userName(it.user_id))}</div>
+            <div class="meta">${formatDate(it.start_date, { short: true })} – ${formatDate(it.end_date, { short: true })} · ${escapeHtml(it.reason || '—')}</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;align-items:center;">${actions}</div>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-approve]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-approve')}`, { status: 'approved' });
+          if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
+          window.shawarmaToast('Approved');
+          await refreshAndRender();
+        });
+      });
+      el.querySelectorAll('[data-deny]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const reason = prompt('Why are you denying this request? (shown to the staff member)');
+          if (reason === null) return;
+          const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-deny')}`, { status: 'denied', denial_reason: reason || 'No reason given' });
+          if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
+          window.shawarmaToast('Denied');
+          await refreshAndRender();
+        });
+      });
+    }
+
+    document.getElementById('request-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        start_date: document.getElementById('start_date').value,
+        end_date: document.getElementById('end_date').value,
+        reason: document.getElementById('reason').value.trim(),
+      };
+      const r = await window.shawarmaApi('POST', '/api/timeoff', payload);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Could not submit request'); return; }
+      document.getElementById('request-form').reset();
+      window.shawarmaToast('Time-off submitted — admin must approve');
+      await refreshAndRender();
+    });
+
+    async function refreshAndRender() {
+      await loadState();
+      renderMine();
+      renderAll();
+    }
+
+    refreshAndRender();
+  </script>
+</AppLayout>
