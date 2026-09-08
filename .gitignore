@@ -6,3 +6,8 @@ dist/
 db/.local-data.json
 .DS_Store
 db/backups/
+.vercel
+.env*
+.agents/
+.claude/skills/
+skills-lock.json

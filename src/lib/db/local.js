@@ -10,7 +10,6 @@ import bcrypt from 'bcryptjs';
 import { ORIGINAL_ROSTER } from '../../../db/roster.mjs';
 
 const DATA_FILE = path.join(process.cwd(), 'db', '.local-data.json');
-const SEED_PASSWORD = 'shawarma-dev';
 
 function id() {
   return crypto.randomUUID();
@@ -18,11 +17,12 @@ function id() {
 
 function seedData() {
   const now = new Date().toISOString();
-  const passwordHash = bcrypt.hashSync(SEED_PASSWORD, 10);
+  // Test-only convenience: local dev password == username, matching the
+  // test deployment's seeded accounts. Never do this for a real deployment.
   const users = ORIGINAL_ROSTER.map((u) => ({
     id: id(),
     username: u.username,
-    password_hash: passwordHash,
+    password_hash: bcrypt.hashSync(u.username, 10),
     display_name: u.display_name,
     role: u.role,
     email: u.email,
@@ -46,7 +46,7 @@ function load() {
     fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
     fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2));
     // eslint-disable-next-line no-console
-    console.log(`[local-db] Seeded ${DATA_FILE} with the original roster (${initial.users.length} users) — every account's dev password is "${SEED_PASSWORD}" (e.g. ray / ${SEED_PASSWORD}).`);
+    console.log(`[local-db] Seeded ${DATA_FILE} with the original roster (${initial.users.length} users) — each account's dev password matches its username (e.g. ray / ray).`);
     return initial;
   }
   return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
