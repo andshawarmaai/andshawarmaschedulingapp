@@ -7,7 +7,7 @@ const user = Astro.locals.user;
 <AppLayout title="&Shawarma — Manage" active="admin">
   <div class="card">
     <h2><Icon name="bell" size={18} class="icon-inline" /> Pending Approvals <span id="pending-count" class="badge badge-pending">0</span></h2>
-    <p class="card-sub">Time-off requests and shift-swap volunteers waiting on a decision.</p>
+    <p class="card-sub">Shift requests, time-off requests, and shift-swap volunteers waiting on a decision.</p>
     <div id="approvals-list"><p class="empty">Loading...</p></div>
   </div>
 
@@ -30,6 +30,30 @@ const user = Astro.locals.user;
       <button class="btn-primary" id="cap-save" type="button">Save</button>
     </div>
     <div id="caps-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Bulk Shift Import</h2>
+    <p class="card-sub">
+      Download the template below, hand it to whatever AI tool you use (fill in username/date/times per row),
+      then upload the result here. The template's columns never change, so the same file always works.
+    </p>
+    <p style="margin-bottom:0.75rem;">
+      <a href="/shift-import-template.csv" download class="btn-secondary" style="text-decoration:none;display:inline-flex;">Download CSV template</a>
+    </p>
+    <div class="field">
+      <label for="import-file">CSV file</label>
+      <input type="file" id="import-file" class="input" accept=".csv,text/csv" />
+    </div>
+    <div id="import-errors" class="error" hidden></div>
+    <div id="import-preview" style="display:none;margin-bottom:0.75rem;">
+      <p class="card-sub" id="import-preview-text" style="margin:0 0 0.5rem;"></p>
+      <button class="btn-primary" id="import-confirm" type="button">Import these shifts</button>
+      <button class="btn-secondary" id="import-cancel" type="button">Cancel</button>
+    </div>
+    <h3 style="font-size:0.95rem;margin:1rem 0 0.5rem;">Import History</h3>
+    <p class="card-sub">Remove an upload to undo it — every shift it created is removed from the calendar too.</p>
+    <div id="imports-list"><p class="empty">Loading...</p></div>
   </div>
 
   <!-- Add user modal -->
@@ -116,14 +140,29 @@ const user = Astro.locals.user;
       const list = document.getElementById('approvals-list');
       const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
       const pendingClaims = data.swapClaims.filter((c) => c.status === 'pending');
-      document.getElementById('pending-count').textContent = pendingTimeOff.length + pendingClaims.length;
+      const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending');
+      document.getElementById('pending-count').textContent = pendingTimeOff.length + pendingClaims.length + pendingShiftReqs.length;
 
-      if (pendingTimeOff.length === 0 && pendingClaims.length === 0) {
+      if (pendingTimeOff.length === 0 && pendingClaims.length === 0 && pendingShiftReqs.length === 0) {
         list.innerHTML = '<p class="empty">No pending requests.</p>';
         return;
       }
 
       let html = '';
+      pendingShiftReqs.forEach((r) => {
+        const label = r.action === 'create' ? 'new shift' : r.action === 'delete' ? 'remove shift' : 'change shift';
+        const detail = r.date ? `${formatDate(r.date, { short: true })} · ${formatTime12(r.start_time)}–${formatTime12(r.end_time)}` : '—';
+        html += `<div class="list-item" style="align-items:flex-start;">
+          <div>
+            <div><span class="badge badge-count">${label}</span> <strong>${escapeHtml(userName(r.user_id))}</strong></div>
+            <div class="meta">${detail}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn-primary" data-approve-shiftreq="${r.id}">Approve</button>
+            <button class="btn-secondary" data-deny-shiftreq="${r.id}">Deny</button>
+          </div>
+        </div>`;
+      });
       pendingTimeOff.forEach((t) => {
         html += `<div class="list-item" style="align-items:flex-start;">
           <div>
@@ -176,6 +215,20 @@ const user = Astro.locals.user;
       list.querySelectorAll('[data-deny-claim]').forEach((b) => b.addEventListener('click', async () => {
         b.disabled = true;
         const r = await window.shawarmaApi('PATCH', `/api/swap/claims/${b.getAttribute('data-deny-claim')}`, { status: 'denied' });
+        window.shawarmaToast(r.ok ? 'Denied' : (r.error || 'Failed'));
+        await refreshAndRender();
+      }));
+      list.querySelectorAll('[data-approve-shiftreq]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true;
+        const r = await window.shawarmaApi('PATCH', `/api/shift-requests/${b.getAttribute('data-approve-shiftreq')}`, { status: 'approved' });
+        window.shawarmaToast(r.ok ? 'Approved — calendar updated' : (r.error || 'Failed'));
+        await refreshAndRender();
+      }));
+      list.querySelectorAll('[data-deny-shiftreq]').forEach((b) => b.addEventListener('click', async () => {
+        const reason = prompt('Why are you denying this request? (shown to the staff member)');
+        if (reason === null) return;
+        b.disabled = true;
+        const r = await window.shawarmaApi('PATCH', `/api/shift-requests/${b.getAttribute('data-deny-shiftreq')}`, { status: 'denied', denial_reason: reason || 'No reason given' });
         window.shawarmaToast(r.ok ? 'Denied' : (r.error || 'Failed'));
         await refreshAndRender();
       }));
@@ -316,11 +369,128 @@ const user = Astro.locals.user;
       await refreshAndRender();
     });
 
+    // ----- Bulk shift import -----
+
+    function parseCsv(text) {
+      // Minimal CSV parser: handles quoted fields with embedded commas and
+      // "" escaped quotes, which is all the template format needs.
+      const rows = [];
+      let row = [];
+      let field = '';
+      let inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQuotes) {
+          if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+          else if (c === '"') { inQuotes = false; }
+          else { field += c; }
+        } else if (c === '"') {
+          inQuotes = true;
+        } else if (c === ',') {
+          row.push(field); field = '';
+        } else if (c === '\n' || c === '\r') {
+          if (c === '\r' && text[i + 1] === '\n') i++;
+          row.push(field); field = '';
+          if (row.some((f) => f !== '')) rows.push(row);
+          row = [];
+        } else {
+          field += c;
+        }
+      }
+      if (field !== '' || row.length > 0) { row.push(field); if (row.some((f) => f !== '')) rows.push(row); }
+      if (rows.length === 0) return [];
+      const header = rows[0].map((h) => h.trim().toLowerCase());
+      return rows.slice(1).map((r) => {
+        const obj = {};
+        header.forEach((h, i) => { obj[h] = (r[i] || '').trim(); });
+        return obj;
+      });
+    }
+
+    let pendingImportRows = null;
+
+    document.getElementById('import-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      const errBox = document.getElementById('import-errors');
+      const preview = document.getElementById('import-preview');
+      errBox.hidden = true;
+      preview.style.display = 'none';
+      pendingImportRows = null;
+      if (!file) return;
+
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (rows.length === 0) {
+        errBox.hidden = false;
+        errBox.textContent = 'No rows found in that file.';
+        return;
+      }
+      pendingImportRows = { filename: file.name, rows };
+      document.getElementById('import-preview-text').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} ready to import from "${file.name}".`;
+      preview.style.display = 'block';
+    });
+
+    document.getElementById('import-cancel').addEventListener('click', () => {
+      pendingImportRows = null;
+      document.getElementById('import-preview').style.display = 'none';
+      document.getElementById('import-file').value = '';
+    });
+
+    document.getElementById('import-confirm').addEventListener('click', async () => {
+      if (!pendingImportRows) return;
+      const btn = document.getElementById('import-confirm');
+      btn.disabled = true;
+      const r = await window.shawarmaApi('POST', '/api/admin/shift-imports', pendingImportRows);
+      btn.disabled = false;
+      const errBox = document.getElementById('import-errors');
+      if (!r.ok) {
+        errBox.hidden = false;
+        errBox.innerHTML = escapeHtml(r.error || 'Import failed') + (r.rowErrors ? '<ul style="margin:0.5rem 0 0 1rem;">' + r.rowErrors.map((e) => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>' : '');
+        return;
+      }
+      errBox.hidden = true;
+      document.getElementById('import-preview').style.display = 'none';
+      document.getElementById('import-file').value = '';
+      pendingImportRows = null;
+      window.shawarmaToast(`Imported ${r.count} shift${r.count === 1 ? '' : 's'}`);
+      await refreshAndRender();
+    });
+
+    function renderImports() {
+      const el = document.getElementById('imports-list');
+      const imports = data.shiftImports || [];
+      if (imports.length === 0) {
+        el.innerHTML = '<p class="empty">No uploads yet.</p>';
+        return;
+      }
+      el.innerHTML = imports.map((imp) => `
+        <div class="list-item">
+          <div>
+            <div class="who">${escapeHtml(imp.filename || 'Untitled upload')}</div>
+            <div class="meta">${imp.row_count} shift${imp.row_count === 1 ? '' : 's'} · uploaded by ${escapeHtml(userName(imp.uploaded_by))} · ${formatDate(imp.created_at.slice(0, 10), { short: true })}</div>
+          </div>
+          <button class="btn-danger" data-remove-import="${imp.id}">Remove</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('[data-remove-import]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const imp = imports.find((x) => x.id === b.getAttribute('data-remove-import'));
+          if (!imp) return;
+          if (!confirm(`Remove "${imp.filename || 'this upload'}"? Its ${imp.row_count} shift(s) will be deleted from the calendar.`)) return;
+          const r = await window.shawarmaApi('DELETE', `/api/admin/shift-imports/${imp.id}`);
+          if (!r.ok) { window.shawarmaToast(r.error || 'Remove failed'); return; }
+          window.shawarmaToast('Upload removed');
+          await refreshAndRender();
+        });
+      });
+    }
+
     async function refreshAndRender() {
       await loadState();
       renderApprovals();
       renderUsers();
       renderCaps();
+      renderImports();
     }
 
     refreshAndRender();

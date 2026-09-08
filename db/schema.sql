@@ -16,6 +16,14 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS shift_imports (
+  id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  uploaded_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  filename      TEXT,
+  row_count     INTEGER NOT NULL DEFAULT 0,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS shifts (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   user_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -24,10 +32,12 @@ CREATE TABLE IF NOT EXISTS shifts (
   end_time      TEXT NOT NULL,
   department    TEXT,          -- 'FOH' | 'BOH' | NULL
   notes         TEXT,
+  import_id     TEXT REFERENCES shift_imports(id) ON DELETE CASCADE, -- set when created by a bulk CSV import; deleting the import undoes its shifts
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS shifts_date_idx ON shifts (date);
 CREATE INDEX IF NOT EXISTS shifts_user_idx ON shifts (user_id);
+CREATE INDEX IF NOT EXISTS shifts_import_idx ON shifts (import_id);
 
 CREATE TABLE IF NOT EXISTS time_off_requests (
   id             TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -58,6 +68,22 @@ CREATE TABLE IF NOT EXISTS swap_claims (
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS shift_requests (
+  id             TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  action         TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),
+  shift_id       TEXT REFERENCES shifts(id) ON DELETE CASCADE, -- null for 'create'
+  date           DATE,
+  start_time     TEXT,
+  end_time       TEXT,
+  department     TEXT,
+  notes          TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+  denial_reason  TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS shift_requests_user_idx ON shift_requests (user_id);
 
 CREATE TABLE IF NOT EXISTS day_caps (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

@@ -85,10 +85,10 @@ export async function getShiftById(shiftId) {
   return row0(await sql`SELECT * FROM shifts WHERE id = ${shiftId}`);
 }
 
-export async function createShift({ user_id, date, start_time, end_time, department, notes }) {
+export async function createShift({ user_id, date, start_time, end_time, department, notes, import_id }) {
   return row0(await sql`
-    INSERT INTO shifts (user_id, date, start_time, end_time, department, notes)
-    VALUES (${user_id || null}, ${date}, ${start_time}, ${end_time}, ${department || null}, ${notes || null})
+    INSERT INTO shifts (user_id, date, start_time, end_time, department, notes, import_id)
+    VALUES (${user_id || null}, ${date}, ${start_time}, ${end_time}, ${department || null}, ${notes || null}, ${import_id || null})
     RETURNING *
   `);
 }
@@ -119,6 +119,90 @@ export async function updateShift(shiftId, updates) {
 
 export async function deleteShift(shiftId) {
   await sql`DELETE FROM shifts WHERE id = ${shiftId}`;
+  return true;
+}
+
+// ----- shift requests (staff request -> admin/manager approval) -----
+
+export async function listShiftRequests() {
+  return sql`SELECT * FROM shift_requests ORDER BY created_at DESC`;
+}
+
+export async function getShiftRequestById(reqId) {
+  return row0(await sql`SELECT * FROM shift_requests WHERE id = ${reqId}`);
+}
+
+export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes }) {
+  return row0(await sql`
+    INSERT INTO shift_requests (user_id, action, shift_id, date, start_time, end_time, department, notes)
+    VALUES (${user_id}, ${action}, ${shift_id || null}, ${date || null}, ${start_time || null}, ${end_time || null}, ${department || null}, ${notes || null})
+    RETURNING *
+  `);
+}
+
+export async function updateShiftRequest(reqId, updates) {
+  const row = await getShiftRequestById(reqId);
+  if (!row) return null;
+  const status = updates.status ?? row.status;
+  const denial_reason = updates.denial_reason !== undefined ? updates.denial_reason : row.denial_reason;
+  return row0(await sql`
+    UPDATE shift_requests SET status = ${status}, denial_reason = ${denial_reason}
+    WHERE id = ${reqId}
+    RETURNING *
+  `);
+}
+
+export async function deleteShiftRequest(reqId) {
+  await sql`DELETE FROM shift_requests WHERE id = ${reqId}`;
+  return true;
+}
+
+// Not run inside a single DB transaction (see approveSwapClaimTx above for
+// why) — guarded on status so a race can't double-apply.
+export async function approveShiftRequestTx(reqId) {
+  const req = await getShiftRequestById(reqId);
+  if (!req) return { error: 'not_found' };
+  if (req.status !== 'pending') return { error: 'already_resolved', status: req.status };
+
+  if (req.action === 'create') {
+    await sql`
+      INSERT INTO shifts (user_id, date, start_time, end_time, department, notes)
+      VALUES (${req.user_id}, ${req.date}, ${req.start_time}, ${req.end_time}, ${req.department}, ${req.notes})
+    `;
+  } else if (req.action === 'update') {
+    const shift = await getShiftById(req.shift_id);
+    if (!shift) return { error: 'shift_missing' };
+    await sql`
+      UPDATE shifts SET date = ${req.date}, start_time = ${req.start_time}, end_time = ${req.end_time},
+        department = ${req.department}, notes = ${req.notes}
+      WHERE id = ${req.shift_id}
+    `;
+  } else if (req.action === 'delete') {
+    await sql`DELETE FROM shifts WHERE id = ${req.shift_id}`;
+  }
+
+  await sql`UPDATE shift_requests SET status = 'approved' WHERE id = ${reqId}`;
+  return { ok: true };
+}
+
+// ----- shift imports (bulk CSV, admin/manager only) -----
+
+export async function listShiftImports() {
+  return sql`SELECT * FROM shift_imports ORDER BY created_at DESC`;
+}
+
+export async function createShiftImport({ uploaded_by, filename, row_count }) {
+  return row0(await sql`
+    INSERT INTO shift_imports (uploaded_by, filename, row_count)
+    VALUES (${uploaded_by}, ${filename || null}, ${row_count})
+    RETURNING *
+  `);
+}
+
+// The ON DELETE CASCADE foreign key on shifts.import_id does the actual
+// cleanup — this is the "undo this upload" action in the admin UI.
+export async function deleteShiftImport(importId) {
+  await sql`DELETE FROM shift_imports WHERE id = ${importId}`;
   return true;
 }
 

@@ -36,6 +36,8 @@ function seedData() {
     time_off_requests: [],
     swap_posts: [],
     swap_claims: [],
+    shift_requests: [],
+    shift_imports: [],
     day_caps: [],
   };
 }
@@ -49,7 +51,10 @@ function load() {
     console.log(`[local-db] Seeded ${DATA_FILE} with the original roster (${initial.users.length} users) — each account's dev password matches its username (e.g. ray / ray).`);
     return initial;
   }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  if (!data.shift_requests) data.shift_requests = [];
+  if (!data.shift_imports) data.shift_imports = [];
+  return data;
 }
 
 function save(data) {
@@ -129,7 +134,7 @@ export async function getShiftById(shiftId) {
   return load().shifts.find((s) => s.id === shiftId) || null;
 }
 
-export async function createShift({ user_id, date, start_time, end_time, department, notes }) {
+export async function createShift({ user_id, date, start_time, end_time, department, notes, import_id }) {
   const d = load();
   const shift = {
     id: id(),
@@ -139,6 +144,7 @@ export async function createShift({ user_id, date, start_time, end_time, departm
     end_time,
     department: department || null,
     notes: notes || null,
+    import_id: import_id || null,
     created_at: new Date().toISOString(),
   };
   d.shifts.push(shift);
@@ -159,6 +165,126 @@ export async function deleteShift(shiftId) {
   const d = load();
   d.shifts = d.shifts.filter((s) => s.id !== shiftId);
   d.swap_posts = d.swap_posts.filter((p) => p.shift_id !== shiftId);
+  d.shift_requests = d.shift_requests.filter((r) => r.shift_id !== shiftId);
+  save(d);
+  return true;
+}
+
+// ----- shift requests (staff request -> admin/manager approval) -----
+
+export async function listShiftRequests() {
+  return load()
+    .shift_requests.slice()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export async function getShiftRequestById(reqId) {
+  return load().shift_requests.find((r) => r.id === reqId) || null;
+}
+
+export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes }) {
+  const d = load();
+  const row = {
+    id: id(),
+    user_id,
+    action,
+    shift_id: shift_id || null,
+    date: date || null,
+    start_time: start_time || null,
+    end_time: end_time || null,
+    department: department || null,
+    notes: notes || null,
+    status: 'pending',
+    denial_reason: null,
+    created_at: new Date().toISOString(),
+  };
+  d.shift_requests.push(row);
+  save(d);
+  return row;
+}
+
+export async function updateShiftRequest(reqId, updates) {
+  const d = load();
+  const row = d.shift_requests.find((r) => r.id === reqId);
+  if (!row) return null;
+  Object.assign(row, updates);
+  save(d);
+  return row;
+}
+
+export async function deleteShiftRequest(reqId) {
+  const d = load();
+  d.shift_requests = d.shift_requests.filter((r) => r.id !== reqId);
+  save(d);
+  return true;
+}
+
+// Approves a shift request: applies the create/update/delete to the shifts
+// table, then marks the request approved.
+export async function approveShiftRequestTx(reqId) {
+  const d = load();
+  const req = d.shift_requests.find((r) => r.id === reqId);
+  if (!req) return { error: 'not_found' };
+  if (req.status !== 'pending') return { error: 'already_resolved', status: req.status };
+
+  if (req.action === 'create') {
+    d.shifts.push({
+      id: id(),
+      user_id: req.user_id,
+      date: req.date,
+      start_time: req.start_time,
+      end_time: req.end_time,
+      department: req.department,
+      notes: req.notes,
+      created_at: new Date().toISOString(),
+    });
+  } else if (req.action === 'update') {
+    const shift = d.shifts.find((s) => s.id === req.shift_id);
+    if (!shift) return { error: 'shift_missing' };
+    shift.date = req.date;
+    shift.start_time = req.start_time;
+    shift.end_time = req.end_time;
+    shift.department = req.department;
+    shift.notes = req.notes;
+  } else if (req.action === 'delete') {
+    d.shifts = d.shifts.filter((s) => s.id !== req.shift_id);
+    d.swap_posts = d.swap_posts.filter((p) => p.shift_id !== req.shift_id);
+  }
+
+  req.status = 'approved';
+  save(d);
+  return { ok: true };
+}
+
+// ----- shift imports (bulk CSV, admin/manager only) -----
+
+export async function listShiftImports() {
+  return load()
+    .shift_imports.slice()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export async function createShiftImport({ uploaded_by, filename, row_count }) {
+  const d = load();
+  const row = {
+    id: id(),
+    uploaded_by,
+    filename: filename || null,
+    row_count,
+    created_at: new Date().toISOString(),
+  };
+  d.shift_imports.push(row);
+  save(d);
+  return row;
+}
+
+// Deletes the import batch and every shift it created (mirrors the
+// ON DELETE CASCADE foreign key in the Postgres schema) — this is the
+// "undo this upload" action in the admin file-management UI.
+export async function deleteShiftImport(importId) {
+  const d = load();
+  d.shifts = d.shifts.filter((s) => s.import_id !== importId);
+  d.shift_imports = d.shift_imports.filter((i) => i.id !== importId);
   save(d);
   return true;
 }
