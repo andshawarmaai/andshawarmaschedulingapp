@@ -60,6 +60,39 @@ The only manual step it can't do for you: if `vercel login` needs a
 browser to complete, that has to happen once, interactively, before the
 wizard can authenticate.
 
+### Running this fully headless (a CI job, or an AI agent with no browser)
+
+Vercel's CLI has real support for this — it's not a workaround:
+
+- **Auth without a browser**: set a `VERCEL_TOKEN` environment variable
+  (generate one at https://vercel.com/account/tokens) instead of running
+  `vercel login`. Every `vercel` command, including inside `npm run
+  setup`, picks this up automatically.
+- **Avoid landing on the wrong team**: if that Vercel account belongs to
+  more than one team, set `VERCEL_TEAM` (and `VERCEL_PROJECT`, if linking
+  to a specific existing project rather than creating a new one) —
+  `npm run setup` passes both through to `vercel link` when set. Without
+  this, `--yes` silently picks whatever Vercel considers the "default"
+  team, which may not be the intended one.
+- **Continuous deploys after setup**: the wizard runs `vercel git
+  connect` against this repo's `origin` remote, so after the first
+  successful run, every future `git push` deploys on its own — no need
+  to re-run anything for ordinary code changes. Re-run `npm run setup`
+  only when environment variables need to change.
+- **The one step no agent can fully automate**: the very first time a
+  given Vercel *team* installs the Neon marketplace integration, Vercel
+  requires a human to interactively accept its terms (this is Vercel's
+  own restriction, not something this script can work around). A fully
+  autonomous agent will get stuck exactly here on a brand-new team, and
+  needs a human to run `vercel integration add neon` once, interactively.
+  Every subsequent thing — schema, seeding, deploys, redeploys — is fully
+  automatable after that one click. See Troubleshooting below.
+- **Harmless noise to ignore**: Vercel's build log may print `npm warn
+  allow-scripts` about `esbuild`/`sharp` postinstall scripts being
+  skipped. These are transitive dependencies of Astro's own image
+  tooling, unused by this app — this warning has never caused a build to
+  fail here and isn't worth chasing.
+
 ### What it's doing, step by step (for reference / manual runs)
 
 ```bash
