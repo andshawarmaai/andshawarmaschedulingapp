@@ -40,6 +40,7 @@ function seedData() {
     shift_imports: [],
     api_keys: [],
     password_reset_requests: [],
+    telegram_bots: [],
     day_caps: [],
   };
 }
@@ -58,6 +59,7 @@ function load() {
   if (!data.shift_imports) data.shift_imports = [];
   if (!data.api_keys) data.api_keys = [];
   if (!data.password_reset_requests) data.password_reset_requests = [];
+  if (!data.telegram_bots) data.telegram_bots = [];
   return data;
 }
 
@@ -532,4 +534,68 @@ export async function resolvePasswordResetRequest(requestId, resolvedBy) {
   row.resolved_by = resolvedBy || null;
   save(d);
   return row;
+}
+
+// ----- Telegram bots (one per admin, linked via /start) -----
+
+export async function listTelegramBots() {
+  return load()
+    .telegram_bots.slice()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export async function listTelegramBotsForUser(userId) {
+  return load().telegram_bots.filter((b) => b.user_id === userId && !b.revoked);
+}
+
+export async function getTelegramBotById(botId) {
+  return load().telegram_bots.find((b) => b.id === botId) || null;
+}
+
+export async function getTelegramBotByWebhookSecret(secret) {
+  return load().telegram_bots.find((b) => b.webhook_secret === secret && !b.revoked) || null;
+}
+
+export async function createTelegramBot({ user_id, bot_token, bot_username, webhook_secret }) {
+  const d = load();
+  const row = {
+    id: id(),
+    user_id,
+    bot_token,
+    bot_username: bot_username || null,
+    webhook_secret,
+    chat_id: null,
+    linked_at: null,
+    last_used_at: null,
+    revoked: false,
+    created_at: new Date().toISOString(),
+  };
+  d.telegram_bots.push(row);
+  save(d);
+  return row;
+}
+
+export async function linkTelegramBotChat(botId, chatId) {
+  const d = load();
+  const row = d.telegram_bots.find((b) => b.id === botId);
+  if (!row) return null;
+  row.chat_id = String(chatId);
+  row.linked_at = new Date().toISOString();
+  save(d);
+  return row;
+}
+
+export async function touchTelegramBot(botId) {
+  const d = load();
+  const row = d.telegram_bots.find((b) => b.id === botId);
+  if (row) { row.last_used_at = new Date().toISOString(); save(d); }
+}
+
+export async function revokeTelegramBot(botId) {
+  const d = load();
+  const row = d.telegram_bots.find((b) => b.id === botId);
+  if (!row) return false;
+  row.revoked = true;
+  save(d);
+  return true;
 }

@@ -34,6 +34,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
     // API-key-authenticated routes do their own auth (see apiKey.js) —
     // they're reachable with no session cookie at all, by design.
     if (pathname.startsWith('/api/public/')) return next();
+    // Telegram calls this with no session cookie either — it verifies the
+    // request itself via the per-bot secret token (see
+    // api/telegram/webhook/[id].js).
+    if (pathname.startsWith('/api/telegram/webhook/')) return next();
     if (!user) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }

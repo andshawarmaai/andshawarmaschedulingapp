@@ -390,3 +390,45 @@ export async function resolvePasswordResetRequest(requestId, resolvedBy) {
     WHERE id = ${requestId} RETURNING *
   `);
 }
+
+// ----- Telegram bots (one per admin, linked via /start) -----
+
+export async function listTelegramBots() {
+  return sql`SELECT * FROM telegram_bots ORDER BY created_at DESC`;
+}
+
+export async function listTelegramBotsForUser(userId) {
+  return sql`SELECT * FROM telegram_bots WHERE user_id = ${userId} AND revoked = FALSE ORDER BY created_at DESC`;
+}
+
+export async function getTelegramBotById(botId) {
+  return row0(await sql`SELECT * FROM telegram_bots WHERE id = ${botId}`);
+}
+
+export async function getTelegramBotByWebhookSecret(secret) {
+  return row0(await sql`SELECT * FROM telegram_bots WHERE webhook_secret = ${secret} AND revoked = FALSE`);
+}
+
+export async function createTelegramBot({ user_id, bot_token, bot_username, webhook_secret }) {
+  return row0(await sql`
+    INSERT INTO telegram_bots (user_id, bot_token, bot_username, webhook_secret)
+    VALUES (${user_id}, ${bot_token}, ${bot_username || null}, ${webhook_secret})
+    RETURNING *
+  `);
+}
+
+export async function linkTelegramBotChat(botId, chatId) {
+  return row0(await sql`
+    UPDATE telegram_bots SET chat_id = ${String(chatId)}, linked_at = now()
+    WHERE id = ${botId} RETURNING *
+  `);
+}
+
+export async function touchTelegramBot(botId) {
+  await sql`UPDATE telegram_bots SET last_used_at = now() WHERE id = ${botId}`;
+}
+
+export async function revokeTelegramBot(botId) {
+  await sql`UPDATE telegram_bots SET revoked = TRUE WHERE id = ${botId}`;
+  return true;
+}
