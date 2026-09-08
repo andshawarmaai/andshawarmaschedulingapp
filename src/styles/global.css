@@ -273,8 +273,13 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 /* ----- Lists ----- */
 .list-item { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.75rem 0; border-bottom: 1px solid var(--color-border); }
 .list-item:last-child { border-bottom: none; }
-.list-item .who { font-weight: 600; }
-.list-item .meta { font-size: 0.8125rem; color: var(--color-ink-light); }
+/* Every list-item's leading content block shrinks and wraps instead of
+   pushing the page wide or spilling past the card edge — a flex item's
+   default min-width:auto otherwise refuses to shrink below its content's
+   natural (unwrapped) width. */
+.list-item > div:first-child { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
+.list-item .who { font-weight: 600; overflow-wrap: break-word; }
+.list-item .meta { font-size: 0.8125rem; color: var(--color-ink-light); overflow-wrap: break-word; }
 
 /* ----- Roster (dashboard) ----- */
 .roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.75rem; }
@@ -284,7 +289,7 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 .roster-card-next { font-size: 0.75rem; color: var(--color-ink-light); }
 .roster-card-next.off { color: var(--color-muted); font-style: italic; }
 .roster-card-contact { margin-top: 0.375rem; padding-top: 0.375rem; border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 2px; font-size: 0.75rem; }
-.roster-card-contact a { display: flex; align-items: center; gap: 0.375rem; color: var(--color-ink-light); }
+.roster-card-contact a { display: block; color: var(--color-ink-light); min-width: 0; overflow-wrap: anywhere; }
 .roster-card-contact a:hover { color: var(--color-primary); }
 
 /* ----- Calendar (schedule page) ----- */
