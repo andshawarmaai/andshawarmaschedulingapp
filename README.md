@@ -35,10 +35,32 @@ fresh seed.
 
 ## Deploying to Vercel + Neon
 
-These steps assume the `vercel` CLI is installed and logged into the
-account/team that should own this deployment (`npx vercel login` if not).
+### The fast way
 
-### 1. Link the Vercel project
+```bash
+npm install
+vercel login          # skip if already logged in
+npm run setup
+```
+
+`scripts/setup.mjs` is a resumable deployment wizard — a human or an AI
+agent can just run it from a completely clean checkout. It links the
+Vercel project, provisions a Neon database through Vercel's marketplace
+integration (billed to whichever Vercel account runs this — no separate
+Neon signup), generates and sets `SESSION_SECRET`, applies the database
+schema, seeds the first accounts, and deploys to production.
+
+It checks each step's current state before acting, so it's **safe to
+re-run** — if it stops partway (e.g. Neon's marketplace integration needs
+a one-time browser approval on first install), do that one thing and run
+`npm run setup` again; it picks up exactly where it left off instead of
+redoing anything.
+
+The only manual step it can't do for you: if `vercel login` needs a
+browser to complete, that has to happen once, interactively, before the
+wizard can authenticate.
+
+### What it's doing, step by step (for reference / manual runs)
 
 ```bash
 vercel link
@@ -84,19 +106,7 @@ Then apply the schema and seed the first accounts:
 
 ```bash
 set -a && source .env.local && set +a
-node -e "
-const fs = require('fs');
-const { neon } = require('@neondatabase/serverless');
-const sql = neon(process.env.DATABASE_URL);
-const statements = fs.readFileSync('db/schema.sql', 'utf8')
-  .split(';')
-  .map(s => s.trim())
-  .filter(Boolean);
-(async () => {
-  for (const stmt of statements) await sql.query(stmt);
-  console.log('schema applied');
-})();
-"
+node db/apply-schema.mjs
 node db/seed.mjs
 ```
 
@@ -134,8 +144,10 @@ src/lib/llm/               Pluggable LLM backend for natural-language Telegram m
 src/pages/api/             All API routes (see below)
 src/pages/*.astro          UI pages
 db/schema.sql              Full Postgres schema — the source of truth for table shape
+db/apply-schema.mjs        Applies schema.sql against DATABASE_URL (idempotent)
 db/seed.mjs                One-time script to create the first accounts in Neon
 db/roster.mjs              The original staff roster used by both seed paths
+scripts/setup.mjs          Resumable deployment wizard (`npm run setup`)
 ```
 
 ### Three ways external systems can change the schedule
