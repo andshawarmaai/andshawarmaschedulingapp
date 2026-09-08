@@ -14,6 +14,45 @@
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 const TYPES = new Set(['shift', 'cap', 'swap']);
+const AMBIGUOUS = Symbol('ambiguous');
+
+// Whoever fills out the sheet (a person speaking to an AI) is far more
+// likely to say "Ray" or "Ray Ally" than the system username "ray" — so a
+// row's name column matches against username, full display name, OR first
+// name, not just the exact username.
+//
+// Usernames are kept in their own map, checked first and always exact:
+// they're unique by database constraint, so one can never be ambiguous.
+// Display names and first names go in a separate "fuzzy" index where a
+// collision (two people named "Jorge") poisons that one key to AMBIGUOUS
+// rather than guessing — critically, that poisoning must never be able to
+// reach into the username map, or a first-name collision with an unrelated
+// person could break someone's own exact, unique username.
+function buildNameIndex(users) {
+  const usernames = new Map(users.map((u) => [u.username.trim().toLowerCase(), u]));
+  const fuzzy = new Map();
+  const add = (key, user) => {
+    const k = String(key || '').trim().toLowerCase();
+    if (!k) return;
+    if (fuzzy.has(k) && fuzzy.get(k) !== user) fuzzy.set(k, AMBIGUOUS);
+    else if (!fuzzy.has(k)) fuzzy.set(k, user);
+  };
+  for (const u of users) {
+    add(u.display_name, u);
+    add(String(u.display_name || '').split(' ')[0], u);
+  }
+  return { usernames, fuzzy };
+}
+
+// Returns the matched user, or null (not found / ambiguous — the caller
+// doesn't need to tell those apart for the error message).
+function resolveUser({ usernames, fuzzy }, raw) {
+  const k = String(raw || '').trim().toLowerCase();
+  const exact = usernames.get(k);
+  if (exact) return exact;
+  const hit = fuzzy.get(k);
+  return hit && hit !== AMBIGUOUS ? hit : null;
+}
 
 // Minimal CSV parser: skips blank lines and "#" comment lines (so a
 // generated template can carry a human/AI-readable reference block above
@@ -60,23 +99,31 @@ export function parseCsv(text) {
   });
 }
 
-// Builds the downloadable template: a comment block listing every valid
-// username (so whatever AI is filling this out has an exact reference —
-// no guessing at spelling), the column header, and one example row per
-// type. Regenerated on every request, so it never goes stale as the
-// roster changes.
+// Builds the downloadable template. Each staff member gets their OWN
+// comment line ("# adnan -> Adnan") rather than one giant comma-packed
+// line — a spreadsheet app (Excel, Numbers, Sheets) splits on every comma
+// regardless of "#", so a single line listing everyone turns into a wall
+// of misaligned cells that doesn't read as a roster at all. One name per
+// line stays readable there and is still just as invisible to the
+// machine parser (anything starting with "#" is dropped either way).
+// The `username` column below accepts username, full name, or first name
+// (see buildNameIndex) — this list is only a spelling reference.
 export function buildTemplateCsv(users) {
-  const usernames = users.filter((u) => !u.disabled).map((u) => u.username).sort();
+  const active = users.filter((u) => !u.disabled).sort((a, b) => a.username.localeCompare(b.username));
+  const exampleName = active[0] ? active[0].display_name : 'username or full name';
   const lines = [
-    '# Valid usernames: ' + usernames.join(', '),
+    '# ===== STAFF ROSTER — use the exact spelling of either name below in the "username" column =====',
+    ...active.map((u) => `# ${u.username} -> ${u.display_name}`),
+    '# ===== If two people share a first name, use their full name or username instead =====',
+    '#',
     '# type=shift  -> username,date,start_time,end_time,notes',
     '# type=cap    -> date,window_start,window_end,max_shifts,notes',
     '# type=swap   -> username,date,start_time,notes (notes = reason; matches an EXISTING shift to post for swap)',
     '# Delete these comment lines and the example rows below before importing, or leave the comments — they are ignored.',
     'type,username,date,start_time,end_time,window_start,window_end,max_shifts,notes',
-    `shift,${usernames[0] || 'username'},2026-09-15,11:00,19:00,,,,`,
+    `shift,${exampleName},2026-09-15,11:00,19:00,,,,`,
     `cap,,2026-09-15,,,11:00,15:00,2,lunch rush`,
-    `swap,${usernames[0] || 'username'},2026-09-15,11:00,,,,,can't make it`,
+    `swap,${exampleName},2026-09-15,11:00,,,,,can't make it`,
   ];
   return lines.join('\n') + '\n';
 }
@@ -86,7 +133,7 @@ export function buildTemplateCsv(users) {
 // `shifts` are the current flat tables (needed to resolve a swap row's
 // username+date+start_time down to an existing shift id).
 export function validateImportRows(rows, { users, shifts }) {
-  const byUsername = new Map(users.map((u) => [u.username.toLowerCase(), u]));
+  const nameIndex = buildNameIndex(users);
   const errors = [];
   const resolved = { shifts: [], caps: [], swaps: [] };
 
@@ -104,9 +151,9 @@ export function validateImportRows(rows, { users, shifts }) {
       const start_time = String(row.start_time || '').trim();
       const end_time = String(row.end_time || '').trim();
       const notes = row.notes ? String(row.notes).trim() : null;
-      const user = byUsername.get(username.toLowerCase());
+      const user = resolveUser(nameIndex, username);
       if (!username) errors.push(`Row ${line}: username is required.`);
-      else if (!user) errors.push(`Row ${line}: no user with username "${username}".`);
+      else if (!user) errors.push(`Row ${line}: "${username}" doesn't match exactly one staff member — check the roster list at the top of the template.`);
       if (!DATE_RE.test(date)) errors.push(`Row ${line}: date must be YYYY-MM-DD (got "${date}").`);
       if (!TIME_RE.test(start_time)) errors.push(`Row ${line}: start_time must be HH:MM (got "${start_time}").`);
       if (!TIME_RE.test(end_time)) errors.push(`Row ${line}: end_time must be HH:MM (got "${end_time}").`);
@@ -143,9 +190,9 @@ export function validateImportRows(rows, { users, shifts }) {
     const date = String(row.date || '').trim();
     const start_time = String(row.start_time || '').trim();
     const reason = row.notes ? String(row.notes).trim() : null;
-    const user = byUsername.get(username.toLowerCase());
+    const user = resolveUser(nameIndex, username);
     if (!username) errors.push(`Row ${line}: username is required.`);
-    else if (!user) errors.push(`Row ${line}: no user with username "${username}".`);
+    else if (!user) errors.push(`Row ${line}: "${username}" doesn't match exactly one staff member — check the roster list at the top of the template.`);
     if (!DATE_RE.test(date)) errors.push(`Row ${line}: date must be YYYY-MM-DD (got "${date}").`);
     if (!TIME_RE.test(start_time)) errors.push(`Row ${line}: start_time must be HH:MM (got "${start_time}").`);
     if (user && DATE_RE.test(date) && TIME_RE.test(start_time)) {

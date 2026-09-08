@@ -10,4 +10,5 @@ db/backups/
 .env*
 .agents/
 .claude/skills/
+.claude/scheduled_tasks.lock
 skills-lock.json
