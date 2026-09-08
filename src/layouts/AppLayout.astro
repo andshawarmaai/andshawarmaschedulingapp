@@ -5,8 +5,12 @@ import Icon from '../components/Icon.astro';
 interface Props {
   title?: string;
   active?: string;
+  // The logo image already spells out the name, so the header hides the
+  // "&Shawarma" text label by default. Flip this to true on any page (or
+  // change the default here) if you want the text label back.
+  showBrandText?: boolean;
 }
-const { title = '&Shawarma — My Shifts', active = '' } = Astro.props as Props;
+const { title = '&Shawarma — My Shifts', active = '', showBrandText = false } = Astro.props as Props;
 
 // middleware.js already guarantees Astro.locals.user is set for every page
 // that reaches this layout (it redirects to /login otherwise), so this is
@@ -34,7 +38,7 @@ const navItems = [
     <div class="site-header-inner">
       <a href="/" class="brand">
         <img src="/logo.jpg" alt="&Shawarma" />
-        <span>&amp;Shawarma</span>
+        {showBrandText && <span>&amp;Shawarma</span>}
       </a>
       <div class="header-actions">
         <span class="user-pill">{user.display_name}<br /><span class="role">{user.role}</span></span>
