@@ -3,7 +3,6 @@
 import AppLayout from '../layouts/AppLayout.astro';
 import Icon from '../components/Icon.astro';
 const user = Astro.locals.user;
-const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY));
 ---
 <AppLayout title="&Shawarma — Manage" active="admin">
   <div class="card">
@@ -48,6 +47,21 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
   </div>
 
   <div class="card">
+    <h2>API Keys</h2>
+    <p class="card-sub">
+      Let an AI agent or script send a bulk shift import directly, without anyone logging in. Give each
+      key a name, hand the key to that agent, and revoke it any time — revoking one key never touches the others.
+    </p>
+    <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
+      POST the CSV to <code>/api/public/shift-imports</code> with header <code>Authorization: Bearer &lt;key&gt;</code>
+      and <code>Content-Type: text/csv</code> (or JSON <code>{`{ "rows": [...] }`}</code>). Same
+      <code>type</code>-column format as the template above (shift / cap / swap).
+    </p>
+    <button class="btn-primary" id="add-key-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Create API key</button>
+    <div id="keys-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
     <h2>Bulk Schedule Import</h2>
     <p class="card-sub">
       Download the template — it's generated fresh from your current staff list every time, with a reference
@@ -73,41 +87,6 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
     <p class="card-sub">Removing an upload undoes the shifts it created. Slot caps and swap postings from the same upload aren't part of that undo — clear a cap from Slot Caps above, or cancel a post from the Shift Swap board.</p>
     <div id="imports-list"><p class="empty">Loading...</p></div>
   </div>
-
-  <div class="card">
-    <h2>API Keys</h2>
-    <p class="card-sub">
-      Let an AI agent or script send a bulk shift import directly, without anyone logging in. Give each
-      key a name, hand the key to that agent, and revoke it any time — revoking one key never touches the others.
-    </p>
-    <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
-      POST the CSV to <code>/api/public/shift-imports</code> with header <code>Authorization: Bearer &lt;key&gt;</code>
-      and <code>Content-Type: text/csv</code> (or JSON <code>{`{ "rows": [...] }`}</code>). Same
-      <code>type</code>-column format as the template above (shift / cap / swap).
-    </p>
-    <button class="btn-primary" id="add-key-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Create API key</button>
-    <div id="keys-list"><p class="empty">Loading...</p></div>
-  </div>
-
-  {user.role === 'admin' && (
-    <div class="card">
-      <h2>Telegram Bots</h2>
-      <p class="card-sub">
-        Connect your own Telegram bot to adjust the schedule by chatting with it — no spreadsheet needed.
-        Each admin's bot is separate, so connecting or revoking yours never affects anyone else's.
-      </p>
-      <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
-        1. In Telegram, message <strong>@BotFather</strong> → <code>/newbot</code> → follow its prompts.<br />
-        2. Paste the token it gives you below.<br />
-        3. Open your new bot in Telegram and send <code>/start</code> to link it to you.<br />
-        4. {llmEnabled
-          ? <>Then just type naturally — "give Jorge Tuesday 11 to 7" works. Send <code>/help</code> for the exact command syntax too.</>
-          : <>Send <code>/help</code> to your bot any time for the command list — plain-English messages aren't enabled yet (needs an LLM API key set in the deployment's environment variables).</>}
-      </p>
-      <button class="btn-primary" id="add-telegram-bot-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Connect a bot</button>
-      <div id="telegram-bots-list"><p class="empty">Loading...</p></div>
-    </div>
-  )}
 
   <!-- New API key modal: shows the plaintext key exactly once -->
   <div class="modal-backdrop" id="new-key-modal">
@@ -729,50 +708,6 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
       }
     });
 
-    // ----- Telegram bots (admin only — element only exists for admins) -----
-
-    function renderTelegramBots() {
-      const el = document.getElementById('telegram-bots-list');
-      if (!el) return;
-      const bots = data.telegramBots || [];
-      if (bots.length === 0) {
-        el.innerHTML = '<p class="empty">No bots connected yet.</p>';
-        return;
-      }
-      el.innerHTML = bots.map((b) => `
-        <div class="list-item">
-          <div>
-            <div class="who">${b.bot_username ? '@' + escapeHtml(b.bot_username) : 'Unnamed bot'}</div>
-            <div class="meta">${b.linked ? 'Linked' : 'Not linked yet — send /start to it in Telegram'} · created ${formatDate(b.created_at.slice(0, 10), { short: true })}${b.last_used_at ? ' · last used ' + formatDate(b.last_used_at.slice(0, 10), { short: true }) : ''}</div>
-          </div>
-          <button class="btn-danger" data-revoke-bot="${b.id}">Revoke</button>
-        </div>
-      `).join('');
-      el.querySelectorAll('[data-revoke-bot]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const b = bots.find((x) => x.id === btn.getAttribute('data-revoke-bot'));
-          if (!b) return;
-          if (!confirm(`Revoke @${b.bot_username || 'this bot'}? It will stop responding immediately.`)) return;
-          const r = await window.shawarmaApi('DELETE', `/api/admin/telegram-bots/${b.id}`);
-          if (!r.ok) { window.shawarmaToast(r.error || 'Revoke failed'); return; }
-          window.shawarmaToast('Bot revoked');
-          await refreshAndRender();
-        });
-      });
-    }
-
-    const addTelegramBotBtn = document.getElementById('add-telegram-bot-btn');
-    if (addTelegramBotBtn) {
-      addTelegramBotBtn.addEventListener('click', async () => {
-        const token = prompt('Paste the bot token @BotFather gave you:');
-        if (!token) return;
-        const r = await window.shawarmaApi('POST', '/api/admin/telegram-bots', { bot_token: token.trim() });
-        if (!r.ok) { window.shawarmaToast(r.error || 'Could not connect bot'); return; }
-        window.shawarmaToast(r.message || 'Bot connected');
-        await refreshAndRender();
-      });
-    }
-
     async function refreshAndRender() {
       await loadState();
       renderApprovals();
@@ -780,7 +715,6 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
       renderCaps();
       renderImports();
       renderKeys();
-      renderTelegramBots();
       renderTiers();
     }
 

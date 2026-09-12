@@ -1,9 +1,10 @@
 # &Shawarma — Staff Scheduling
 
 A staff scheduling app for a single restaurant: shifts, time-off requests,
-shift swaps, and an admin panel — with a bulk CSV importer and a
-per-admin Telegram bot (with optional LLM-powered natural language) so an
-AI assistant can update the schedule without anyone opening the UI.
+shift swaps, and an admin panel — with a bulk CSV importer and an
+API-key-authenticated endpoint so an external AI assistant (e.g. Hermes,
+reached over Telegram on its own end) can update the schedule without
+anyone opening the UI.
 
 This doc is written so a developer **or an AI coding agent** can deploy
 this from a completely empty state with no prior context. Every command
@@ -123,10 +124,6 @@ vercel env add SESSION_SECRET production
 (paste the generated value when prompted). The app throws on boot in
 production without this set — it signs every session cookie.
 
-Optional environment variables — see `.env.example` for the full list
-with explanations (LLM provider keys for the Telegram natural-language
-feature; none of these are required for the app to run).
-
 ### 4. Apply the database schema
 
 Pull the `DATABASE_URL` Vercel just created into a local `.env.local`:
@@ -207,10 +204,6 @@ reach the running app the same way.
 | `DATABASE_URL` | Yes in production | Auto-set by `vercel integration add neon` | `src/lib/db/index.js` |
 | `DATABASE_URL_UNPOOLED` | No (Neon sets it alongside `DATABASE_URL`) | Same as above | not used directly by app code |
 | `SESSION_SECRET` | Yes in production | Generate yourself (see step 3), set via `vercel env add` | `src/lib/session.js` |
-| `LLM_PROVIDER` | No | You choose: `anthropic` or `openai` | `src/lib/llm/index.js` |
-| `ANTHROPIC_API_KEY` | Only if `LLM_PROVIDER=anthropic` | Your Anthropic account | `src/lib/llm/anthropic.js` |
-| `OPENAI_API_KEY` | Only if `LLM_PROVIDER=openai` | Your OpenAI account | `src/lib/llm/openai.js` |
-| `LLM_MODEL` | No | Optional override of that provider's default model | `src/lib/llm/anthropic.js` / `openai.js` |
 
 Nothing here is a shared/global secret — every value above is scoped to
 one Vercel project, so a second deployment (a different customer, a
@@ -258,8 +251,7 @@ src/lib/db/local.js        Local JSON file backend (dev only)
 src/lib/db/neon.js         Neon Postgres backend (production)
 src/lib/shiftImport.js     CSV/command row validation shared by every import path
 src/lib/apiKey.js          API-key generation/verification (agent access)
-src/lib/telegram.js        Telegram Bot API wrapper
-src/lib/llm/               Pluggable LLM backend for natural-language Telegram messages
+src/lib/tierLimits.js      Admin-only per-tier monthly caps on shifts/time-off (auto-deny)
 src/pages/api/             All API routes (see below)
 src/pages/*.astro          UI pages
 db/schema.sql              Full Postgres schema — the source of truth for table shape
@@ -269,29 +261,30 @@ db/roster.mjs              The original staff roster used by both seed paths
 scripts/setup.mjs          Resumable deployment wizard (`npm run setup`)
 ```
 
-### Three ways external systems can change the schedule
+### Two ways external systems can change the schedule
 
 1. **CSV upload in the UI** — Manage → Bulk Schedule Import. Session-authenticated.
 2. **API key** — `POST /api/public/shift-imports` with
    `Authorization: Bearer shwrm_...` and a CSV or JSON body. Keys are
    created/revoked in Manage → API Keys. Built for an external AI agent
-   (e.g. "Hermes") to post a bulk update without a login session.
-3. **Telegram bot** — Manage → Telegram Bots (admin-only). Each admin
-   connects their own bot (from @BotFather); understands `/shift`, `/cap`,
-   `/swap` commands always, and free-form natural language when an LLM
-   provider is configured (see `.env.example`).
+   (e.g. Hermes, reached over Telegram or however else it's set up on its
+   own end) to post a bulk update without a login session.
 
-All three funnel through the same validation in `src/lib/shiftImport.js`,
-so a bad row is rejected identically regardless of which path sent it.
+Both funnel through the same validation in `src/lib/shiftImport.js`, so a
+bad row is rejected identically regardless of which path sent it. Neither
+goes through the tier-based auto-deny in `src/lib/tierLimits.js` — that
+only applies to a staff member's own shift/time-off requests
+(`/api/shift-requests`, `/api/timeoff`); a bulk import writes shifts
+directly, the same as an admin creating one by hand, bypassing the
+request/approval flow (and its tier check) entirely by design.
 
 ## Security notes
 
 - Every write is gated by the signed session cookie + role check in
   `src/middleware.js`, not by browser origin checks (`security.checkOrigin: false`
   in `astro.config.mjs` is intentional — see the comment there).
-- API keys and Telegram webhook secrets are the only two ways to write to
-  this app without a login session; both are scoped, individually
-  revocable, and logged.
+- API keys are the only way to write to this app without a login session;
+  each one is scoped, individually revocable, and logged.
 - Passwords are bcrypt-hashed; nothing plaintext is ever stored past
   creation time (account creation, `db/seed.mjs`, and password resets all
   print/show a password exactly once).

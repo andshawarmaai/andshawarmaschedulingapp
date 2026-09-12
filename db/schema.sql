@@ -132,30 +132,6 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 );
 CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_requests (user_id);
 
--- One row per admin's personal Telegram bot (separate bots per admin, not
--- one shared bot — easy to revoke one person without touching anyone
--- else's). bot_token is Telegram's own secret, needed in plaintext to call
--- their Bot API (sendMessage, setWebhook) — unlike api_keys, this isn't a
--- credential we issue and can hash, it's one we hold and use. webhook_secret
--- is ours: a random value Telegram echoes back on every webhook call
--- (X-Telegram-Bot-Api-Secret-Token), checked so a request to the (already
--- hard-to-guess, UUID-keyed) webhook URL can't be spoofed by anyone who
--- finds the URL some other way. chat_id is null until the admin sends
--- /start to their own bot — until then, nobody is treated as authorized.
-CREATE TABLE IF NOT EXISTS telegram_bots (
-  id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  bot_token       TEXT NOT NULL,
-  bot_username    TEXT,
-  webhook_secret  TEXT NOT NULL,
-  chat_id         TEXT,
-  linked_at       TIMESTAMPTZ,
-  last_used_at    TIMESTAMPTZ,
-  revoked         BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS telegram_bots_user_idx ON telegram_bots (user_id);
-
 CREATE TABLE IF NOT EXISTS day_caps (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   date          TEXT NOT NULL, -- 'YYYY-MM-DD'

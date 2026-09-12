@@ -46,14 +46,6 @@ export async function GET(context) {
     body.passwordResetRequests = (await db.listPasswordResetRequests()).filter((r) => !r.resolved_at);
   }
   if (me.role === 'admin') {
-    // Telegram bots are per-admin and never shown to anyone but their owner
-    // — the bot_token itself never leaves the server after creation.
-    const bots = await db.listTelegramBotsForUser(me.id);
-    body.telegramBots = bots.map((b) => ({
-      id: b.id, bot_username: b.bot_username, linked: !!b.chat_id,
-      created_at: b.created_at, last_used_at: b.last_used_at,
-    }));
-
     // Tiers (and who's on which) are admin-only — deliberately kept out of
     // the `users` array everyone else receives above, rather than gated by
     // field, so a tier assignment is never present in a non-admin's
