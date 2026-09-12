@@ -157,9 +157,9 @@ export function validateImportRows(rows, { users, shifts }) {
       if (!DATE_RE.test(date)) errors.push(`Row ${line}: date must be YYYY-MM-DD (got "${date}").`);
       if (!TIME_RE.test(start_time)) errors.push(`Row ${line}: start_time must be HH:MM (got "${start_time}").`);
       if (!TIME_RE.test(end_time)) errors.push(`Row ${line}: end_time must be HH:MM (got "${end_time}").`);
-      if (TIME_RE.test(start_time) && TIME_RE.test(end_time) && start_time >= end_time) {
-        errors.push(`Row ${line}: start_time must be before end_time.`);
-      }
+      // start_time >= end_time is allowed on purpose — it means the shift
+      // crosses midnight (e.g. 16:30-02:30), a real shape some businesses
+      // use for a closing shift. `date` is always the day the shift starts.
       if (user && DATE_RE.test(date) && TIME_RE.test(start_time) && TIME_RE.test(end_time)) {
         resolved.shifts.push({ user_id: user.id, date, start_time, end_time, notes });
       }

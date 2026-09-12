@@ -3,6 +3,7 @@
 // they use /api/shifts directly — but nothing stops them using it too.
 import db from '../../../lib/db/index.js';
 import { checkShiftCreateLimit } from '../../../lib/tierLimits.js';
+import { checkShiftRemovalCoverage } from '../../../lib/coverage.js';
 
 export const prerender = false;
 
@@ -19,6 +20,7 @@ export async function POST(context) {
     return json({ error: 'action must be "create", "update", or "delete".' }, 400);
   }
 
+  let existingShift = null;
   if (body.action === 'create') {
     if (!body.date || !body.start_time || !body.end_time) {
       return json({ error: 'Date, start time, and end time are required.' }, 400);
@@ -26,9 +28,9 @@ export async function POST(context) {
   } else {
     // update / delete both need an existing shift the requester owns.
     if (!body.shift_id) return json({ error: 'shift_id is required.' }, 400);
-    const shift = await db.getShiftById(body.shift_id);
-    if (!shift) return json({ error: 'Shift not found.' }, 404);
-    if (shift.user_id !== me.id && me.role !== 'admin' && me.role !== 'manager') {
+    existingShift = await db.getShiftById(body.shift_id);
+    if (!existingShift) return json({ error: 'Shift not found.' }, 404);
+    if (existingShift.user_id !== me.id && me.role !== 'admin' && me.role !== 'manager') {
       return json({ error: 'You can only request changes to your own shifts.' }, 403);
     }
     if (body.action === 'update' && (!body.date || !body.start_time || !body.end_time)) {
@@ -45,6 +47,13 @@ export async function POST(context) {
     denialReason = await checkShiftCreateLimit(db, { user: me2, date: body.date });
   }
 
+  // 'update'/'delete' vacate an existing shift — flag (never block) if
+  // that would drop a covered shift below its defined minimum staffing.
+  let staffingWarning = null;
+  if (existingShift) {
+    staffingWarning = await checkShiftRemovalCoverage(db, { shift: existingShift });
+  }
+
   const request = await db.createShiftRequest({
     user_id: me.id,
     action: body.action,
@@ -56,6 +65,7 @@ export async function POST(context) {
     notes: body.notes || null,
     status: denialReason ? 'denied' : 'pending',
     denial_reason: denialReason,
+    staffing_warning: staffingWarning,
   });
   return json({ ok: true, request }, 201);
 }

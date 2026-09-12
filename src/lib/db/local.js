@@ -42,6 +42,7 @@ function seedData() {
     password_reset_requests: [],
     day_caps: [],
     tiers: [],
+    shift_templates: [],
   };
 }
 
@@ -60,6 +61,7 @@ function load() {
   if (!data.api_keys) data.api_keys = [];
   if (!data.password_reset_requests) data.password_reset_requests = [];
   if (!data.tiers) data.tiers = [];
+  if (!data.shift_templates) data.shift_templates = [];
   return data;
 }
 
@@ -190,7 +192,7 @@ export async function getShiftRequestById(reqId) {
   return load().shift_requests.find((r) => r.id === reqId) || null;
 }
 
-export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason }) {
+export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason, staffing_warning }) {
   const d = load();
   const row = {
     id: id(),
@@ -204,6 +206,7 @@ export async function createShiftRequest({ user_id, action, shift_id, date, star
     notes: notes || null,
     status: status || 'pending',
     denial_reason: denial_reason || null,
+    staffing_warning: staffing_warning || null,
     created_at: new Date().toISOString(),
   };
   d.shift_requests.push(row);
@@ -309,7 +312,7 @@ export async function getTimeOffById(toId) {
   return load().time_off_requests.find((x) => x.id === toId) || null;
 }
 
-export async function createTimeOff({ user_id, start_date, end_date, reason, status, denial_reason }) {
+export async function createTimeOff({ user_id, start_date, end_date, reason, status, denial_reason, staffing_warning }) {
   const d = load();
   const row = {
     id: id(),
@@ -319,6 +322,7 @@ export async function createTimeOff({ user_id, start_date, end_date, reason, sta
     reason: reason || null,
     status: status || 'pending',
     denial_reason: denial_reason || null,
+    staffing_warning: staffing_warning || null,
     created_at: new Date().toISOString(),
   };
   d.time_off_requests.push(row);
@@ -588,6 +592,56 @@ export async function deleteTier(tierId) {
     if (u.tier_id === tierId) u.tier_id = null;
   });
   d.tiers = d.tiers.filter((t) => t.id !== tierId);
+  save(d);
+  return true;
+}
+
+// ----- shift templates (recurring coverage blocks — see src/lib/coverage.js) -----
+
+export async function listShiftTemplates() {
+  return load()
+    .shift_templates.slice()
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+}
+
+export async function getShiftTemplateById(templateId) {
+  return load().shift_templates.find((t) => t.id === templateId) || null;
+}
+
+export async function createShiftTemplate({ name, days_of_week, start_time, end_time, min_staff, max_staff }) {
+  const d = load();
+  const row = {
+    id: id(),
+    name,
+    days_of_week,
+    start_time,
+    end_time,
+    min_staff: min_staff ?? null,
+    max_staff: max_staff ?? null,
+    created_at: new Date().toISOString(),
+  };
+  d.shift_templates.push(row);
+  save(d);
+  return row;
+}
+
+export async function updateShiftTemplate(templateId, updates) {
+  const d = load();
+  const row = d.shift_templates.find((t) => t.id === templateId);
+  if (!row) return null;
+  if (updates.name !== undefined) row.name = updates.name;
+  if (updates.days_of_week !== undefined) row.days_of_week = updates.days_of_week;
+  if (updates.start_time !== undefined) row.start_time = updates.start_time;
+  if (updates.end_time !== undefined) row.end_time = updates.end_time;
+  if (updates.min_staff !== undefined) row.min_staff = updates.min_staff;
+  if (updates.max_staff !== undefined) row.max_staff = updates.max_staff;
+  save(d);
+  return row;
+}
+
+export async function deleteShiftTemplate(templateId) {
+  const d = load();
+  d.shift_templates = d.shift_templates.filter((t) => t.id !== templateId);
   save(d);
   return true;
 }

@@ -136,10 +136,10 @@ export async function getShiftRequestById(reqId) {
   return row0(await sql`SELECT * FROM shift_requests WHERE id = ${reqId}`);
 }
 
-export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason }) {
+export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason, staffing_warning }) {
   return row0(await sql`
-    INSERT INTO shift_requests (user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason)
-    VALUES (${user_id}, ${action}, ${shift_id || null}, ${date || null}, ${start_time || null}, ${end_time || null}, ${department || null}, ${notes || null}, ${status || 'pending'}, ${denial_reason || null})
+    INSERT INTO shift_requests (user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason, staffing_warning)
+    VALUES (${user_id}, ${action}, ${shift_id || null}, ${date || null}, ${start_time || null}, ${end_time || null}, ${department || null}, ${notes || null}, ${status || 'pending'}, ${denial_reason || null}, ${staffing_warning || null})
     RETURNING *
   `);
 }
@@ -220,10 +220,10 @@ export async function getTimeOffById(toId) {
   return row0(await sql`SELECT * FROM time_off_requests WHERE id = ${toId}`);
 }
 
-export async function createTimeOff({ user_id, start_date, end_date, reason, status, denial_reason }) {
+export async function createTimeOff({ user_id, start_date, end_date, reason, status, denial_reason, staffing_warning }) {
   return row0(await sql`
-    INSERT INTO time_off_requests (user_id, start_date, end_date, reason, status, denial_reason)
-    VALUES (${user_id}, ${start_date}, ${end_date}, ${reason || null}, ${status || 'pending'}, ${denial_reason || null})
+    INSERT INTO time_off_requests (user_id, start_date, end_date, reason, status, denial_reason, staffing_warning)
+    VALUES (${user_id}, ${start_date}, ${end_date}, ${reason || null}, ${status || 'pending'}, ${denial_reason || null}, ${staffing_warning || null})
     RETURNING *
   `);
 }
@@ -440,5 +440,52 @@ export async function updateTier(tierId, updates) {
 export async function deleteTier(tierId) {
   // ON DELETE SET NULL on users.tier_id handles un-assigning automatically.
   await sql`DELETE FROM tiers WHERE id = ${tierId}`;
+  return true;
+}
+
+// ----- shift templates (recurring coverage blocks — see src/lib/coverage.js) -----
+
+export async function listShiftTemplates() {
+  return sql`SELECT * FROM shift_templates ORDER BY start_time ASC`;
+}
+
+export async function getShiftTemplateById(templateId) {
+  return row0(await sql`SELECT * FROM shift_templates WHERE id = ${templateId}`);
+}
+
+export async function createShiftTemplate({ name, days_of_week, start_time, end_time, min_staff, max_staff }) {
+  return row0(await sql`
+    INSERT INTO shift_templates (name, days_of_week, start_time, end_time, min_staff, max_staff)
+    VALUES (${name}, ${days_of_week}, ${start_time}, ${end_time}, ${min_staff ?? null}, ${max_staff ?? null})
+    RETURNING *
+  `);
+}
+
+export async function updateShiftTemplate(templateId, updates) {
+  const t = await getShiftTemplateById(templateId);
+  if (!t) return null;
+  const merged = {
+    name: updates.name ?? t.name,
+    days_of_week: updates.days_of_week ?? t.days_of_week,
+    start_time: updates.start_time ?? t.start_time,
+    end_time: updates.end_time ?? t.end_time,
+    min_staff: updates.min_staff !== undefined ? updates.min_staff : t.min_staff,
+    max_staff: updates.max_staff !== undefined ? updates.max_staff : t.max_staff,
+  };
+  return row0(await sql`
+    UPDATE shift_templates SET
+      name = ${merged.name},
+      days_of_week = ${merged.days_of_week},
+      start_time = ${merged.start_time},
+      end_time = ${merged.end_time},
+      min_staff = ${merged.min_staff},
+      max_staff = ${merged.max_staff}
+    WHERE id = ${templateId}
+    RETURNING *
+  `);
+}
+
+export async function deleteShiftTemplate(templateId) {
+  await sql`DELETE FROM shift_templates WHERE id = ${templateId}`;
   return true;
 }

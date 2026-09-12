@@ -252,6 +252,7 @@ src/lib/db/neon.js         Neon Postgres backend (production)
 src/lib/shiftImport.js     CSV/command row validation shared by every import path
 src/lib/apiKey.js          API-key generation/verification (agent access)
 src/lib/tierLimits.js      Admin-only per-tier monthly caps on shifts/time-off (auto-deny)
+src/lib/coverage.js        Recurring shift_template minimum-staffing check (warns, never denies)
 src/pages/api/             All API routes (see below)
 src/pages/*.astro          UI pages
 db/schema.sql              Full Postgres schema — the source of truth for table shape
@@ -272,11 +273,30 @@ scripts/setup.mjs          Resumable deployment wizard (`npm run setup`)
 
 Both funnel through the same validation in `src/lib/shiftImport.js`, so a
 bad row is rejected identically regardless of which path sent it. Neither
-goes through the tier-based auto-deny in `src/lib/tierLimits.js` — that
-only applies to a staff member's own shift/time-off requests
-(`/api/shift-requests`, `/api/timeoff`); a bulk import writes shifts
-directly, the same as an admin creating one by hand, bypassing the
-request/approval flow (and its tier check) entirely by design.
+goes through the tier-based auto-deny in `src/lib/tierLimits.js`, or the
+minimum-staffing warning in `src/lib/coverage.js` — both only apply to a
+staff member's own shift/time-off requests (`/api/shift-requests`,
+`/api/timeoff`); a bulk import writes shifts directly, the same as an
+admin creating one by hand, bypassing the request/approval flow (and both
+checks) entirely by design.
+
+### Recurring coverage rules (Shift Templates)
+
+Manage → Shift Templates lets an admin/manager define the recurring
+weekly shift blocks this business runs (e.g. "9am-9pm, every day, 1
+person" or "4:30pm-2:30am, Sun-Thu, 3 people, but 4:30pm-3:30am on
+Fri/Sat"). A block's `start_time` can be greater than its `end_time` —
+that means it crosses midnight; `date` on an actual shift is always the
+day the block *starts*.
+
+Each block can define a `min_staff` and/or `max_staff`. `min_staff` never
+blocks anything — if approving a staff member's time-off or shift-removal
+request would drop a covered shift below its minimum, the request still
+lands in Pending Approvals as normal, just flagged with a warning so
+whoever's deciding can see the tradeoff (`staffing_warning` on the
+request row). This is a generic, per-deployment-configurable feature —
+none of one business's specific shift times or headcounts are hardcoded
+anywhere in the app; they're just data entered through this UI.
 
 ## Security notes
 
