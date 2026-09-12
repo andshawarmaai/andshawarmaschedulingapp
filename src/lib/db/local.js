@@ -42,6 +42,7 @@ function seedData() {
     password_reset_requests: [],
     telegram_bots: [],
     day_caps: [],
+    tiers: [],
   };
 }
 
@@ -60,6 +61,7 @@ function load() {
   if (!data.api_keys) data.api_keys = [];
   if (!data.password_reset_requests) data.password_reset_requests = [];
   if (!data.telegram_bots) data.telegram_bots = [];
+  if (!data.tiers) data.tiers = [];
   return data;
 }
 
@@ -97,6 +99,7 @@ export async function createUser({ username, password, display_name, role, email
     email: email || null,
     phone: phone || null,
     disabled: false,
+    tier_id: null,
     created_at: new Date().toISOString(),
   };
   d.users.push(user);
@@ -113,6 +116,7 @@ export async function updateUser(userId, updates) {
   if (updates.email !== undefined) u.email = updates.email;
   if (updates.role !== undefined) u.role = updates.role;
   if (updates.disabled !== undefined) u.disabled = updates.disabled;
+  if (updates.tier_id !== undefined) u.tier_id = updates.tier_id;
   if (updates.password) u.password_hash = bcrypt.hashSync(updates.password, 10);
   save(d);
   return u;
@@ -188,7 +192,7 @@ export async function getShiftRequestById(reqId) {
   return load().shift_requests.find((r) => r.id === reqId) || null;
 }
 
-export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes }) {
+export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason }) {
   const d = load();
   const row = {
     id: id(),
@@ -200,8 +204,8 @@ export async function createShiftRequest({ user_id, action, shift_id, date, star
     end_time: end_time || null,
     department: department || null,
     notes: notes || null,
-    status: 'pending',
-    denial_reason: null,
+    status: status || 'pending',
+    denial_reason: denial_reason || null,
     created_at: new Date().toISOString(),
   };
   d.shift_requests.push(row);
@@ -307,7 +311,7 @@ export async function getTimeOffById(toId) {
   return load().time_off_requests.find((x) => x.id === toId) || null;
 }
 
-export async function createTimeOff({ user_id, start_date, end_date, reason }) {
+export async function createTimeOff({ user_id, start_date, end_date, reason, status, denial_reason }) {
   const d = load();
   const row = {
     id: id(),
@@ -315,8 +319,8 @@ export async function createTimeOff({ user_id, start_date, end_date, reason }) {
     start_date,
     end_date,
     reason: reason || null,
-    status: 'pending',
-    denial_reason: null,
+    status: status || 'pending',
+    denial_reason: denial_reason || null,
     created_at: new Date().toISOString(),
   };
   d.time_off_requests.push(row);
@@ -596,6 +600,60 @@ export async function revokeTelegramBot(botId) {
   const row = d.telegram_bots.find((b) => b.id === botId);
   if (!row) return false;
   row.revoked = true;
+  save(d);
+  return true;
+}
+
+// ----- tiers (admin-only priority levels — see src/lib/tierLimits.js) -----
+
+export async function listTiers() {
+  return load()
+    .tiers.slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getTierById(tierId) {
+  if (!tierId) return null;
+  return load().tiers.find((t) => t.id === tierId) || null;
+}
+
+export async function createTier({ name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month }) {
+  const d = load();
+  const row = {
+    id: id(),
+    name,
+    max_shifts_per_month: max_shifts_per_month ?? null,
+    max_weekend_shifts_per_month: max_weekend_shifts_per_month ?? null,
+    max_days_off_per_month: max_days_off_per_month ?? null,
+    max_weekend_days_off_per_month: max_weekend_days_off_per_month ?? null,
+    created_at: new Date().toISOString(),
+  };
+  d.tiers.push(row);
+  save(d);
+  return row;
+}
+
+export async function updateTier(tierId, updates) {
+  const d = load();
+  const row = d.tiers.find((t) => t.id === tierId);
+  if (!row) return null;
+  if (updates.name !== undefined) row.name = updates.name;
+  if (updates.max_shifts_per_month !== undefined) row.max_shifts_per_month = updates.max_shifts_per_month;
+  if (updates.max_weekend_shifts_per_month !== undefined) row.max_weekend_shifts_per_month = updates.max_weekend_shifts_per_month;
+  if (updates.max_days_off_per_month !== undefined) row.max_days_off_per_month = updates.max_days_off_per_month;
+  if (updates.max_weekend_days_off_per_month !== undefined) row.max_weekend_days_off_per_month = updates.max_weekend_days_off_per_month;
+  save(d);
+  return row;
+}
+
+// Un-assigns the tier from anyone on it (mirrors the Postgres schema's
+// ON DELETE SET NULL) before removing it.
+export async function deleteTier(tierId) {
+  const d = load();
+  d.users.forEach((u) => {
+    if (u.tier_id === tierId) u.tier_id = null;
+  });
+  d.tiers = d.tiers.filter((t) => t.id !== tierId);
   save(d);
   return true;
 }

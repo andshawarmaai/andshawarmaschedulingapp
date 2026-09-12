@@ -54,6 +54,9 @@ export async function updateUser(userId, updates) {
     email: updates.email ?? u.email,
     role: updates.role ?? u.role,
     disabled: updates.disabled ?? u.disabled,
+    // Explicit null (un-assigning a tier) must stick — ?? would fall back
+    // to the old value since null is nullish too.
+    tier_id: updates.tier_id !== undefined ? updates.tier_id : u.tier_id,
     password_hash: updates.password ? bcrypt.hashSync(updates.password, 10) : u.password_hash,
   };
   return row0(await sql`
@@ -63,6 +66,7 @@ export async function updateUser(userId, updates) {
       email = ${merged.email},
       role = ${merged.role},
       disabled = ${merged.disabled},
+      tier_id = ${merged.tier_id},
       password_hash = ${merged.password_hash}
     WHERE id = ${userId}
     RETURNING *
@@ -132,10 +136,10 @@ export async function getShiftRequestById(reqId) {
   return row0(await sql`SELECT * FROM shift_requests WHERE id = ${reqId}`);
 }
 
-export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes }) {
+export async function createShiftRequest({ user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason }) {
   return row0(await sql`
-    INSERT INTO shift_requests (user_id, action, shift_id, date, start_time, end_time, department, notes)
-    VALUES (${user_id}, ${action}, ${shift_id || null}, ${date || null}, ${start_time || null}, ${end_time || null}, ${department || null}, ${notes || null})
+    INSERT INTO shift_requests (user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason)
+    VALUES (${user_id}, ${action}, ${shift_id || null}, ${date || null}, ${start_time || null}, ${end_time || null}, ${department || null}, ${notes || null}, ${status || 'pending'}, ${denial_reason || null})
     RETURNING *
   `);
 }
@@ -216,10 +220,10 @@ export async function getTimeOffById(toId) {
   return row0(await sql`SELECT * FROM time_off_requests WHERE id = ${toId}`);
 }
 
-export async function createTimeOff({ user_id, start_date, end_date, reason }) {
+export async function createTimeOff({ user_id, start_date, end_date, reason, status, denial_reason }) {
   return row0(await sql`
-    INSERT INTO time_off_requests (user_id, start_date, end_date, reason)
-    VALUES (${user_id}, ${start_date}, ${end_date}, ${reason || null})
+    INSERT INTO time_off_requests (user_id, start_date, end_date, reason, status, denial_reason)
+    VALUES (${user_id}, ${start_date}, ${end_date}, ${reason || null}, ${status || 'pending'}, ${denial_reason || null})
     RETURNING *
   `);
 }
@@ -430,5 +434,52 @@ export async function touchTelegramBot(botId) {
 
 export async function revokeTelegramBot(botId) {
   await sql`UPDATE telegram_bots SET revoked = TRUE WHERE id = ${botId}`;
+  return true;
+}
+
+// ----- tiers (admin-only priority levels — see src/lib/tierLimits.js) -----
+
+export async function listTiers() {
+  return sql`SELECT * FROM tiers ORDER BY name ASC`;
+}
+
+export async function getTierById(tierId) {
+  if (!tierId) return null;
+  return row0(await sql`SELECT * FROM tiers WHERE id = ${tierId}`);
+}
+
+export async function createTier({ name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month }) {
+  return row0(await sql`
+    INSERT INTO tiers (name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month)
+    VALUES (${name}, ${max_shifts_per_month ?? null}, ${max_weekend_shifts_per_month ?? null}, ${max_days_off_per_month ?? null}, ${max_weekend_days_off_per_month ?? null})
+    RETURNING *
+  `);
+}
+
+export async function updateTier(tierId, updates) {
+  const t = await getTierById(tierId);
+  if (!t) return null;
+  const merged = {
+    name: updates.name ?? t.name,
+    max_shifts_per_month: updates.max_shifts_per_month !== undefined ? updates.max_shifts_per_month : t.max_shifts_per_month,
+    max_weekend_shifts_per_month: updates.max_weekend_shifts_per_month !== undefined ? updates.max_weekend_shifts_per_month : t.max_weekend_shifts_per_month,
+    max_days_off_per_month: updates.max_days_off_per_month !== undefined ? updates.max_days_off_per_month : t.max_days_off_per_month,
+    max_weekend_days_off_per_month: updates.max_weekend_days_off_per_month !== undefined ? updates.max_weekend_days_off_per_month : t.max_weekend_days_off_per_month,
+  };
+  return row0(await sql`
+    UPDATE tiers SET
+      name = ${merged.name},
+      max_shifts_per_month = ${merged.max_shifts_per_month},
+      max_weekend_shifts_per_month = ${merged.max_weekend_shifts_per_month},
+      max_days_off_per_month = ${merged.max_days_off_per_month},
+      max_weekend_days_off_per_month = ${merged.max_weekend_days_off_per_month}
+    WHERE id = ${tierId}
+    RETURNING *
+  `);
+}
+
+export async function deleteTier(tierId) {
+  // ON DELETE SET NULL on users.tier_id handles un-assigning automatically.
+  await sql`DELETE FROM tiers WHERE id = ${tierId}`;
   return true;
 }

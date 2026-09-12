@@ -27,6 +27,12 @@ export async function PATCH(context) {
     if (String(body.password).length < 4) return json({ error: 'Password must be at least 4 characters.' }, 400);
     updates.password = String(body.password);
   }
+  if (body.tier_id !== undefined) {
+    // Tiers are admin-only — a manager (who can otherwise reach this same
+    // endpoint) must never be able to assign or see one.
+    if (context.locals.user.role !== 'admin') return json({ error: 'Only admins can assign a tier.' }, 403);
+    updates.tier_id = body.tier_id || null;
+  }
 
   const user = await db.updateUser(id, updates);
   if (!user) return json({ error: 'User not found.' }, 404);

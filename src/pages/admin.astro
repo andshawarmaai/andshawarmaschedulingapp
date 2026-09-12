@@ -19,6 +19,20 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
     <div id="users-list"><p class="empty">Loading...</p></div>
   </div>
 
+  {user.role === 'admin' && (
+    <div class="card">
+      <h2>Tiers</h2>
+      <p class="card-sub">
+        Priority levels you assign staff to — completely invisible to them, including which tier
+        (or whether they have one at all). A tier can cap how many shifts and days off someone can
+        be granted per calendar month; leave any limit blank for no cap on that one. A request that
+        would go over a limit is denied automatically, the same way a manual denial looks to them.
+      </p>
+      <button class="btn-primary" id="add-tier-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Add tier</button>
+      <div id="tiers-list"><p class="empty">Loading...</p></div>
+    </div>
+  )}
+
   <div class="card">
     <h2>Slot Caps</h2>
     <p class="card-sub">Cap how many staff can work a time window on a date. Informational — shows on the schedule and swap board.</p>
@@ -147,6 +161,14 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
             <option value="admin">Admin</option>
           </select>
         </div>
+        {user.role === 'admin' && (
+          <div class="field"><label>Tier</label>
+            <select id="eu-tier" class="input">
+              <option value="">No tier</option>
+            </select>
+            <p class="card-sub" style="margin:0.25rem 0 0;">Only admins can see or change this — never shown to the staff member.</p>
+          </div>
+        )}
         <hr class="divider" />
         <div class="field"><label>Reset password</label>
           <div style="display:flex;gap:0.5rem;">
@@ -167,6 +189,26 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
     </div>
   </div>
 
+  {user.role === 'admin' && (
+    <!-- Add/edit tier modal -->
+    <div class="modal-backdrop" id="tier-modal">
+      <div class="modal">
+        <div class="modal-header"><h2 id="tier-modal-title">Add tier</h2><button class="modal-close" id="tier-modal-close" type="button">&times;</button></div>
+        <div class="modal-body">
+          <div class="field"><label>Name</label><input type="text" id="tier-name" class="input" placeholder="e.g. Tier 1" /></div>
+          <div class="field"><label>Max shifts per month</label><input type="number" id="tier-max-shifts" class="input" min="0" step="1" placeholder="No limit" /></div>
+          <div class="field"><label>Max weekend shifts per month</label><input type="number" id="tier-max-weekend-shifts" class="input" min="0" step="1" placeholder="No limit" /></div>
+          <div class="field"><label>Max days off per month</label><input type="number" id="tier-max-days-off" class="input" min="0" step="1" placeholder="No limit" /></div>
+          <div class="field"><label>Max weekend days off per month</label><input type="number" id="tier-max-weekend-days-off" class="input" min="0" step="1" placeholder="No limit" /></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-danger" id="tier-delete" style="margin-right:auto;" type="button" hidden>Delete tier</button>
+          <button class="btn-primary" id="tier-save" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+  )}
+
   <script define:vars={{ myUserId: user.id }}>
     window.__adminCtx = { myUserId };
   </script>
@@ -178,6 +220,7 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
     let data = null;
     let editingUserId = null;
     let pendingResetRequestId = null;
+    let editingTierId = null;
 
     async function loadState() {
       const res = await fetch('/api/state');
@@ -309,16 +352,24 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
 
     function renderUsers() {
       const el = document.getElementById('users-list');
-      el.innerHTML = data.users.map((u) => `
+      // data.userTiers only exists for an admin viewer (see api/state.js) —
+      // a manager or staff member never receives it, so this badge simply
+      // can't render for them regardless of what the UI does.
+      el.innerHTML = data.users.map((u) => {
+        const tierId = data.userTiers && data.userTiers[u.id];
+        const tier = tierId && (data.tiers || []).find((t) => t.id === tierId);
+        return `
         <div class="user-row">
           <div class="info">
             <div class="name">${escapeHtml(u.display_name)}${u.disabled ? ' <span class="badge badge-denied">disabled</span>' : ''}</div>
             <div class="username">@${escapeHtml(u.username)}</div>
           </div>
           <span class="badge badge-${u.role}">${u.role}</span>
+          ${tier ? `<span class="badge" style="margin-left:0.25rem;">${escapeHtml(tier.name)}</span>` : ''}
           <button class="btn-secondary" data-edit-user="${u.id}" style="margin-left:0.5rem;">Edit</button>
         </div>
-      `).join('');
+      `;
+      }).join('');
       el.querySelectorAll('[data-edit-user]').forEach((b) => b.addEventListener('click', () => openEditUser(b.getAttribute('data-edit-user'))));
     }
 
@@ -360,6 +411,12 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
       document.getElementById('eu-role').value = u.role;
       document.getElementById('eu-new-password').value = '';
       document.getElementById('eu-disabled').checked = !!u.disabled;
+      const tierSelect = document.getElementById('eu-tier');
+      if (tierSelect) {
+        tierSelect.innerHTML = '<option value="">No tier</option>' +
+          (data.tiers || []).map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+        tierSelect.value = (data.userTiers && data.userTiers[uid]) || '';
+      }
       document.getElementById('edit-user-modal').classList.add('show');
     }
     document.getElementById('edit-user-close').addEventListener('click', () => {
@@ -378,6 +435,8 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
         role: document.getElementById('eu-role').value,
         disabled: document.getElementById('eu-disabled').checked,
       };
+      const tierSelect = document.getElementById('eu-tier');
+      if (tierSelect) updates.tier_id = tierSelect.value || null;
       const newPw = document.getElementById('eu-new-password').value;
       if (newPw) updates.password = newPw;
       const r = await window.shawarmaApi('PATCH', `/api/users/${editingUserId}`, updates);
@@ -402,6 +461,90 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
       editingUserId = null;
       await refreshAndRender();
     });
+
+    // ----- Tiers (admin only — elements only exist for admins) -----
+
+    const LIMIT_FIELDS = [
+      ['tier-max-shifts', 'max_shifts_per_month'],
+      ['tier-max-weekend-shifts', 'max_weekend_shifts_per_month'],
+      ['tier-max-days-off', 'max_days_off_per_month'],
+      ['tier-max-weekend-days-off', 'max_weekend_days_off_per_month'],
+    ];
+
+    function renderTiers() {
+      const el = document.getElementById('tiers-list');
+      if (!el) return;
+      const tiers = data.tiers || [];
+      if (tiers.length === 0) {
+        el.innerHTML = '<p class="empty">No tiers yet — staff aren\'t limited until you add one and assign it.</p>';
+        return;
+      }
+      const describe = (t) => {
+        const parts = [];
+        if (t.max_shifts_per_month != null) parts.push(`${t.max_shifts_per_month} shift(s)/mo`);
+        if (t.max_weekend_shifts_per_month != null) parts.push(`${t.max_weekend_shifts_per_month} weekend shift(s)/mo`);
+        if (t.max_days_off_per_month != null) parts.push(`${t.max_days_off_per_month} day(s) off/mo`);
+        if (t.max_weekend_days_off_per_month != null) parts.push(`${t.max_weekend_days_off_per_month} weekend day(s) off/mo`);
+        return parts.length ? parts.join(' · ') : 'No limits set';
+      };
+      el.innerHTML = tiers.map((t) => `
+        <div class="list-item">
+          <div>
+            <div class="who">${escapeHtml(t.name)}</div>
+            <div class="meta">${describe(t)}</div>
+          </div>
+          <button class="btn-secondary" data-edit-tier="${t.id}">Edit</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('[data-edit-tier]').forEach((b) => {
+        b.addEventListener('click', () => openTierModal(b.getAttribute('data-edit-tier')));
+      });
+    }
+
+    function openTierModal(tierId) {
+      editingTierId = tierId || null;
+      const tier = tierId ? (data.tiers || []).find((t) => t.id === tierId) : null;
+      document.getElementById('tier-modal-title').textContent = tier ? `Edit: ${tier.name}` : 'Add tier';
+      document.getElementById('tier-name').value = tier ? tier.name : '';
+      LIMIT_FIELDS.forEach(([elId, field]) => {
+        document.getElementById(elId).value = tier && tier[field] != null ? tier[field] : '';
+      });
+      document.getElementById('tier-delete').hidden = !tier;
+      document.getElementById('tier-modal').classList.add('show');
+    }
+
+    const addTierBtn = document.getElementById('add-tier-btn');
+    if (addTierBtn) {
+      addTierBtn.addEventListener('click', () => openTierModal(null));
+      document.getElementById('tier-modal-close').addEventListener('click', () => {
+        document.getElementById('tier-modal').classList.remove('show');
+        editingTierId = null;
+      });
+      document.getElementById('tier-save').addEventListener('click', async () => {
+        const payload = { name: document.getElementById('tier-name').value.trim() };
+        if (!payload.name) { window.shawarmaToast('Tier name is required'); return; }
+        LIMIT_FIELDS.forEach(([elId, field]) => {
+          payload[field] = document.getElementById(elId).value.trim();
+        });
+        const url = editingTierId ? `/api/admin/tiers/${editingTierId}` : '/api/admin/tiers';
+        const r = await window.shawarmaApi(editingTierId ? 'PATCH' : 'POST', url, payload);
+        if (!r.ok) { window.shawarmaToast(r.error || 'Could not save tier'); return; }
+        document.getElementById('tier-modal').classList.remove('show');
+        window.shawarmaToast('Tier saved');
+        editingTierId = null;
+        await refreshAndRender();
+      });
+      document.getElementById('tier-delete').addEventListener('click', async () => {
+        const tier = (data.tiers || []).find((t) => t.id === editingTierId);
+        if (!tier || !confirm(`Delete "${tier.name}"? Anyone assigned to it goes back to no tier (no limits).`)) return;
+        const r = await window.shawarmaApi('DELETE', `/api/admin/tiers/${editingTierId}`);
+        if (!r.ok) { window.shawarmaToast(r.error || 'Delete failed'); return; }
+        document.getElementById('tier-modal').classList.remove('show');
+        window.shawarmaToast('Tier deleted');
+        editingTierId = null;
+        await refreshAndRender();
+      });
+    }
 
     function renderCaps() {
       const el = document.getElementById('caps-list');
@@ -638,6 +781,7 @@ const llmEnabled = !!(process.env.LLM_PROVIDER && (process.env.ANTHROPIC_API_KEY
       renderImports();
       renderKeys();
       renderTelegramBots();
+      renderTiers();
     }
 
     refreshAndRender();

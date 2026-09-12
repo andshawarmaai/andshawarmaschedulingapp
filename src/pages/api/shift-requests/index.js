@@ -2,6 +2,7 @@
 // the Manage queue (see [id].js). Admins/managers don't need this endpoint —
 // they use /api/shifts directly — but nothing stops them using it too.
 import db from '../../../lib/db/index.js';
+import { checkShiftCreateLimit } from '../../../lib/tierLimits.js';
 
 export const prerender = false;
 
@@ -35,6 +36,15 @@ export async function POST(context) {
     }
   }
 
+  // Tier limits only gate 'create' — an existing shift already counted
+  // toward the user's monthly total, so 'update'/'delete' can't be
+  // evaluated the same way without double-counting it.
+  let denialReason = null;
+  if (body.action === 'create') {
+    const me2 = await db.getUserById(me.id);
+    denialReason = await checkShiftCreateLimit(db, { user: me2, date: body.date });
+  }
+
   const request = await db.createShiftRequest({
     user_id: me.id,
     action: body.action,
@@ -44,6 +54,8 @@ export async function POST(context) {
     end_time: body.end_time || null,
     department: body.department || null,
     notes: body.notes || null,
+    status: denialReason ? 'denied' : 'pending',
+    denial_reason: denialReason,
   });
   return json({ ok: true, request }, 201);
 }

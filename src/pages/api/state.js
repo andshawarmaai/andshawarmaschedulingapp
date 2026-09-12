@@ -53,6 +53,13 @@ export async function GET(context) {
       id: b.id, bot_username: b.bot_username, linked: !!b.chat_id,
       created_at: b.created_at, last_used_at: b.last_used_at,
     }));
+
+    // Tiers (and who's on which) are admin-only — deliberately kept out of
+    // the `users` array everyone else receives above, rather than gated by
+    // field, so a tier assignment is never present in a non-admin's
+    // response at all.
+    body.tiers = await db.listTiers();
+    body.userTiers = Object.fromEntries(users.map((u) => [u.id, u.tier_id || null]));
   }
 
   return new Response(JSON.stringify(body), {

@@ -16,6 +16,24 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Admin-only priority tiers (e.g. "Tier 1", "Tier 2") used to cap how many
+-- shifts/days-off a staff member can be granted per calendar month. Never
+-- exposed to the assigned staff member — only admin sees a user's tier or
+-- the tier list at all (see src/pages/api/state.js: gated to role='admin',
+-- not the usual admin-or-manager check). A NULL limit column means "no cap
+-- for that dimension" — a tier doesn't have to define all four.
+CREATE TABLE IF NOT EXISTS tiers (
+  id                              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name                            TEXT NOT NULL,
+  max_shifts_per_month            INTEGER,
+  max_weekend_shifts_per_month    INTEGER,
+  max_days_off_per_month          INTEGER,
+  max_weekend_days_off_per_month  INTEGER,
+  created_at                      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tier_id TEXT REFERENCES tiers(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS shift_imports (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   uploaded_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
