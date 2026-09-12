@@ -58,14 +58,18 @@ CREATE INDEX IF NOT EXISTS shifts_user_idx ON shifts (user_id);
 CREATE INDEX IF NOT EXISTS shifts_import_idx ON shifts (import_id);
 
 CREATE TABLE IF NOT EXISTS time_off_requests (
-  id             TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  start_date     TEXT NOT NULL, -- 'YYYY-MM-DD'
-  end_date       TEXT NOT NULL, -- 'YYYY-MM-DD'
-  reason         TEXT,
-  status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
-  denial_reason  TEXT,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start_date        TEXT NOT NULL, -- 'YYYY-MM-DD'
+  end_date          TEXT NOT NULL, -- 'YYYY-MM-DD'
+  reason            TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+  denial_reason     TEXT,
+  -- Set when granting this would drop a covered shift below its defined
+  -- minimum staffing (see shift_templates below) — shown to whoever's
+  -- deciding, never auto-denies like a tier limit does.
+  staffing_warning  TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS time_off_user_idx ON time_off_requests (user_id);
 
@@ -88,18 +92,19 @@ CREATE TABLE IF NOT EXISTS swap_claims (
 );
 
 CREATE TABLE IF NOT EXISTS shift_requests (
-  id             TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  action         TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),
-  shift_id       TEXT REFERENCES shifts(id) ON DELETE CASCADE, -- null for 'create'
-  date           TEXT, -- 'YYYY-MM-DD'
-  start_time     TEXT,
-  end_time       TEXT,
-  department     TEXT,
-  notes          TEXT,
-  status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
-  denial_reason  TEXT,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  action            TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),
+  shift_id          TEXT REFERENCES shifts(id) ON DELETE CASCADE, -- null for 'create'
+  date              TEXT, -- 'YYYY-MM-DD'
+  start_time        TEXT,
+  end_time          TEXT,
+  department        TEXT,
+  notes             TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+  denial_reason     TEXT,
+  staffing_warning  TEXT, -- see time_off_requests.staffing_warning above
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS shift_requests_user_idx ON shift_requests (user_id);
 
@@ -132,6 +137,9 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 );
 CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_requests (user_id);
 
+-- Date-specific override/exception on top of a recurring shift_template
+-- below (holiday, one-off event, etc.) — unrelated recurring coverage
+-- lives in shift_templates; this is only for a single calendar date.
 CREATE TABLE IF NOT EXISTS day_caps (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   date          TEXT NOT NULL, -- 'YYYY-MM-DD'
@@ -140,4 +148,28 @@ CREATE TABLE IF NOT EXISTS day_caps (
   max_shifts    INTEGER NOT NULL,
   note          TEXT,
   UNIQUE (date, window_start, window_end)
+);
+
+-- Recurring weekly shift blocks — the reusable "9am-9pm", "4:30pm-2:30am"
+-- style templates an admin defines once instead of retyping raw times
+-- every time they schedule someone. days_of_week is a comma-separated
+-- list of 0-6 (Sun=0..Sat=6) the block applies to, so the same business
+-- can have a different late-night block on Fri/Sat than the rest of the
+-- week without two separate concepts. start_time > end_time means the
+-- block crosses midnight (e.g. '16:30'/'02:30') — `date` on an actual
+-- shifts row is always the day the block STARTS.
+-- min_staff/max_staff are both optional (NULL = no requirement on that
+-- side): min_staff drives the staffing_warning flag on a request that
+-- would remove someone from a covered shift (see src/lib/coverage.js);
+-- max_staff is an ongoing version of day_caps' one-off max, shown
+-- alongside any day_caps override for the same window on the calendar.
+CREATE TABLE IF NOT EXISTS shift_templates (
+  id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name          TEXT NOT NULL,
+  days_of_week  TEXT NOT NULL, -- e.g. '1,2,3,4' or '5,6'
+  start_time    TEXT NOT NULL,
+  end_time      TEXT NOT NULL,
+  min_staff     INTEGER,
+  max_staff     INTEGER,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

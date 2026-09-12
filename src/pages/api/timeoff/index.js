@@ -1,5 +1,6 @@
 import db from '../../../lib/db/index.js';
 import { checkTimeOffLimit } from '../../../lib/tierLimits.js';
+import { checkTimeOffCoverage } from '../../../lib/coverage.js';
 
 export const prerender = false;
 
@@ -21,6 +22,8 @@ export async function POST(context) {
   // effect on the very next request, not after the next login.
   const me = await db.getUserById(context.locals.user.id);
   const denialReason = await checkTimeOffLimit(db, { user: me, start_date: body.start_date, end_date: body.end_date });
+  // Only worth flagging a staffing conflict if this isn't already denied.
+  const staffingWarning = denialReason ? null : await checkTimeOffCoverage(db, { user: me, start_date: body.start_date, end_date: body.end_date });
 
   const row = await db.createTimeOff({
     user_id: me.id,
@@ -29,6 +32,7 @@ export async function POST(context) {
     reason: body.reason ? String(body.reason).trim() : null,
     status: denialReason ? 'denied' : 'pending',
     denial_reason: denialReason,
+    staffing_warning: staffingWarning,
   });
   return json({ ok: true, timeOff: row }, 201);
 }

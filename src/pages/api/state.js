@@ -44,6 +44,7 @@ export async function GET(context) {
       created_at: k.created_at, last_used_at: k.last_used_at, revoked: k.revoked,
     }));
     body.passwordResetRequests = (await db.listPasswordResetRequests()).filter((r) => !r.resolved_at);
+    body.shiftTemplates = await db.listShiftTemplates();
   }
   if (me.role === 'admin') {
     // Tiers (and who's on which) are admin-only — deliberately kept out of
