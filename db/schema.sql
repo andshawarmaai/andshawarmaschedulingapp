@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS time_off_user_idx ON time_off_requests (user_id);
+-- CREATE TABLE IF NOT EXISTS above is a no-op against an existing table,
+-- so a column added to it after that table already exists in production
+-- (staffing_warning was) needs its own ALTER TABLE to actually apply.
+ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS staffing_warning TEXT;
 
 CREATE TABLE IF NOT EXISTS swap_posts (
   id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -107,6 +111,7 @@ CREATE TABLE IF NOT EXISTS shift_requests (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS shift_requests_user_idx ON shift_requests (user_id);
+ALTER TABLE shift_requests ADD COLUMN IF NOT EXISTS staffing_warning TEXT;
 
 -- API keys for programmatic access (e.g. an AI agent posting a bulk shift
 -- import CSV). Keys are shown in full exactly once at creation, then only
