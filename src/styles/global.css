@@ -447,11 +447,18 @@ main.admin-page { padding: 1.5rem; max-width: 90rem; overflow-x: auto; }
    a page script creates later (same reason .scroll-x above is global). */
 .legend-dot { display:inline-block; width:0.625rem; height:0.625rem; border-radius:9999px; margin-right:0.25rem; vertical-align:middle; }
 
+/* The calendar's own card scrolls in both directions instead of clipping
+   (overflow:hidden) once its content — a wide week grid, or a tall day
+   timeline sized to this business's own template hours — outgrows the
+   card, so nothing is ever unreachable. The header row stays pinned while
+   scrolling vertically so the day/date labels don't scroll out of view. */
+.cal-scroll { overflow:auto; max-height:75vh; -webkit-overflow-scrolling:touch; }
+
 /* Month view: compact square tiles (getMonthCells-driven), each holding
    small chips rather than time-positioned bars — a bird's-eye overview
    that doesn't require scrolling through a tall day-by-day timeline. */
-.cal-month-grid { display:grid; grid-template-columns: repeat(7, 1fr); }
-.cal-month-head { padding:0.5rem 0.375rem; text-align:center; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--color-muted); border-bottom:1px solid var(--color-border); background:var(--color-bg-soft); }
+.cal-month-grid { display:grid; grid-template-columns: repeat(7, minmax(5.5rem, 1fr)); min-width:39rem; }
+.cal-month-head { padding:0.5rem 0.375rem; text-align:center; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--color-muted); border-bottom:1px solid var(--color-border); background:var(--color-bg-soft); position:sticky; top:0; z-index:2; }
 .cal-month-cell { min-height:6.5rem; border-left:1px solid var(--color-border); border-bottom:1px solid var(--color-border); padding:0.375rem; cursor:pointer; }
 .cal-month-cell:hover { background: color-mix(in srgb, var(--color-primary) 4%, white); }
 .cal-month-cell.other-month { background: var(--color-bg-soft); opacity: 0.55; }
@@ -460,6 +467,8 @@ main.admin-page { padding: 1.5rem; max-width: 90rem; overflow-x: auto; }
 .cal-month-chips { display:flex; flex-direction:column; gap:0.1875rem; margin-top:0.25rem; }
 .req-chip { background:#fff; border:1px solid var(--color-border); border-left:3px solid var(--color-muted); color:var(--color-ink); font-size:0.6875rem; font-weight:600; border-radius:0.25rem; padding:0.0625rem 0.375rem; cursor:grab; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .req-chip.flagged { background:#fee2e2; border-color:#dc2626; border-left-color:#dc2626; color:#991b1b; }
+.shift-chip { background:#dcfce7; border:1px solid #16a34a; border-left:3px solid #16a34a; color:#14532d; font-size:0.6875rem; font-weight:600; border-radius:0.25rem; padding:0.0625rem 0.375rem; cursor:grab; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.shift-chip.flagged { background:#fee2e2; border-color:#dc2626; border-left-color:#dc2626; color:#991b1b; }
 
 /* Day view: one column, a real hourly timeline (see cal-hours below). */
 .cal-timeoff-row { display:grid; border-bottom:1px solid var(--color-border); min-height: 1.75rem; }
@@ -470,7 +479,7 @@ main.admin-page { padding: 1.5rem; max-width: 90rem; overflow-x: auto; }
 
 .cal-day-body { position:relative; display:grid; grid-template-columns: 3.5rem 1fr; }
 .cal-hours { position:relative; border-right:1px solid var(--color-border); }
-.cal-hour-label { position:absolute; right:0.375rem; transform:translateY(-50%); font-size:0.6875rem; color:var(--color-muted); }
+.cal-hour-label { position:absolute; right:0.375rem; transform:translateY(-50%); font-size:0.6875rem; color:var(--color-muted); background:#fff; padding:0 0.1875rem; z-index:1; }
 .cal-day-col { position:relative; }
 .cal-day-col.drag-over, .cal-month-cell.drag-over { background: color-mix(in srgb, var(--color-primary) 8%, white); }
 .cal-hour-line { position:absolute; left:0; right:0; border-top:1px dashed var(--color-border); }
@@ -486,6 +495,27 @@ main.admin-page { padding: 1.5rem; max-width: 90rem; overflow-x: auto; }
 .req-bar .who { font-weight:700; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .req-bar .when { color:var(--color-ink-light); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .req-bar .flag-note { color:#991b1b; font-weight:600; display:block; }
+
+.shift-bar {
+  position:absolute; border-radius:0.375rem;
+  background:#dcfce7; border:1px solid #16a34a; border-left:3px solid #16a34a;
+  padding:0.1875rem 0.375rem; font-size:0.6875rem; overflow:hidden; cursor:grab;
+  box-shadow:0 1px 2px rgba(0,0,0,0.06);
+}
+.shift-bar:active { cursor:grabbing; }
+.shift-bar.flagged { background:#fee2e2; border-color:#dc2626; border-left-color:#dc2626; }
+.shift-bar .who { font-weight:700; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.shift-bar .when { color:var(--color-ink-light); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.shift-bar .flag-note { color:#991b1b; font-weight:600; display:block; }
+
+/* Week view: a 7-column timeline sharing the Day view's hour rail. */
+.cal-week-head-row { display:grid; grid-template-columns: 3.5rem repeat(7, minmax(6rem, 1fr)); border-bottom:1px solid var(--color-border); position:sticky; top:0; z-index:2; background:#fff; min-width:45.5rem; }
+.cal-week-headcell { padding:0.5rem 0.25rem; text-align:center; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--color-muted); border-left:1px solid var(--color-border); background:var(--color-bg-soft); }
+.cal-week-headcell .num { display:block; font-size:0.8125rem; font-weight:700; text-transform:none; letter-spacing:normal; color:var(--color-ink); margin-top:0.125rem; }
+.cal-week-headcell.today .num { color:#fff; background:var(--color-primary); border-radius:9999px; display:flex; align-items:center; justify-content:center; width:1.375rem; height:1.375rem; padding:0; margin:0.125rem auto 0; }
+.cal-week-body { position:relative; display:grid; grid-template-columns: 3.5rem 1fr; }
+.cal-week-days { display:grid; grid-template-columns: repeat(7, minmax(6rem, 1fr)); min-width:42rem; }
+.cal-week-days .cal-day-col { border-left:1px solid var(--color-border); }
 
 .context-menu {
   position:fixed; z-index:400; background:#fff; border:1px solid var(--color-border); border-radius:0.5rem;

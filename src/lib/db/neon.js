@@ -149,8 +149,15 @@ export async function updateShiftRequest(reqId, updates) {
   if (!row) return null;
   const status = updates.status ?? row.status;
   const denial_reason = updates.denial_reason !== undefined ? updates.denial_reason : row.denial_reason;
+  // date/start_time/end_time: the calendar's drag-to-reschedule path for a
+  // still-pending request PATCHes just these, with no status — they were
+  // missing from this UPDATE entirely, so a drag silently no-op'd here
+  // even though it applied fine against local.js's plain Object.assign.
+  const date = updates.date ?? row.date;
+  const start_time = updates.start_time ?? row.start_time;
+  const end_time = updates.end_time ?? row.end_time;
   return row0(await sql`
-    UPDATE shift_requests SET status = ${status}, denial_reason = ${denial_reason}
+    UPDATE shift_requests SET status = ${status}, denial_reason = ${denial_reason}, date = ${date}, start_time = ${start_time}, end_time = ${end_time}
     WHERE id = ${reqId}
     RETURNING *
   `);
