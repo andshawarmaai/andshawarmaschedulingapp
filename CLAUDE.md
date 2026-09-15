@@ -12,6 +12,46 @@ business rule, adds a new bulk-import row type, or hits a new gotcha should
 update the relevant section below in the same change — this document decays
 fast if it's treated as a one-time snapshot instead of living documentation.
 
+## If you're being asked to integrate with this app as an agent (Hermes, or similar)
+
+**Read `AGENT-TRAINING.md` now, or better, fetch it live: `GET
+/api/agent-guide/markdown` (human-readable) or `GET /api/agent-guide`
+(JSON) — no auth required for either.** It's generated straight from
+`src/lib/agentGuide/registry.js`, so it can't drift from what the API
+actually does the way hand-written prose can; the committed
+`AGENT-TRAINING.md` is a manually-refreshed snapshot of the same output for
+offline reading. It documents every action you can take (submit
+availability, create/move/delete a shift, manage templates, post/claim a
+swap), which ones are human-only by design (approving or denying anything —
+that's the whole point of the Schedule Builder's review queue), exact
+request shapes, and the bulk-schedule-import path for loading a whole
+week/month at once. **Prefer fetching it from the specific deployment
+you're actually talking to** (§2 above has both URLs) since each has its
+own data.
+
+Authenticate with an API key (`Authorization: Bearer shwrm_xxxxx`, created
+via `POST /api/admin/api-keys` or the Manage → API Keys card) — as of this
+writing, an API key is resolved by `middleware.js` into the real user who
+created it, with that user's exact role, for **every** `/api/*` route, not
+just the bulk-import one. That means any route documented in
+`AGENT-TRAINING.md` — or any new one added later — works for an API-key
+caller automatically, with no per-route change required. Keep it that way:
+if you ever add a new API route, you do not need to touch auth for it to
+work for an agent, but you DO need to add it to `registry.js` and
+regenerate `AGENT-TRAINING.md` so an agent knows it exists.
+
+To regenerate `AGENT-TRAINING.md` after changing `registry.js`:
+```bash
+node -e "
+import('./src/lib/agentGuide/build.js').then(async ({ buildAgentGuide }) => {
+  const { renderAgentGuideMarkdown } = await import('./src/lib/agentGuide/markdown.js');
+  console.log(renderAgentGuideMarkdown(buildAgentGuide(), { baseUrl: '' }));
+});
+" > /tmp/agent-training-body.md
+```
+then prepend the same generated-file header comment already at the top of
+`AGENT-TRAINING.md` and overwrite it.
+
 ---
 
 ## 1. What this is
@@ -152,20 +192,27 @@ this endpoint (or, if you're editing this app's own code rather than
 calling it externally, use `runShiftImport()` from `src/lib/shiftImport.js`
 directly, which is exactly what both the admin-UI and API-key routes call).
 
-## 6. Reading live state
+## 6. Reading live state, and API-key auth app-wide
 
-`GET /api/state` (session-cookie auth) is the single aggregate read every
-page polls after a mutation. Shape depends on role:
+`GET /api/state` is the single aggregate read every page polls after a
+mutation. Shape depends on role:
 - Everyone: `me, users (public fields only), shifts, swapPosts, swapClaims, dayCaps, shiftRequests, timeOffApproved (everyone's, minimal fields), timeOffMine`.
 - Staff-or-above additionally: `timeOffAll, shiftImports, apiKeys (metadata only, never the raw key), passwordResetRequests, shiftTemplates`.
 - Admin additionally: `tiers, userTiers`.
 
-There is no equivalent read-only endpoint under `/api/public/` yet — an
-external agent with only an API key can currently only *write* via
-`/api/public/shift-imports`, not read current state. If a future task needs
-that, it belongs alongside the existing `/api/public/` auth pattern in
-`src/pages/api/public/`, not bolted onto the session-cookie-gated
-`/api/state`.
+**An API key works on every `/api/*` route, not just bulk-import** —
+`middleware.js`'s `resolveApiKeyUser()` resolves an `Authorization: Bearer
+shwrm_xxxxx` header into the real user who created the key (their exact
+`id`/`username`/`role`/`display_name`), the same way a session cookie does,
+whenever no cookie is present. This means `GET /api/state`,
+`POST /api/shifts`, `PATCH /api/shift-requests/:id`, every route — works
+for an API-key caller with zero per-route changes, and a write is
+attributed to a real person exactly as if they'd clicked it in the browser.
+`/api/public/shift-imports` predates this and still does its own inline
+auth check; it wasn't touched or migrated, it just now has company. See "If
+you're being asked to integrate with this app as an agent" at the very top
+of this file, and `AGENT-TRAINING.md`, for the full, generated catalog of
+what an agent can call and which actions are human-only by design.
 
 ## 7. Known gotchas (hit once already — don't rediscover these)
 
@@ -174,7 +221,7 @@ that, it belongs alongside the existing `/api/public/` auth pattern in
 - **`local.js`'s DB update functions must merge field-by-field, never `Object.assign(row, updates)` directly.** A caller sending a partial update (e.g. the calendar's drag-to-move sending only `{ date }`) still has every *other* key present on the `updates` object with value `undefined` (from the API route's own object-literal shape) — a blind `Object.assign` copies those `undefined`s over the existing values, wiping them. Always do `if (updates.field !== undefined) row.field = updates.field;` per field (mirror whatever `neon.js` does for the same table).
 - **`neon.js`'s raw SQL `UPDATE` must explicitly `SET` every column meant to survive**, falling back to the existing row's value (`updates.x ?? row.x`) for anything not being changed. A column simply left out of the `UPDATE ... SET` text is never touched in Postgres, so it's easy to add a new partial-update caller against a `neon.js` function that was only ever written to update two of a row's five columns and have it silently no-op the rest — this actually shipped once (the calendar's pending-request drag-to-reschedule updated `status`/`denial_reason` fine locally against `local.js`'s Object.assign, but `neon.js`'s `updateShiftRequest` had no `date`/`start_time`/`end_time` in its `UPDATE` at all, so the same drag silently did nothing on the real production database).
 - **Shift-to-template matching is containment, not overlap** (see §3) — this was a real, shipped bug once (an unrelated shift touching part of a template's window counted against its capacity).
-- **`db.getUserById(me.id)` can return `null` for a session that predates a reseed** (local dev only, but the same class of bug could occur in prod against a deleted user) — `checkShiftCreateLimit` in `tierLimits.js` doesn't guard against this and throws a 500 instead of a clean re-auth prompt. Known, not yet fixed (see any open task for "Fix 500 on stale-session shift request").
+- **`db.getUserById(me.id)` can return `null` for a session that predates a reseed** (local dev only, but the same class of bug could occur in prod against a deleted user) — `checkShiftCreateLimit` in `tierLimits.js` doesn't guard against this and throws a 500 instead of a clean re-auth prompt. Known, not yet fixed (see any open task for "Fix 500 on stale-session shift request"). **This bug is contagious**: an API key's `created_by` is set from `context.locals.user.id` at the moment it's created (`POST /api/admin/api-keys`) — a key created from a stale session inherits that same nonexistent user id, and `resolveApiKeyUser()` in `middleware.js` will then correctly-but-confusingly reject every call made with that key as 401 (it fails closed, it doesn't crash — but the symptom looks like "the key doesn't work" rather than "the session that created it was already broken"). If a freshly-created key immediately 401s on every call, check this before assuming the new middleware code is at fault: log out and log back in properly, then create the key again.
 
 ## 8. Verification checklist before calling a change done
 
