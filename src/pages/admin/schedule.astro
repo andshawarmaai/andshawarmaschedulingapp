@@ -1,30 +1,38 @@
 ---
-// Week-view calendar of PENDING requests for managers/admins to decide on
-// — every pending shift-create request and time-off request shows as a
-// bar positioned by its actual time, with a conflict flag computed from
-// Shift Templates (Manage -> Shift Templates) when a shift's window is
-// over-requested. Right-click a bar to approve/deny; drag a shift bar to
-// a different day to re-propose its date (still requires a separate
-// approval — dragging never approves anything by itself).
+// Calendar of PENDING requests for managers/admins to decide on — every
+// pending shift-create request and time-off request shows as a chip/bar,
+// with a conflict flag computed from Shift Templates (Manage -> Shift
+// Templates) when a shift's window is over-requested. Two views: Month
+// (compact square tiles, the default — click a day to drill into it) and
+// Day (a single day's actual timeline, Outlook/Project-style, sized to
+// that business's actual template hours instead of a fixed 24h span so
+// it doesn't read as one long undifferentiated scroll). Right-click a
+// chip/bar to approve/deny; drag a shift one onto another day (or cell)
+// to re-propose its date (still requires a separate approval).
 import AdminLayout from '../../layouts/AdminLayout.astro';
 ---
 <AdminLayout title="&Shawarma — Schedule" active="schedule">
   <div class="card" style="margin-bottom:1rem;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
       <div style="display:flex;align-items:center;gap:0.75rem;">
-        <button class="btn-secondary" id="prev-week" type="button">&larr; Prev</button>
-        <h2 id="week-label" style="margin:0;">Loading...</h2>
-        <button class="btn-secondary" id="next-week" type="button">Next &rarr;</button>
+        <button class="btn-secondary" id="prev-btn" type="button">&larr; Prev</button>
+        <h2 id="period-label" style="margin:0;">Loading...</h2>
+        <button class="btn-secondary" id="next-btn" type="button">Next &rarr;</button>
       </div>
-      <div style="display:flex;align-items:center;gap:1rem;font-size:0.8125rem;color:var(--color-muted);">
-        <span><span class="legend-dot" style="background:#fff;border:1px solid var(--color-border);"></span> Pending</span>
-        <span><span class="legend-dot" style="background:#fef3c7;border:1px solid #f59e0b;"></span> Conflict</span>
-        <span><span class="legend-dot" style="background:#e0e7ff;border:1px solid #6366f1;"></span> Time off</span>
+      <div class="view-toggle" id="view-toggle">
+        <button type="button" data-view="month" class="active">Month</button>
+        <button type="button" data-view="day">Day</button>
       </div>
     </div>
+    <div style="display:flex;align-items:center;gap:1rem;font-size:0.8125rem;color:var(--color-muted);margin-top:0.5rem;flex-wrap:wrap;">
+      <span><span class="legend-dot" style="background:#fff;border:1px solid var(--color-border);"></span> Pending</span>
+      <span><span class="legend-dot" style="background:#fee2e2;border:1px solid #dc2626;"></span> Conflict</span>
+      <span><span class="legend-dot" style="background:#e0e7ff;border:1px solid #6366f1;"></span> Time off</span>
+    </div>
     <p class="card-sub" style="margin-top:0.5rem;">
-      Right-click a bar to approve or deny. Drag a shift bar onto another day to re-propose its date —
-      it stays pending either way, so nothing is approved just by moving it.
+      Right-click a chip/bar to approve or deny. Drag a shift request onto another day to re-propose
+      its date — it stays pending either way, so nothing is approved just by moving it. In Month view,
+      click a day (not a chip) to see it in detail.
     </p>
   </div>
 
@@ -39,41 +47,53 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   </div>
 
   <script>
-    import { escapeHtml, formatTime12 } from '../../lib/client/format.js';
+    import { escapeHtml, formatTime12, getMonthCells } from '../../lib/client/format.js';
     import { computeShiftRequestConflicts } from '../../lib/client/coverage.js';
 
-    // Display window: 6:00 AM to 6:00 AM the next day (24h), so an
-    // overnight shift (e.g. 4:30pm-2:30am) renders as one continuous bar
-    // instead of being split at midnight. See coverage.js for the same
-    // wraparound convention used server-side.
-    const DAY_START_MIN = 6 * 60;
-    const WINDOW_MIN = 24 * 60;
+    const REM_PER_HOUR = 2.5;
 
     function toMinutes(hhmm) {
       const [h, m] = hhmm.split(':').map(Number);
       return h * 60 + m;
     }
-    function toDisplayMinutes(raw) {
-      const shifted = raw - DAY_START_MIN;
+
+    // The day-view timeline's vertical span is sized to this business's
+    // actual Shift Templates (earliest start to latest wrapped end, +1hr
+    // padding each side) instead of a fixed 24h band, so a business with
+    // tight hours gets a short, quick-to-read day view instead of one
+    // long mostly-empty scroll. Falls back to a sensible 8a-midnight
+    // window before any templates exist.
+    function computeWindow(templates) {
+      if (!templates.length) return { startMin: 8 * 60, windowMin: 16 * 60 };
+      let minStart = Infinity;
+      let maxEnd = -Infinity;
+      for (const t of templates) {
+        const s = toMinutes(t.start_time);
+        let e = toMinutes(t.end_time);
+        if (e <= s) e += 24 * 60;
+        minStart = Math.min(minStart, s);
+        maxEnd = Math.max(maxEnd, e);
+      }
+      const startMin = Math.max(0, Math.floor(minStart / 60) * 60 - 60);
+      const windowMin = Math.min(24 * 60, Math.ceil((maxEnd - startMin) / 60) * 60 + 60);
+      return { startMin, windowMin };
+    }
+
+    function toDisplayMinutes(raw, startMin) {
+      const shifted = raw - startMin;
       return shifted < 0 ? shifted + 24 * 60 : shifted;
     }
-    // Returns [displayStart, displayEnd] (end may exceed WINDOW_MIN by a
-    // little for a shift starting just before 6am — clamped on render).
-    function displayRange(startTime, endTime) {
+    function displayRange(startTime, endTime, startMin) {
       const s = toMinutes(startTime);
       let e = toMinutes(endTime);
       if (e <= s) e += 24 * 60;
-      const displayStart = toDisplayMinutes(s);
+      const displayStart = toDisplayMinutes(s, startMin);
       return [displayStart, displayStart + (e - s)];
     }
 
     // Classic calendar-event column packing (the same shape Outlook/Google
-    // Calendar use): overlapping bars split the day column's width between
-    // them instead of stacking on top of each other. Items in the same
-    // touching-overlap cluster all share one column count, even if a
-    // later item in the cluster doesn't overlap an earlier one directly —
-    // that's the standard, simple version of this algorithm, not a
-    // perfect minimum-width packing.
+    // Calendar use): overlapping bars split the available width between
+    // them instead of stacking on top of each other.
     function packOverlaps(items) {
       const sorted = [...items].sort((a, b) => a.start - b.start || a.end - b.end);
       const active = []; // { end, col }
@@ -105,14 +125,10 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     }
 
     let data = null;
-    let weekStart = null; // Date object, a Sunday
+    let view = 'month';
+    let anchor = new Date(); // month view: its month matters; day view: the exact date matters
+    anchor.setHours(0, 0, 0, 0);
 
-    function startOfWeek(d) {
-      const x = new Date(d);
-      x.setDate(x.getDate() - x.getDay());
-      x.setHours(0, 0, 0, 0);
-      return x;
-    }
     function isoOf(d) { return d.toISOString().slice(0, 10); }
 
     async function loadState() {
@@ -125,96 +141,101 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       return u ? u.display_name : 'Unknown';
     }
 
-    function render() {
-      const days = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(weekStart);
-        d.setDate(d.getDate() + i);
-        days.push(d);
-      }
-      const todayIso = new Date().toISOString().slice(0, 10);
-      document.getElementById('week-label').textContent =
-        `${days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    function chipHtml(kind, id, label, flagged, note) {
+      const cls = kind === 'timeoff' ? 'timeoff-chip' : 'req-chip';
+      const draggable = kind === 'shift' ? 'true' : 'false';
+      return `<div class="${cls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${escapeHtml(note || '')}">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</div>`;
+    }
 
+    function renderMonth() {
+      const year = anchor.getFullYear();
+      const month = anchor.getMonth() + 1;
+      document.getElementById('period-label').textContent = anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+      const todayIso = isoOf(new Date());
       const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending' && r.action === 'create');
       const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
       const conflicts = computeShiftRequestConflicts(data.shiftTemplates || [], data.shifts || [], data.shiftRequests || []);
 
-      const root = document.getElementById('calendar-root');
-
-      const headCells = days.map((d) => {
-        const iso = isoOf(d);
-        const label = d.toLocaleDateString('en-US', { weekday: 'short' });
-        const num = d.getDate();
-        return `<div class="cal-head-cell${iso === todayIso ? ' today' : ''}">${label}<span class="num">${num}</span></div>`;
+      const cells = getMonthCells(year, month);
+      const head = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="cal-month-head">${d}</div>`).join('');
+      const body = cells.map((c) => {
+        const shiftChips = pendingShiftReqs.filter((r) => r.date === c.iso).map((r) =>
+          chipHtml('shift', r.id, `${userName(r.user_id)} ${formatTime12(r.start_time)}`, conflicts.has(r.id), conflicts.get(r.id))
+        );
+        const toChips = pendingTimeOff.filter((t) => c.iso >= t.start_date && c.iso <= t.end_date).map((t) =>
+          chipHtml('timeoff', t.id, `${userName(t.user_id)} off`, !!t.staffing_warning, t.staffing_warning)
+        );
+        return `<div class="cal-month-cell${c.other ? ' other-month' : ''}${c.iso === todayIso ? ' today' : ''}" data-date="${c.iso}">
+          <span class="cal-month-daynum">${parseInt(c.iso.slice(8, 10), 10)}</span>
+          <div class="cal-month-chips">${toChips.join('')}${shiftChips.join('')}</div>
+        </div>`;
       }).join('');
 
-      const timeoffCells = days.map((d) => {
-        const iso = isoOf(d);
-        const entries = pendingTimeOff.filter((t) => iso >= t.start_date && iso <= t.end_date);
-        const chips = entries.map((t) => `
-          <div class="timeoff-chip${t.staffing_warning ? ' flagged' : ''}" draggable="false"
-               data-kind="timeoff" data-id="${t.id}"
-               title="${escapeHtml(t.staffing_warning || '')}">
-            ${escapeHtml(userName(t.user_id))}${t.staffing_warning ? ' ⚠' : ''}
-          </div>
-        `).join('');
-        return `<div class="cal-timeoff-cell" data-date="${iso}">${chips}</div>`;
-      }).join('');
+      document.getElementById('calendar-root').innerHTML = `<div class="cal-month-grid">${head}${body}</div>`;
+      wireMonthInteractions(pendingShiftReqs);
+    }
 
-      // Hour gutter + gridlines, 6a..6a next day.
+    function renderDay() {
+      const iso = isoOf(anchor);
+      document.getElementById('period-label').textContent = anchor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+      const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending' && r.action === 'create');
+      const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
+      const conflicts = computeShiftRequestConflicts(data.shiftTemplates || [], data.shifts || [], data.shiftRequests || []);
+      const { startMin, windowMin } = computeWindow(data.shiftTemplates || []);
+
+      const toEntries = pendingTimeOff.filter((t) => iso >= t.start_date && iso <= t.end_date);
+      const toChips = toEntries.map((t) => chipHtml('timeoff', t.id, userName(t.user_id), !!t.staffing_warning, t.staffing_warning)).join('');
+
       const hourLabels = [];
-      for (let h = 0; h <= 24; h += 3) {
-        const displayMin = h * 60;
-        const hour24 = (DAY_START_MIN / 60 + h) % 24;
+      for (let m = 0; m <= windowMin; m += 60) {
+        const hour24 = Math.floor((startMin + m) / 60) % 24;
         const label = hour24 === 0 ? '12a' : hour24 < 12 ? `${hour24}a` : hour24 === 12 ? '12p' : `${hour24 - 12}p`;
-        hourLabels.push(`<div class="cal-hour-label" style="top:${(displayMin / WINDOW_MIN) * 100}%;">${label}</div>`);
-        hourLabels.push(`<div class="cal-hour-line" style="top:${(displayMin / WINDOW_MIN) * 100}%;"></div>`);
+        const top = (m / windowMin) * 100;
+        hourLabels.push(`<div class="cal-hour-label" style="top:${top}%;">${label}</div>`);
+        hourLabels.push(`<div class="cal-hour-line" style="top:${top}%;"></div>`);
       }
 
-      const dayCols = days.map((d) => {
-        const iso = isoOf(d);
-        const reqs = pendingShiftReqs.filter((r) => r.date === iso);
-        const items = reqs.map((r) => {
-          const [dispStart, dispEnd] = displayRange(r.start_time, r.end_time);
-          return { start: dispStart, end: Math.min(dispEnd, WINDOW_MIN), req: r };
-        });
-        const packed = packOverlaps(items);
-        const bars = packed.map(({ start, end, col, cols, req: r }) => {
-          const top = Math.max(0, (start / WINDOW_MIN) * 100);
-          const height = Math.max(3, ((end - start) / WINDOW_MIN) * 100);
-          const widthPct = 100 / cols;
-          const leftPct = col * widthPct;
-          const conflictNote = conflicts.get(r.id);
-          return `
-            <div class="req-bar${conflictNote ? ' flagged' : ''}" draggable="true"
-                 data-kind="shift" data-id="${r.id}"
-                 style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);">
-              <span class="who">${escapeHtml(userName(r.user_id))}${conflictNote ? ' ⚠' : ''}</span>
-              <span class="when">${formatTime12(r.start_time)}–${formatTime12(r.end_time)}</span>
-              ${conflictNote ? `<span class="flag-note">${escapeHtml(conflictNote)}</span>` : ''}
-            </div>
-          `;
-        }).join('');
-        return `<div class="cal-day-col" data-date="${iso}">${bars}</div>`;
+      const reqs = pendingShiftReqs.filter((r) => r.date === iso);
+      const items = reqs.map((r) => {
+        const [dispStart, dispEnd] = displayRange(r.start_time, r.end_time, startMin);
+        return { start: dispStart, end: Math.min(dispEnd, windowMin), req: r };
+      });
+      const packed = packOverlaps(items);
+      const bars = packed.map(({ start, end, col, cols, req: r }) => {
+        const top = Math.max(0, (start / windowMin) * 100);
+        const height = Math.max(3, ((end - start) / windowMin) * 100);
+        const widthPct = 100 / cols;
+        const leftPct = col * widthPct;
+        const conflictNote = conflicts.get(r.id);
+        return `
+          <div class="req-bar${conflictNote ? ' flagged' : ''}" draggable="true"
+               data-kind="shift" data-id="${r.id}"
+               style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);">
+            <span class="who">${escapeHtml(userName(r.user_id))}${conflictNote ? ' ⚠' : ''}</span>
+            <span class="when">${formatTime12(r.start_time)}–${formatTime12(r.end_time)}</span>
+            ${conflictNote ? `<span class="flag-note">${escapeHtml(conflictNote)}</span>` : ''}
+          </div>
+        `;
       }).join('');
 
-      root.innerHTML = `
-        <div class="cal-grid cal-head">
-          <div></div>
-          ${headCells}
-        </div>
-        <div class="cal-timeoff-row">
+      document.getElementById('calendar-root').innerHTML = `
+        <div class="cal-timeoff-row" style="grid-template-columns:3.5rem 1fr;">
           <div class="cal-timeoff-label">Time off</div>
-          ${timeoffCells}
+          <div class="cal-timeoff-cell" data-date="${iso}">${toChips}</div>
         </div>
-        <div class="cal-body">
+        <div class="cal-day-body">
           <div class="cal-hours">${hourLabels.join('')}</div>
-          ${dayCols}
+          <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * REM_PER_HOUR}rem;">${bars}</div>
         </div>
       `;
+      wireDayInteractions(pendingShiftReqs);
+    }
 
-      wireInteractions(pendingShiftReqs, pendingTimeOff);
+    function render() {
+      if (view === 'month') renderMonth();
+      else renderDay();
     }
 
     let contextTarget = null; // { kind, id }
@@ -223,7 +244,6 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       document.getElementById('context-menu').hidden = true;
       contextTarget = null;
     }
-
     function openContextMenu(x, y, kind, id) {
       contextTarget = { kind, id };
       const menu = document.getElementById('context-menu');
@@ -232,34 +252,35 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       menu.hidden = false;
     }
 
-    function wireInteractions(pendingShiftReqs, pendingTimeOff) {
-      const root = document.getElementById('calendar-root');
-
+    function wireContextMenus(root) {
       root.querySelectorAll('[data-kind]').forEach((el) => {
         el.addEventListener('contextmenu', (e) => {
           e.preventDefault();
+          e.stopPropagation();
           openContextMenu(e.clientX, e.clientY, el.getAttribute('data-kind'), el.getAttribute('data-id'));
         });
       });
+    }
 
-      root.querySelectorAll('.req-bar[draggable="true"]').forEach((el) => {
+    function wireDragDrop(root, pendingShiftReqs, dropTargetSelector) {
+      root.querySelectorAll('.req-chip[draggable="true"], .req-bar[draggable="true"]').forEach((el) => {
         el.addEventListener('dragstart', (e) => {
+          e.stopPropagation();
           e.dataTransfer.setData('text/plain', el.getAttribute('data-id'));
           e.dataTransfer.effectAllowed = 'move';
         });
       });
-
-      root.querySelectorAll('.cal-day-col').forEach((col) => {
-        col.addEventListener('dragover', (e) => {
+      root.querySelectorAll(dropTargetSelector).forEach((target) => {
+        target.addEventListener('dragover', (e) => {
           e.preventDefault();
-          col.classList.add('drag-over');
+          target.classList.add('drag-over');
         });
-        col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
-        col.addEventListener('drop', async (e) => {
+        target.addEventListener('dragleave', () => target.classList.remove('drag-over'));
+        target.addEventListener('drop', async (e) => {
           e.preventDefault();
-          col.classList.remove('drag-over');
+          target.classList.remove('drag-over');
           const reqId = e.dataTransfer.getData('text/plain');
-          const targetDate = col.getAttribute('data-date');
+          const targetDate = target.getAttribute('data-date');
           const req = pendingShiftReqs.find((r) => r.id === reqId);
           if (!req || req.date === targetDate) return;
           const r = await window.shawarmaApi('PATCH', `/api/shift-requests/${reqId}`, { date: targetDate });
@@ -268,6 +289,27 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
           await refreshAndRender();
         });
       });
+    }
+
+    function wireMonthInteractions(pendingShiftReqs) {
+      const root = document.getElementById('calendar-root');
+      wireContextMenus(root);
+      wireDragDrop(root, pendingShiftReqs, '.cal-month-cell');
+      root.querySelectorAll('.cal-month-cell').forEach((cell) => {
+        cell.addEventListener('click', (e) => {
+          if (e.target.closest('[data-kind]')) return; // chip clicks don't drill in
+          anchor = new Date(`${cell.getAttribute('data-date')}T00:00:00`);
+          view = 'day';
+          document.querySelectorAll('#view-toggle button').forEach((b) => b.classList.toggle('active', b.dataset.view === 'day'));
+          render();
+        });
+      });
+    }
+
+    function wireDayInteractions(pendingShiftReqs) {
+      const root = document.getElementById('calendar-root');
+      wireContextMenus(root);
+      wireDragDrop(root, pendingShiftReqs, '.cal-day-col');
     }
 
     document.getElementById('context-menu').addEventListener('click', async (e) => {
@@ -295,12 +337,21 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       if (!e.target.closest('#context-menu')) closeContextMenu();
     });
 
-    document.getElementById('prev-week').addEventListener('click', () => {
-      weekStart.setDate(weekStart.getDate() - 7);
+    document.querySelectorAll('#view-toggle button').forEach((b) => {
+      b.addEventListener('click', () => {
+        view = b.dataset.view;
+        document.querySelectorAll('#view-toggle button').forEach((x) => x.classList.toggle('active', x === b));
+        render();
+      });
+    });
+    document.getElementById('prev-btn').addEventListener('click', () => {
+      if (view === 'month') anchor.setMonth(anchor.getMonth() - 1);
+      else anchor.setDate(anchor.getDate() - 1);
       render();
     });
-    document.getElementById('next-week').addEventListener('click', () => {
-      weekStart.setDate(weekStart.getDate() + 7);
+    document.getElementById('next-btn').addEventListener('click', () => {
+      if (view === 'month') anchor.setMonth(anchor.getMonth() + 1);
+      else anchor.setDate(anchor.getDate() + 1);
       render();
     });
 
@@ -309,7 +360,6 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       render();
     }
 
-    weekStart = startOfWeek(new Date());
     refreshAndRender();
   </script>
 </AdminLayout>
