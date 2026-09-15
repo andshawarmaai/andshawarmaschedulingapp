@@ -1,10 +1,10 @@
 ---
 // middleware.js already restricts /admin to admin/manager roles.
-import AppLayout from '../layouts/AppLayout.astro';
+import AdminLayout from '../layouts/AdminLayout.astro';
 import Icon from '../components/Icon.astro';
 const user = Astro.locals.user;
 ---
-<AppLayout title="&Shawarma — Manage" active="admin">
+<AdminLayout title="&Shawarma — Manage" active="manage">
   <div class="card">
     <h2><Icon name="bell" size={18} class="icon-inline" /> Pending Approvals <span id="pending-count" class="badge badge-pending">0</span></h2>
     <p class="card-sub">Shift requests, time-off requests, and shift-swap volunteers waiting on a decision.</p>
@@ -857,4 +857,4 @@ const user = Astro.locals.user;
 
     refreshAndRender();
   </script>
-</AppLayout>
+</AdminLayout>

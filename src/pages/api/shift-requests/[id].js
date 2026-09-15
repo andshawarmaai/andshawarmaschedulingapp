@@ -11,12 +11,33 @@ function isStaffOrAbove(user) {
 }
 
 export async function PATCH(context) {
+  const { id } = context.params;
+  const body = await context.request.json().catch(() => null);
+  if (!body) return json({ error: 'Invalid request body.' }, 400);
+
+  // Re-proposing the date/time on a still-pending request — the calendar's
+  // drag-to-reschedule. Deliberately admin/manager only (unlike time off's
+  // owner-edit path): this is a manager sorting out a conflict, not a
+  // staff member changing their own ask.
+  if (body.status === undefined) {
+    if (!isStaffOrAbove(context.locals.user)) {
+      return json({ error: 'Only admins and managers can reschedule a request.' }, 403);
+    }
+    const req = await db.getShiftRequestById(id);
+    if (!req) return json({ error: 'Request not found.' }, 404);
+    if (req.status !== 'pending') return json({ error: `Already ${req.status}.`, status: req.status }, 409);
+    const updates = {};
+    if (body.date) updates.date = body.date;
+    if (body.start_time) updates.start_time = body.start_time;
+    if (body.end_time) updates.end_time = body.end_time;
+    const updated = await db.updateShiftRequest(id, updates);
+    return json({ ok: true, request: updated });
+  }
+
   if (!isStaffOrAbove(context.locals.user)) {
     return json({ error: 'Only admins and managers can approve or deny shift requests.' }, 403);
   }
-  const { id } = context.params;
-  const body = await context.request.json().catch(() => null);
-  if (!body || (body.status !== 'approved' && body.status !== 'denied')) {
+  if (body.status !== 'approved' && body.status !== 'denied') {
     return json({ error: 'status must be "approved" or "denied".' }, 400);
   }
 
