@@ -35,14 +35,18 @@ function templatesForDate(templates, dateStr) {
   return templates.filter((t) => t.days_of_week.split(',').map((d) => d.trim()).includes(dow));
 }
 
-// Shifts on `dateStr` whose time range overlaps `template`'s window for
-// that date (both wraparound-aware).
+// Shifts on `dateStr` whose time range falls within `template`'s window
+// for that date (both wraparound-aware). Deliberately "fully contained",
+// not "any overlap" — a distinctly-shaped shift that merely touches part
+// of a template's hours (e.g. an 11:30-10:30 shift brushing a 9-6
+// template) isn't a request for THAT block and shouldn't count against
+// its staffing, any more than it should against an unrelated template's.
 function shiftsCoveringTemplate(shifts, template, dateStr) {
   const [tStart, tEnd] = templateRange(template);
   return shifts.filter((s) => {
     if (s.date !== dateStr) return false;
     const [sStart, sEnd] = shiftRange(s);
-    return sStart < tEnd && tStart < sEnd;
+    return sStart >= tStart && sEnd <= tEnd;
   });
 }
 

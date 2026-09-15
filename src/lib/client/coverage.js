@@ -25,10 +25,15 @@ function rowRange(row) {
   return [start, end];
 }
 
+// Fully contained within the template's window, not just any overlap — a
+// distinctly-shaped shift that merely touches part of a template's hours
+// (e.g. an 11:30-10:30 shift brushing a 9-6 template) isn't a request for
+// THAT block and shouldn't count toward its max_staff. See the matching
+// note in ../coverage.js, which this mirrors for calendar rendering.
 function overlaps(row, template) {
   const [tStart, tEnd] = templateRange(template);
   const [rStart, rEnd] = rowRange(row);
-  return rStart < tEnd && tStart < rEnd;
+  return rStart >= tStart && rEnd <= tEnd;
 }
 
 export function dayOfWeek(dateStr) {

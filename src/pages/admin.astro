@@ -285,7 +285,7 @@ const user = Astro.locals.user;
         </div>`;
       });
       const warningHtml = (w) => w
-        ? `<div class="meta" style="color:#92400e;background:#fef3c7;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">⚠ Below minimum staffing: ${escapeHtml(w)}</div>`
+        ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">⚠ Below minimum staffing: ${escapeHtml(w)}</div>`
         : '';
       pendingShiftReqs.forEach((r) => {
         const label = r.action === 'create' ? 'new shift' : r.action === 'delete' ? 'remove shift' : 'change shift';
