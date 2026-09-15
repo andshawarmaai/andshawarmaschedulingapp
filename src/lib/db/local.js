@@ -166,7 +166,16 @@ export async function updateShift(shiftId, updates) {
   const d = load();
   const s = d.shifts.find((x) => x.id === shiftId);
   if (!s) return null;
-  Object.assign(s, updates);
+  // A plain Object.assign would copy over the `undefined` the caller sends
+  // for every field it isn't touching (e.g. the calendar's drag-to-move
+  // only sends { date }) and wipe the rest — mirrors neon.js's updateShift,
+  // which merges field-by-field for the same reason.
+  if (updates.user_id !== undefined) s.user_id = updates.user_id;
+  if (updates.date !== undefined) s.date = updates.date;
+  if (updates.start_time !== undefined) s.start_time = updates.start_time;
+  if (updates.end_time !== undefined) s.end_time = updates.end_time;
+  if (updates.department !== undefined) s.department = updates.department;
+  if (updates.notes !== undefined) s.notes = updates.notes;
   save(d);
   return s;
 }

@@ -20,8 +20,8 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
 
   {!canEdit && (
     <div class="card">
-      <h2>My Shift Requests</h2>
-      <p class="card-sub">Requests you've submitted to add, change, or remove a shift. A manager or admin has to approve them before they show up on the calendar.</p>
+      <h2>My Availability</h2>
+      <p class="card-sub">Days/times you've shown as available, plus any change or removal requests on shifts you're already scheduled for. A manager or admin schedules you from these on the Schedule Builder — there's nothing further for you to approve or deny.</p>
       <div id="my-requests"><p class="empty">Loading...</p></div>
     </div>
   )}
@@ -46,12 +46,16 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
         <button class="modal-close" id="editor-close" aria-label="Close" type="button">&times;</button>
       </div>
       <div class="modal-body">
-        <p id="editor-note" class="card-sub" style="margin-top:0;" hidden>This will be sent to a manager or admin for approval — it won't appear on the calendar until they approve it.</p>
+        <p id="editor-note" class="card-sub" style="margin-top:0;" hidden>This shows a manager or admin you're available — it doesn't put you on the schedule by itself. They'll schedule you for an actual shift from the Schedule Builder.</p>
         <div class="field" id="editor-staff-field">
           <label for="ed-user">Staff</label>
           <select id="ed-user" class="input"></select>
         </div>
         <div class="field"><label for="ed-date">Date</label><input type="date" id="ed-date" class="input" /></div>
+        <label id="ed-all-day-field" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:400;margin-bottom:0.875rem;" hidden>
+          <input type="checkbox" id="ed-all-day" style="width:1rem;height:1rem;" />
+          <span>Available all day</span>
+        </label>
         <div class="field"><label for="ed-start">Start time</label><input type="time" id="ed-start" class="input" value="11:00" /></div>
         <div class="field"><label for="ed-end">End time</label><input type="time" id="ed-end" class="input" value="19:00" /></div>
         <div class="field"><label for="ed-notes">Notes</label><input type="text" id="ed-notes" class="input" placeholder="Optional" /></div>
@@ -205,22 +209,40 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
       document.getElementById('day-modal').classList.add('show');
     }
 
+    function applyAllDay(checked) {
+      document.getElementById('ed-start').value = checked ? '00:00' : '11:00';
+      document.getElementById('ed-end').value = checked ? '23:59' : '19:00';
+      document.getElementById('ed-start').disabled = checked;
+      document.getElementById('ed-end').disabled = checked;
+    }
+    document.getElementById('ed-all-day').addEventListener('change', (e) => applyAllDay(e.target.checked));
+
     function openEditor(iso, shiftId) {
       editingShiftId = shiftId;
       const shift = shiftId ? data.shifts.find((s) => s.id === shiftId) : null;
       if (shift && !canRequestOn(shift)) return;
+      // "Available all day" only makes sense when a staff member is
+      // showing new availability, not when editing/removing a shift
+      // they're already scheduled for, or when an admin is directly
+      // assigning someone a specific shift.
+      const showAllDay = !ctx.canEdit && !shift;
       document.getElementById('editor-title').textContent = shift
         ? (ctx.canEdit ? 'Edit shift' : 'Request a change')
-        : (ctx.canEdit ? 'New shift' : 'Request a shift');
+        : (ctx.canEdit ? 'New shift' : 'Show availability');
       document.getElementById('editor-note').hidden = ctx.canEdit;
+      document.getElementById('ed-all-day-field').hidden = !showAllDay;
+      document.getElementById('ed-all-day').checked = false;
       const userSelect = document.getElementById('ed-user');
       userSelect.innerHTML = data.users.filter((u) => !u.disabled).map((u) =>
         `<option value="${u.id}" ${shift ? (shift.user_id === u.id ? 'selected' : '') : (u.id === ctx.myUserId ? 'selected' : '')}>${escapeHtml(u.display_name)}</option>`
       ).join('');
       if (!ctx.canEdit) userSelect.value = ctx.myUserId;
       document.getElementById('ed-date').value = shift ? shift.date : iso;
-      document.getElementById('ed-start').value = shift ? shift.start_time : '11:00';
-      document.getElementById('ed-end').value = shift ? shift.end_time : '19:00';
+      applyAllDay(false);
+      if (shift) {
+        document.getElementById('ed-start').value = shift.start_time;
+        document.getElementById('ed-end').value = shift.end_time;
+      }
       document.getElementById('ed-notes').value = shift && shift.notes ? shift.notes : '';
       document.getElementById('ed-delete').hidden = !shift;
       document.getElementById('ed-delete').textContent = ctx.canEdit ? 'Delete' : 'Request removal';
@@ -262,7 +284,7 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
       if (!r.ok) { window.shawarmaToast(r.error || 'Save failed'); return; }
       window.shawarmaToast(ctx.canEdit
         ? (editingShiftId ? 'Shift updated' : 'Shift added')
-        : 'Requested — waiting on manager approval');
+        : (editingShiftId ? 'Change requested' : 'Availability shown — a manager will schedule you from it'));
       closeEditor();
       await refreshAndRender();
     });
@@ -330,12 +352,14 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
         .filter((r) => r.user_id === ctx.myUserId)
         .sort((a, b) => b.created_at.localeCompare(a.created_at));
       if (mine.length === 0) {
-        el.innerHTML = '<p class="empty">No requests yet.</p>';
+        el.innerHTML = '<p class="empty">Nothing yet — show your availability by adding a day above.</p>';
         return;
       }
       el.innerHTML = mine.map((r) => {
-        const label = r.action === 'create' ? 'New shift' : r.action === 'delete' ? 'Remove shift' : 'Change shift';
-        const detail = r.date ? `${formatDate(r.date, { short: true })} · ${formatTime12(r.start_time)}–${formatTime12(r.end_time)}` : '';
+        const label = r.action === 'create' ? 'Available' : r.action === 'delete' ? 'Remove shift' : 'Change shift';
+        const isAllDay = r.start_time === '00:00' && r.end_time === '23:59';
+        const timeText = isAllDay ? 'All day' : `${formatTime12(r.start_time)}–${formatTime12(r.end_time)}`;
+        const detail = r.date ? `${formatDate(r.date, { short: true })} · ${timeText}` : '';
         const denialHtml = r.status === 'denied' && r.denial_reason
           ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">Admin says: ${escapeHtml(r.denial_reason)}</div>`
           : '';

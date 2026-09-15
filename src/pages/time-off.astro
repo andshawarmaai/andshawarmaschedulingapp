@@ -9,6 +9,9 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
     <h2><Icon name="timeoff" size={18} class="icon-inline" /> Request Time Off</h2>
     <form id="request-form">
       <div class="field"><label for="start_date">Start date</label><input type="date" id="start_date" class="input" required /></div>
+      <p id="short-notice-warning" class="card-sub" style="color:#991b1b;margin:-0.5rem 0 0.875rem;" hidden>
+        <Icon name="alert" size={14} class="icon-inline" /> Less than 7 days' notice — this request may not be approved in time due to staffing constraints.
+      </p>
       <div class="field"><label for="end_date">End date</label><input type="date" id="end_date" class="input" required /></div>
       <div class="field"><label for="reason">Reason</label><input type="text" id="reason" class="input" placeholder="Vacation, appointment, etc." required /></div>
       <button type="submit" class="btn-primary">Submit request</button>
@@ -123,6 +126,24 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
       });
     }
 
+    // Advisory only (per the owner: appointments still go through the normal
+    // request -> admin-approval flow) — a request within 7 days isn't
+    // blocked, just flagged as less likely to be approved in time given
+    // staffing constraints. The admin decides either way.
+    const startDateInput = document.getElementById('start_date');
+    const noticeWarning = document.getElementById('short-notice-warning');
+    function checkShortNotice() {
+      const val = startDateInput.value;
+      if (!val) { noticeWarning.hidden = true; return; }
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const chosen = new Date(`${val}T00:00:00`);
+      const diffDays = Math.round((chosen - today) / 86400000);
+      noticeWarning.hidden = !(diffDays >= 0 && diffDays < 7);
+    }
+    startDateInput.addEventListener('change', checkShortNotice);
+    startDateInput.addEventListener('input', checkShortNotice);
+
     document.getElementById('request-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const payload = {
@@ -133,6 +154,7 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
       const r = await window.shawarmaApi('POST', '/api/timeoff', payload);
       if (!r.ok) { window.shawarmaToast(r.error || 'Could not submit request'); return; }
       document.getElementById('request-form').reset();
+      noticeWarning.hidden = true;
       window.shawarmaToast('Time-off submitted — admin must approve');
       await refreshAndRender();
     });
