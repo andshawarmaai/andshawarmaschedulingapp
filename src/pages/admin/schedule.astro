@@ -88,6 +88,10 @@ import Icon from '../../components/Icon.astro';
     <button type="button" data-action="delete">Remove from schedule</button>
   </div>
 
+  <!-- Hover popup explaining a red conflict flag in plain English — see
+       showConflictTooltip/wireConflictTooltips. -->
+  <div id="conflict-tooltip" class="conflict-tooltip no-print"></div>
+
   <!-- Add OR edit a shift directly — opened either via the "+" that appears
        hovering a Month cell / Week day header / Day's toolbar (add, no
        shiftId), or by clicking an already-scheduled (green) chip/bar
@@ -159,7 +163,7 @@ import Icon from '../../components/Icon.astro';
 
   <script>
     import { escapeHtml, formatTime12, getMonthCells } from '../../lib/client/format.js';
-    import { computeShiftRequestConflicts } from '../../lib/client/coverage.js';
+    import { computeShiftRequestConflicts, computeDayCoverage } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
@@ -272,28 +276,56 @@ import Icon from '../../components/Icon.astro';
       return u ? u.display_name : 'Unknown';
     }
 
+    // Flagged items get the custom popup (see showConflictTooltip) instead
+    // of the browser's own slow, easy-to-miss title tooltip — the plain
+    // hint (edit/drag) still uses title since it's minor and not urgent.
     function chipHtml(kind, id, label, flagged, note) {
       const isTimeOff = kind === 'timeoff' || kind === 'timeoff-approved';
       const cls = isTimeOff ? 'timeoff-chip' : kind === 'shift-approved' ? 'shift-chip' : 'req-chip';
       const approvedCls = kind === 'timeoff-approved' ? ' approved' : '';
       const draggable = kind === 'shift-pending' || kind === 'shift-approved' ? 'true' : 'false';
       const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
-      const title = escapeHtml(note || hint || '');
-      return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${title}">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</div>`;
+      const titleAttr = flagged ? '' : `title="${escapeHtml(hint)}"`;
+      const noteAttr = flagged ? `data-conflict-note="${escapeHtml(note)}"` : '';
+      return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}>${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</div>`;
     }
 
     function barHtml(kind, id, label, when, top, height, leftPct, widthPct, flagged, note) {
       const cls = kind === 'shift-approved' ? 'shift-bar' : 'req-bar';
       const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
+      const titleAttr = flagged ? '' : `title="${escapeHtml(hint)}"`;
+      const noteAttr = flagged ? `data-conflict-note="${escapeHtml(note)}"` : '';
       return `
         <div class="${cls}${flagged ? ' flagged' : ''}" draggable="true"
-             data-kind="${kind}" data-id="${id}" title="${escapeHtml(note || hint || '')}"
+             data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}
              style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);">
           <span class="who">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</span>
           <span class="when">${escapeHtml(when)}</span>
-          ${note ? `<span class="flag-note">${escapeHtml(note)}</span>` : ''}
         </div>
       `;
+    }
+
+    // ----- Conflict explanation popup -----
+    // A hover tooltip you can actually see immediately, in plain English,
+    // instead of the browser's own slow/muted title tooltip — the whole
+    // point being an admin shouldn't have to guess what a red flag means.
+    function showConflictTooltip(el) {
+      const tip = document.getElementById('conflict-tooltip');
+      tip.textContent = el.getAttribute('data-conflict-note');
+      tip.classList.add('show');
+      const rect = el.getBoundingClientRect();
+      const maxLeft = window.innerWidth - tip.offsetWidth - 8;
+      tip.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
+      tip.style.top = `${rect.bottom + 6}px`;
+    }
+    function hideConflictTooltip() {
+      document.getElementById('conflict-tooltip').classList.remove('show');
+    }
+    function wireConflictTooltips(root) {
+      root.querySelectorAll('.flagged[data-conflict-note]').forEach((el) => {
+        el.addEventListener('mouseenter', () => showConflictTooltip(el));
+        el.addEventListener('mouseleave', hideConflictTooltip);
+      });
     }
 
     // Packs a single day's approved shifts + pending requests into
@@ -455,11 +487,13 @@ import Icon from '../../components/Icon.astro';
       }
 
       const bars = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin);
+      const coverageHtml = renderCoveragePanel(iso);
 
       document.getElementById('calendar-root').innerHTML = `
         <div class="cal-day-toolbar">
           <button type="button" class="btn-primary cal-add-btn-inline" data-add-date="${iso}">+ Add shift</button>
         </div>
+        ${coverageHtml}
         <div class="cal-timeoff-row" style="grid-template-columns:3.5rem 1fr;">
           <div class="cal-timeoff-label">Time off</div>
           <div class="cal-timeoff-cell" data-date="${iso}">${toChips}</div>
@@ -469,7 +503,91 @@ import Icon from '../../components/Icon.astro';
           <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * REM_PER_HOUR}rem;">${bars}</div>
         </div>
       `;
-      wireDayInteractions();
+      wireDayInteractions(iso);
+    }
+
+    // ----- Coverage panel (Day view only) -----
+    // A plain-English answer to "is today actually fully staffed" instead
+    // of making an admin infer it from a pile of individual chips: one
+    // card per shift template that applies today, colored by whether it's
+    // short-staffed, fully covered, or over its max — plus a row of
+    // draggable staff names so filling a gap is drag-a-name-onto-the-gap,
+    // not open-a-modal-and-pick-from-a-dropdown. Like completing a puzzle:
+    // every card should end up green.
+    const COVERAGE_LABELS = {
+      under: (t, count) => `Needs ${t.min_staff - count} more`,
+      filled: () => 'Fully staffed',
+      over: (t, count) => `${count - t.max_staff} over capacity`,
+      neutral: (t, count) => `${count} scheduled`,
+    };
+
+    function renderCoveragePanel(iso) {
+      const coverage = computeDayCoverage(data.shiftTemplates || [], data.shifts || [], data.shiftRequests || [], iso);
+      if (coverage.length === 0) return '';
+
+      const blocks = coverage.map(({ template, count, status }) => {
+        const staffLabel = [
+          template.min_staff != null ? `min ${template.min_staff}` : null,
+          template.max_staff != null ? `max ${template.max_staff}` : null,
+        ].filter(Boolean).join(' · ');
+        return `
+          <div class="coverage-block status-${status}" data-template-id="${template.id}" data-start="${template.start_time}" data-end="${template.end_time}" title="Drag a name here, or click to add a shift for this block">
+            <div class="coverage-name">${escapeHtml(template.name)}</div>
+            <div class="coverage-time">${formatTime12(template.start_time)}–${formatTime12(template.end_time)}${staffLabel ? ' · ' + staffLabel : ''}</div>
+            <div class="coverage-count">${count}</div>
+            <div class="coverage-status">${COVERAGE_LABELS[status](template, count)}</div>
+          </div>
+        `;
+      }).join('');
+
+      const roster = (data.users || []).filter((u) => !u.disabled).map((u) =>
+        `<div class="roster-chip" draggable="true" data-user-id="${u.id}">${escapeHtml(u.display_name)}</div>`
+      ).join('');
+
+      return `
+        <div class="coverage-panel no-print">
+          <div class="coverage-blocks">${blocks}</div>
+          <div class="coverage-roster-label">Drag a name onto a block to fill it:</div>
+          <div class="coverage-roster">${roster}</div>
+        </div>
+      `;
+    }
+
+    function wireCoverageInteractions(root, iso) {
+      root.querySelectorAll('.roster-chip').forEach((chip) => {
+        chip.addEventListener('dragstart', (e) => {
+          e.stopPropagation();
+          e.dataTransfer.setData('text/plain', chip.getAttribute('data-user-id'));
+          e.dataTransfer.setData('application/x-kind', 'roster-user');
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+      });
+      root.querySelectorAll('.coverage-block').forEach((block) => {
+        block.addEventListener('click', () => {
+          openAddShiftModal(iso, block.getAttribute('data-start'), block.getAttribute('data-end'));
+        });
+        block.addEventListener('dragover', (e) => {
+          if (![...e.dataTransfer.types].includes('application/x-kind')) return;
+          e.preventDefault();
+          block.classList.add('drag-over');
+        });
+        block.addEventListener('dragleave', () => block.classList.remove('drag-over'));
+        block.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          block.classList.remove('drag-over');
+          if (e.dataTransfer.getData('application/x-kind') !== 'roster-user') return;
+          const userId = e.dataTransfer.getData('text/plain');
+          const r = await window.shawarmaApi('POST', '/api/shifts', {
+            user_id: userId,
+            date: iso,
+            start_time: block.getAttribute('data-start'),
+            end_time: block.getAttribute('data-end'),
+          });
+          if (!r.ok) { window.shawarmaToast(r.error || 'Could not add shift'); return; }
+          window.shawarmaToast('Shift added');
+          await refreshAndRender();
+        });
+      });
     }
 
     function render() {
@@ -580,6 +698,7 @@ import Icon from '../../components/Icon.astro';
       wireContextMenus(root);
       wireAddButtons(root);
       wireShiftEditClicks(root);
+      wireConflictTooltips(root);
       wireDragDrop(root, '.cal-month-cell');
       root.querySelectorAll('.cal-month-cell').forEach((cell) => {
         cell.addEventListener('click', (e) => {
@@ -597,15 +716,18 @@ import Icon from '../../components/Icon.astro';
       wireContextMenus(root);
       wireAddButtons(root);
       wireShiftEditClicks(root);
+      wireConflictTooltips(root);
       wireDragDrop(root, '.cal-week-days .cal-day-col');
     }
 
-    function wireDayInteractions() {
+    function wireDayInteractions(iso) {
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
       wireAddButtons(root);
       wireShiftEditClicks(root);
+      wireConflictTooltips(root);
       wireDragDrop(root, '.cal-day-col');
+      wireCoverageInteractions(root, iso);
     }
 
     document.getElementById('context-menu').addEventListener('click', async (e) => {
@@ -752,7 +874,7 @@ import Icon from '../../components/Icon.astro';
     // ----- Add OR edit a shift (the "+" on a Month/Week cell, Day's toolbar
     // button, or clicking an already-scheduled chip/bar) -----
 
-    function openAddShiftModal(iso) {
+    function openAddShiftModal(iso, prefillStart, prefillEnd) {
       editingShiftId = null;
       document.getElementById('as-title').textContent = 'Add shift';
       document.getElementById('as-delete').hidden = true;
@@ -761,8 +883,8 @@ import Icon from '../../components/Icon.astro';
         `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`
       ).join('');
       document.getElementById('as-date').value = iso;
-      document.getElementById('as-start').value = '11:00';
-      document.getElementById('as-end').value = '19:00';
+      document.getElementById('as-start').value = prefillStart || '11:00';
+      document.getElementById('as-end').value = prefillEnd || '19:00';
       document.getElementById('as-notes').value = '';
       document.getElementById('add-shift-modal').classList.add('show');
     }
