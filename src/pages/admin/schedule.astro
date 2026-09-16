@@ -730,21 +730,18 @@ import Icon from '../../components/Icon.astro';
           block.classList.add('drag-over');
         });
         block.addEventListener('dragleave', () => block.classList.remove('drag-over'));
-        block.addEventListener('drop', async (e) => {
+        // Dropping opens the same reviewable Add Shift modal as the
+        // click-to-select path, rather than saving instantly — a silent
+        // save gives no visible confirmation a drag even registered
+        // (native HTML5 drag-and-drop isn't reliable on every trackpad/
+        // browser to begin with), and either way an admin should get a
+        // chance to check/adjust the time before it's actually scheduled.
+        block.addEventListener('drop', (e) => {
           e.preventDefault();
           block.classList.remove('drag-over');
           if (e.dataTransfer.getData('application/x-kind') !== 'roster-user') return;
           const userId = e.dataTransfer.getData('text/plain');
-          const r = await window.shawarmaApi('POST', '/api/shifts', {
-            user_id: userId,
-            date: blockDate,
-            start_time: block.getAttribute('data-start'),
-            end_time: block.getAttribute('data-end'),
-          });
-          if (!r.ok) { window.shawarmaToast(r.error || 'Could not add shift'); return; }
-          if (r.shift) pushUndo(`add ${userName(userId)}'s shift`, () => window.shawarmaApi('DELETE', `/api/shifts/${r.shift.id}`));
-          window.shawarmaToast('Shift added');
-          await refreshAndRender();
+          openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
         });
       });
     }
