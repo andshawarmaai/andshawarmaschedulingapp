@@ -117,6 +117,10 @@ import Icon from '../../components/Icon.astro';
       <div class="modal-body">
         <div class="field"><label>Staff</label><select id="as-user" class="input"></select></div>
         <div class="field"><label>Date</label><input type="date" id="as-date" class="input" /></div>
+        <div class="field" id="as-template-field">
+          <label>Quick fill from a shift template</label>
+          <div id="as-template-picker" class="template-picker"></div>
+        </div>
         <div class="field"><label>Start time</label><input type="time" id="as-start" class="input" value="11:00" /></div>
         <div class="field"><label>End time</label><input type="time" id="as-end" class="input" value="19:00" /></div>
         <div class="field"><label>Notes</label><input type="text" id="as-notes" class="input" placeholder="Optional" /></div>
@@ -175,7 +179,7 @@ import Icon from '../../components/Icon.astro';
 
   <script>
     import { escapeHtml, formatTime12, getMonthCells } from '../../lib/client/format.js';
-    import { computeShiftRequestConflicts, computeDayCoverage } from '../../lib/client/coverage.js';
+    import { computeShiftRequestConflicts, computeDayCoverage, dayOfWeek } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
@@ -390,7 +394,12 @@ import Icon from '../../components/Icon.astro';
     // side-by-side columns and renders them as absolutely-positioned bars
     // against a timeline `windowMin` minutes tall starting at `startMin`.
     // Shared by Day and Week views so their bars behave identically.
-    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin) {
+    // `ghostItems` (Day view only — see computeGhostItems) are still-open
+    // template slots, packed into the SAME overlap-column layout as real
+    // shifts rather than drawn as a separate background layer — that way
+    // an open slot always gets its own visible column and can never be
+    // silently hidden behind real bars that happen to fill the width.
+    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems) {
       const items = [
         ...shifts.filter((s) => s.date === iso).map((row) => ({ kind: 'shift-approved', row })),
         ...pendingShiftReqs.filter((r) => r.date === iso).map((row) => ({ kind: 'shift-pending', row })),
@@ -398,15 +407,46 @@ import Icon from '../../components/Icon.astro';
         const [dispStart, dispEnd] = displayRange(row.start_time, row.end_time, startMin);
         return { start: dispStart, end: Math.min(dispEnd, windowMin), kind, row };
       });
+      items.push(...(ghostItems || []));
       const packed = packOverlaps(items);
-      return packed.map(({ start, end, col, cols, kind, row }) => {
+      return packed.map((item) => {
+        const { start, end, col, cols, kind } = item;
         const top = Math.max(0, (start / windowMin) * 100);
         const height = Math.max(3, ((end - start) / windowMin) * 100);
         const widthPct = 100 / cols;
         const leftPct = col * widthPct;
+        if (kind === 'coverage-gap') return coverageGapBarHtml(item.template, top, height, leftPct, widthPct);
+        const row = item.row;
         const conflictNote = conflicts.get(row.id);
         return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftPct, widthPct, !!conflictNote, conflictNote);
       }).join('');
+    }
+
+    // One "ghost" item per still-needed head on an understaffed template —
+    // e.g. "Mid AM" short by 2 produces two separate open-slot blocks, each
+    // competing for its own column in the packing above, not one band that
+    // can be fully hidden if real bars already fill the width.
+    function computeGhostItems(coverage, startMin, windowMin) {
+      const ghosts = [];
+      for (const { template, count, status } of coverage) {
+        if (status !== 'under') continue;
+        const [dispStart, dispEnd] = displayRange(template.start_time, template.end_time, startMin);
+        const end = Math.min(dispEnd, windowMin);
+        for (let i = 0; i < template.min_staff - count; i++) {
+          ghosts.push({ kind: 'coverage-gap', start: dispStart, end, template });
+        }
+      }
+      return ghosts;
+    }
+
+    function coverageGapBarHtml(template, top, height, leftPct, widthPct) {
+      return `
+        <div class="coverage-gap" data-template-id="${template.id}" data-start="${template.start_time}" data-end="${template.end_time}"
+             style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);"
+             title="Drag a name here, or click to add a shift for this block">
+          <span class="coverage-gap-label">${escapeHtml(template.name)} — open slot</span>
+        </div>
+      `;
     }
 
     function renderMonth() {
@@ -544,8 +584,10 @@ import Icon from '../../components/Icon.astro';
         hourLabels.push(`<div class="cal-hour-line" style="top:${top}%;"></div>`);
       }
 
-      const bars = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin);
-      const coverageHtml = renderCoveragePanel(iso);
+      const coverage = computeDayCoverage(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
+      const ghostItems = computeGhostItems(coverage, startMin, windowMin);
+      const bars = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems);
+      const coverageHtml = renderCoveragePanel(coverage);
 
       document.getElementById('calendar-root').innerHTML = `
         <div class="cal-day-toolbar">
@@ -578,9 +620,16 @@ import Icon from '../../components/Icon.astro';
       over: (t, count) => `${count - t.max_staff} over capacity`,
       neutral: (t, count) => `${count} scheduled`,
     };
+    // "0 of 3" reads at a glance; a bare "0" needs the min/max line above it
+    // to mean anything. Falls back to a plain count when there's no min/max
+    // to measure against (a neutral, informational-only template).
+    function coverageCountLabel(template, count, status) {
+      if (status === 'over') return `${count} of ${template.max_staff}`;
+      if (template.min_staff != null) return `${count} of ${template.min_staff}`;
+      return String(count);
+    }
 
-    function renderCoveragePanel(iso) {
-      const coverage = computeDayCoverage(data.shiftTemplates || [], data.shifts || [], data.shiftRequests || [], iso);
+    function renderCoveragePanel(coverage) {
       if (coverage.length === 0) return '';
 
       const blocks = coverage.map(({ template, count, status }) => {
@@ -592,7 +641,7 @@ import Icon from '../../components/Icon.astro';
           <div class="coverage-block status-${status}" data-template-id="${template.id}" data-start="${template.start_time}" data-end="${template.end_time}" title="Drag a name here, or click to add a shift for this block">
             <div class="coverage-name">${escapeHtml(template.name)}</div>
             <div class="coverage-time">${formatTime12(template.start_time)}–${formatTime12(template.end_time)}${staffLabel ? ' · ' + staffLabel : ''}</div>
-            <div class="coverage-count">${count}</div>
+            <div class="coverage-count">${coverageCountLabel(template, count, status)}</div>
             <div class="coverage-status">${COVERAGE_LABELS[status](template, count)}</div>
           </div>
         `;
@@ -620,7 +669,7 @@ import Icon from '../../components/Icon.astro';
           e.dataTransfer.effectAllowed = 'copy';
         });
       });
-      root.querySelectorAll('.coverage-block').forEach((block) => {
+      root.querySelectorAll('.coverage-block, .coverage-gap').forEach((block) => {
         block.addEventListener('click', () => {
           openAddShiftModal(iso, block.getAttribute('data-start'), block.getAttribute('data-end'));
         });
@@ -947,6 +996,35 @@ import Icon from '../../components/Icon.astro';
     // ----- Add OR edit a shift (the "+" on a Month/Week cell, Day's toolbar
     // button, or clicking an already-scheduled chip/bar) -----
 
+    // Quick-fill buttons for the shift templates that apply to whichever
+    // day is currently in the Date field — so an admin picking a normal
+    // shift never has to type times by hand, while a genuinely custom
+    // shift still just types into Start/End like before. Re-rendered
+    // whenever the Date field changes, since which templates apply
+    // depends on day of week.
+    function renderTemplatePicker() {
+      const iso = document.getElementById('as-date').value;
+      const field = document.getElementById('as-template-field');
+      const picker = document.getElementById('as-template-picker');
+      const templates = (data.shiftTemplates || []).filter((t) => {
+        if (!iso) return true;
+        const dow = String(dayOfWeek(iso));
+        return t.days_of_week.split(',').map((d) => d.trim()).includes(dow);
+      });
+      if (templates.length === 0) { field.hidden = true; picker.innerHTML = ''; return; }
+      field.hidden = false;
+      picker.innerHTML = templates.map((t) =>
+        `<button type="button" class="template-pick-btn" data-start="${t.start_time}" data-end="${t.end_time}">${escapeHtml(t.name)} · ${formatTime12(t.start_time)}–${formatTime12(t.end_time)}</button>`
+      ).join('');
+      picker.querySelectorAll('.template-pick-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.getElementById('as-start').value = btn.getAttribute('data-start');
+          document.getElementById('as-end').value = btn.getAttribute('data-end');
+        });
+      });
+    }
+    document.getElementById('as-date').addEventListener('change', renderTemplatePicker);
+
     function openAddShiftModal(iso, prefillStart, prefillEnd) {
       editingShiftId = null;
       document.getElementById('as-title').textContent = 'Add shift';
@@ -959,6 +1037,7 @@ import Icon from '../../components/Icon.astro';
       document.getElementById('as-start').value = prefillStart || '11:00';
       document.getElementById('as-end').value = prefillEnd || '19:00';
       document.getElementById('as-notes').value = '';
+      renderTemplatePicker();
       document.getElementById('add-shift-modal').classList.add('show');
     }
 
@@ -973,6 +1052,7 @@ import Icon from '../../components/Icon.astro';
         `<option value="${u.id}" ${u.id === shift.user_id ? 'selected' : ''}>${escapeHtml(u.display_name)}</option>`
       ).join('');
       document.getElementById('as-date').value = shift.date;
+      renderTemplatePicker();
       document.getElementById('as-start').value = shift.start_time;
       document.getElementById('as-end').value = shift.end_time;
       document.getElementById('as-notes').value = shift.notes || '';
