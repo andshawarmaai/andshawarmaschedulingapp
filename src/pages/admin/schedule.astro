@@ -1,19 +1,25 @@
 ---
 // The full schedule, editable only here: pending shift-create requests,
-// pending time-off, and already-approved/actual shifts (data.shifts) all
-// show as chips/bars, with a conflict flag computed from Shift Templates
-// (Manage -> Shift Templates) when a window is over-scheduled — whether
-// that's from pending requests, approved shifts, or both together. Three
-// views: Month (compact square tiles, the default — click a day to drill
-// into it), Week, and Day (a real timeline, Outlook/Project-style, sized
-// to that business's actual template hours instead of a fixed 24h span
-// so it doesn't read as one long undifferentiated scroll). This is the
-// ONLY place anyone approves/denies a request or reschedules a shift —
-// staff never get approve/deny controls, they only submit availability
-// (see schedule.astro). Right-click a pending item to approve/deny, or an
-// approved shift to remove it; drag ANY chip/bar — pending or already
-// scheduled — onto another day to move it (dragging is admin/manager-only
-// since this whole route is gated that way by middleware.js).
+// pending AND approved time-off, and already-approved/actual shifts
+// (data.shifts) all show as chips/bars, with a conflict flag computed
+// from Shift Templates (Manage -> Shift Templates) when a window is
+// over-scheduled — whether that's from pending requests, approved shifts,
+// or both together. Three views: Month (compact square tiles, the
+// default — click a day to drill into it), Week, and Day (a real
+// timeline, Outlook/Project-style, sized to that business's actual
+// template hours instead of a fixed 24h span so it doesn't read as one
+// long undifferentiated scroll). This is the ONLY place anyone
+// approves/denies a request, reschedules a shift, or removes an
+// already-approved time-off block — staff never get approve/deny
+// controls, they only submit availability (see schedule.astro), and the
+// plain staff schedule page is deliberately read-only for time off (an
+// admin who wants to undo an approved one has to come here, not edit it
+// from wherever they happen to be looking — one place, not two). Right-
+// click a pending item to approve/deny, or an approved shift/time-off to
+// remove it; drag a shift or pending request (not time off — it spans a
+// date range, not a single day) onto another day to move it
+// (admin/manager-only since this whole route is gated that way by
+// middleware.js).
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Icon from '../../components/Icon.astro';
 ---
@@ -35,13 +41,16 @@ import Icon from '../../components/Icon.astro';
       <span><span class="legend-dot" style="background:#fff;border:1px solid var(--color-border);"></span> Pending</span>
       <span><span class="legend-dot" style="background:#dcfce7;border:1px solid #16a34a;"></span> Scheduled</span>
       <span><span class="legend-dot" style="background:#fee2e2;border:1px solid #dc2626;"></span> Conflict</span>
-      <span><span class="legend-dot" style="background:#e0e7ff;border:1px solid #6366f1;"></span> Time off</span>
+      <span><span class="legend-dot" style="background:#e0e7ff;border:1px solid #6366f1;"></span> Time off (pending)</span>
+      <span><span class="legend-dot" style="background:#6366f1;border:1px solid #4338ca;"></span> Time off (approved)</span>
     </div>
     <p class="card-sub" style="margin-top:0.5rem;">
       Right-click a pending request or time off to approve or deny it; right-click a scheduled (green)
-      shift to remove it from the schedule. Drag anything — pending or already scheduled — onto another
-      day to move it there; a pending request stays pending either way, so nothing is approved just by
-      moving it. In Month view, click a day (not a chip) to see it in detail.
+      shift or approved (solid indigo) time off to remove it from the schedule. Drag a shift or a pending
+      request — but not time off — onto another day to move it there; a pending request stays pending
+      either way, so nothing is approved just by moving it. In Month view, click a day (not a chip) to see
+      it in detail. This is the only place time off, once approved, can be removed — the Time Off page
+      only ever shows pending items to review, not a way to undo an approved one.
     </p>
   </div>
 
@@ -213,9 +222,11 @@ import Icon from '../../components/Icon.astro';
     }
 
     function chipHtml(kind, id, label, flagged, note) {
-      const cls = kind === 'timeoff' ? 'timeoff-chip' : kind === 'shift-approved' ? 'shift-chip' : 'req-chip';
+      const isTimeOff = kind === 'timeoff' || kind === 'timeoff-approved';
+      const cls = isTimeOff ? 'timeoff-chip' : kind === 'shift-approved' ? 'shift-chip' : 'req-chip';
+      const approvedCls = kind === 'timeoff-approved' ? ' approved' : '';
       const draggable = kind === 'shift-pending' || kind === 'shift-approved' ? 'true' : 'false';
-      return `<div class="${cls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${escapeHtml(note || '')}">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</div>`;
+      return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${escapeHtml(note || '')}">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</div>`;
     }
 
     function barHtml(kind, id, label, when, top, height, leftPct, widthPct, flagged, note) {
@@ -262,6 +273,7 @@ import Icon from '../../components/Icon.astro';
       const todayIso = isoOf(new Date());
       const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending' && r.action === 'create');
       const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
+      const approvedTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'approved');
       const shifts = data.shifts || [];
       const conflicts = computeShiftRequestConflicts(data.shiftTemplates || [], shifts, data.shiftRequests || []);
 
@@ -277,9 +289,12 @@ import Icon from '../../components/Icon.astro';
         const toChips = pendingTimeOff.filter((t) => c.iso >= t.start_date && c.iso <= t.end_date).map((t) =>
           chipHtml('timeoff', t.id, `${userName(t.user_id)} off`, !!t.staffing_warning, t.staffing_warning)
         );
+        const approvedToChips = approvedTimeOff.filter((t) => c.iso >= t.start_date && c.iso <= t.end_date).map((t) =>
+          chipHtml('timeoff-approved', t.id, `${userName(t.user_id)} off`, !!t.staffing_warning, t.staffing_warning)
+        );
         return `<div class="cal-month-cell${c.other ? ' other-month' : ''}${c.iso === todayIso ? ' today' : ''}" data-date="${c.iso}">
           <span class="cal-month-daynum">${parseInt(c.iso.slice(8, 10), 10)}</span>
-          <div class="cal-month-chips">${toChips.join('')}${scheduledChips.join('')}${pendingChips.join('')}</div>
+          <div class="cal-month-chips">${approvedToChips.join('')}${toChips.join('')}${scheduledChips.join('')}${pendingChips.join('')}</div>
         </div>`;
       }).join('');
 
@@ -301,6 +316,7 @@ import Icon from '../../components/Icon.astro';
 
       const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending' && r.action === 'create');
       const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
+      const approvedTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'approved');
       const shifts = data.shifts || [];
       const conflicts = computeShiftRequestConflicts(data.shiftTemplates || [], shifts, data.shiftRequests || []);
       const { startMin, windowMin } = computeWindow(data.shiftTemplates || []);
@@ -321,8 +337,12 @@ import Icon from '../../components/Icon.astro';
 
       const toCells = days.map((d) => {
         const iso = isoOf(d);
+        const approvedEntries = approvedTimeOff.filter((t) => iso >= t.start_date && iso <= t.end_date);
         const entries = pendingTimeOff.filter((t) => iso >= t.start_date && iso <= t.end_date);
-        const chips = entries.map((t) => chipHtml('timeoff', t.id, userName(t.user_id), !!t.staffing_warning, t.staffing_warning)).join('');
+        const chips = [
+          ...approvedEntries.map((t) => chipHtml('timeoff-approved', t.id, userName(t.user_id), !!t.staffing_warning, t.staffing_warning)),
+          ...entries.map((t) => chipHtml('timeoff', t.id, userName(t.user_id), !!t.staffing_warning, t.staffing_warning)),
+        ].join('');
         return `<div class="cal-timeoff-cell" data-date="${iso}">${chips}</div>`;
       }).join('');
 
@@ -355,12 +375,17 @@ import Icon from '../../components/Icon.astro';
 
       const pendingShiftReqs = (data.shiftRequests || []).filter((r) => r.status === 'pending' && r.action === 'create');
       const pendingTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'pending');
+      const approvedTimeOff = (data.timeOffAll || []).filter((t) => t.status === 'approved');
       const shifts = data.shifts || [];
       const conflicts = computeShiftRequestConflicts(data.shiftTemplates || [], shifts, data.shiftRequests || []);
       const { startMin, windowMin } = computeWindow(data.shiftTemplates || []);
 
       const toEntries = pendingTimeOff.filter((t) => iso >= t.start_date && iso <= t.end_date);
-      const toChips = toEntries.map((t) => chipHtml('timeoff', t.id, userName(t.user_id), !!t.staffing_warning, t.staffing_warning)).join('');
+      const approvedToEntries = approvedTimeOff.filter((t) => iso >= t.start_date && iso <= t.end_date);
+      const toChips = [
+        ...approvedToEntries.map((t) => chipHtml('timeoff-approved', t.id, userName(t.user_id), !!t.staffing_warning, t.staffing_warning)),
+        ...toEntries.map((t) => chipHtml('timeoff', t.id, userName(t.user_id), !!t.staffing_warning, t.staffing_warning)),
+      ].join('');
 
       const hourLabels = [];
       for (let m = 0; m <= windowMin; m += 60) {
@@ -401,7 +426,7 @@ import Icon from '../../components/Icon.astro';
     function openContextMenu(x, y, kind, id) {
       contextTarget = { kind, id };
       const menu = document.getElementById('context-menu');
-      const isApproved = kind === 'shift-approved';
+      const isApproved = kind === 'shift-approved' || kind === 'timeoff-approved';
       menu.querySelector('[data-action="approve"]').hidden = isApproved;
       menu.querySelector('[data-action="deny"]').hidden = isApproved;
       menu.querySelector('[data-action="delete"]').hidden = !isApproved;
@@ -496,8 +521,10 @@ import Icon from '../../components/Icon.astro';
       closeContextMenu();
 
       if (action === 'delete') {
-        if (!confirm('Remove this shift from the schedule?')) return;
-        const r = await window.shawarmaApi('DELETE', `/api/shifts/${id}`);
+        const isTimeOff = kind === 'timeoff-approved';
+        if (!confirm(isTimeOff ? 'Remove this time off from the schedule?' : 'Remove this shift from the schedule?')) return;
+        const url = isTimeOff ? `/api/timeoff/${id}` : `/api/shifts/${id}`;
+        const r = await window.shawarmaApi('DELETE', url);
         window.shawarmaToast(r.ok ? 'Removed from schedule' : (r.error || 'Failed'));
         await refreshAndRender();
         return;
