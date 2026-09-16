@@ -63,7 +63,7 @@ export function renderAgentGuideMarkdown(guide, { appName = '&Shawarma Schedulin
   const bi = guide.bulk_import;
   p('## Bulk schedule import');
   p();
-  p(`For loading a whole schedule at once (a spreadsheet, a photo of a handwritten schedule, a pasted message spanning many shifts) instead of one-row-at-a-time direct-action calls. One batch can mix all three row types below.`);
+  p(`For loading a whole schedule at once (a spreadsheet, a photo of a handwritten schedule, a pasted message spanning many shifts) instead of one-row-at-a-time direct-action calls. One batch can mix all four row types below.`);
   p();
   p(`- Call with an API key: \`${bi.endpoint_api_key}\``);
   p(`- Or with an admin/manager session (the Manage UI's own path): \`${bi.endpoint_session}\``);

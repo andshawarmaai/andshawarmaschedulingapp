@@ -128,9 +128,13 @@ seeds an initial admin against whichever backend is active.
 change schedule data in bulk — build on it, don't reinvent it.** It was
 explicitly designed for this: `src/lib/shiftImport.js`'s header comment
 gives the example *"one spoken request to an AI assistant ('add Jorge
-Tuesday 11-7, cap Friday lunch at 2 people, and put my Saturday shift up
-for swap') can span all three [row types]"*, and the API key creation
-endpoint literally suggests **"Hermes"** as an example key label.
+Tuesday 11-7, cap Friday lunch at 2 people, put my Saturday shift up for
+swap, and set up a recurring 9-6 opener template') can span all four [row
+types]"*, and the API key creation endpoint literally suggests **"Hermes"**
+as an example key label. Proven end-to-end 2026-09-15: a real restaurant's
+"schedule formula" (six recurring shift templates) was ingested this way
+via `type=template` rows over a real API key — see the `template` row in
+the table below.
 
 ### How an agent should use it, end to end
 
@@ -164,27 +168,34 @@ endpoint literally suggests **"Hermes"** as an example key label.
    in isolation. On success: `{ ok: true, import, count, breakdown: {
    shifts, caps, swaps } }`.
 
-### Row shape (`type` column picks the kind; all three can be mixed in one batch)
+### Row shape (`type` column picks the kind; all four can be mixed in one batch)
 
 | `type` | Fields | Notes |
 |---|---|---|
 | `shift` | `username, date, start_time, end_time, notes` | Creates an actual scheduled shift directly (not a pending request) |
 | `cap` | `date, window_start, window_end, max_shifts, notes` | One-off exception on a single date (upserted — re-importing the same date+window updates it) |
 | `swap` | `username, date, start_time, notes` | `notes` = swap reason. Matches an **existing** shift for that user/date/start_time and posts it for swap — errors if no such shift exists |
+| `template` | `name, days_of_week, start_time, end_time, min_staff, max_staff` | Creates or updates a recurring `shift_templates` row. `days_of_week` is `0`(Sun)`-6`(Sat), separated by comma, space, or `\|` (e.g. `"1 2 3 4 5"` — no CSV quoting needed). **Upserted by exact `name`** — importing the same name again updates that template in place rather than duplicating it; response includes `templatesCreated`/`templatesUpdated` counts. Validation (`parseDaysOfWeek`/`parseStaffCount`) lives in `src/lib/shiftTemplateFields.js`, shared with the admin API routes so a bulk import is held to the exact same rules as one entered through the Manage UI. |
 
-- **Name matching is fuzzy on purpose**: `username` accepts the exact
-  system username (always exact/unique), OR a display name, OR a first
-  name — because a human is far more likely to say "Ray" than the login
-  username `ray`. If a first name matches more than one person, that name
-  is poisoned to "ambiguous" and the row errors asking for the full name
-  or username instead of guessing.
+- **`username` matching (on `shift`/`swap` rows) is fuzzy on purpose**:
+  accepts the exact system username (always exact/unique), OR a display
+  name, OR a first name — because a human is far more likely to say "Ray"
+  than the login username `ray`. If a first name matches more than one
+  person, that name is poisoned to "ambiguous" and the row errors asking
+  for the full name or username instead of guessing. **This is unrelated
+  to a `template` row's `name` field**, which is matched exactly
+  (case-insensitively) against existing templates for the upsert decision —
+  there's no fuzzy/ambiguous handling there since a template name isn't
+  drawn from a fixed roster the way a person's name is.
 - Dates must be `YYYY-MM-DD`, times `HH:MM` (24h). `start_time >= end_time`
-  on a `shift` row is valid and means it crosses midnight — don't
-  "correct" it.
+  on a `shift` or `template` row is valid and means it crosses midnight —
+  don't "correct" it.
 - Max 1000 rows per batch.
 - Everything in one import (a batch of `shift` rows) is tagged with the
   same `import_id`, so it can be identified/undone as a unit later via
-  `shift_imports`.
+  `shift_imports`. `cap` and `template` rows are upserted directly and are
+  **not** part of that undo — there's no clean "prior state" to revert a
+  cap or a template edit to.
 
 **When the user asks you to "load in this week's schedule" or similar**:
 that's this pipeline. Don't build a one-off script or hand-write SQL — call

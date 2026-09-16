@@ -1,4 +1,5 @@
 import db from '../../../../lib/db/index.js';
+import { parseDaysOfWeek, parseStaffCount } from '../../../../lib/shiftTemplateFields.js';
 
 export const prerender = false;
 
@@ -7,20 +8,6 @@ function json(data, status = 200) {
 }
 
 const TIME_RE = /^\d{2}:\d{2}$/;
-
-function parseDaysOfWeek(value) {
-  const days = Array.isArray(value) ? value : String(value || '').split(',');
-  const nums = days.map((d) => Number(d)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
-  const unique = [...new Set(nums)].sort((a, b) => a - b);
-  return unique.length ? unique.join(',') : null;
-}
-
-function parseStaffCount(value) {
-  if (value === null || value === undefined || value === '') return { ok: true, value: null };
-  const n = Number(value);
-  if (!Number.isInteger(n) || n < 0) return { ok: false };
-  return { ok: true, value: n };
-}
 
 export async function PATCH(context) {
   const { id } = context.params;

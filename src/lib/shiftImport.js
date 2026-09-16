@@ -5,15 +5,21 @@
 //
 // Multi-type format — a `type` column picks which kind of change a row
 // makes, since one spoken request to an AI assistant ("add Jorge Tuesday
-// 11-7, cap Friday lunch at 2 people, and put my Saturday shift up for
-// swap") can span all three:
-//   type=shift  username,date,start_time,end_time,notes
-//   type=cap    date,window_start,window_end,max_shifts,notes
-//   type=swap   username,date,start_time,notes   (notes = swap reason)
+// 11-7, cap Friday lunch at 2 people, put my Saturday shift up for swap,
+// and set up a recurring 9-6 opener template") can span all four:
+//   type=shift     username,date,start_time,end_time,notes
+//   type=cap       date,window_start,window_end,max_shifts,notes
+//   type=swap      username,date,start_time,notes   (notes = swap reason)
+//   type=template  name,days_of_week,start_time,end_time,min_staff,max_staff
+//                  (days_of_week: 0-6, comma/space/pipe separated; matched
+//                  by exact `name` — importing the same name again UPDATES
+//                  it in place instead of creating a duplicate template)
+
+import { parseDaysOfWeek, parseStaffCount } from './shiftTemplateFields.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
-const TYPES = new Set(['shift', 'cap', 'swap']);
+const TYPES = new Set(['shift', 'cap', 'swap', 'template']);
 const AMBIGUOUS = Symbol('ambiguous');
 
 // Whoever fills out the sheet (a person speaking to an AI) is far more
@@ -116,14 +122,18 @@ export function buildTemplateCsv(users) {
     ...active.map((u) => `# ${u.username} -> ${u.display_name}`),
     '# ===== If two people share a first name, use their full name or username instead =====',
     '#',
-    '# type=shift  -> username,date,start_time,end_time,notes',
-    '# type=cap    -> date,window_start,window_end,max_shifts,notes',
-    '# type=swap   -> username,date,start_time,notes (notes = reason; matches an EXISTING shift to post for swap)',
+    '# type=shift     -> username,date,start_time,end_time,notes',
+    '# type=cap       -> date,window_start,window_end,max_shifts,notes',
+    '# type=swap      -> username,date,start_time,notes (notes = reason; matches an EXISTING shift to post for swap)',
+    '# type=template  -> name,days_of_week,start_time,end_time,min_staff,max_staff',
+    '#                   days_of_week: 0=Sun..6=Sat, separated by comma, space, or "|" (e.g. "1 2 3 4 5" or "5|6")',
+    '#                   Matched by exact name — importing the same name again UPDATES it instead of duplicating it.',
     '# Delete these comment lines and the example rows below before importing, or leave the comments — they are ignored.',
-    'type,username,date,start_time,end_time,window_start,window_end,max_shifts,notes',
-    `shift,${exampleName},2026-09-15,11:00,19:00,,,,`,
-    `cap,,2026-09-15,,,11:00,15:00,2,lunch rush`,
-    `swap,${exampleName},2026-09-15,11:00,,,,,can't make it`,
+    'type,username,name,date,start_time,end_time,days_of_week,min_staff,max_staff,window_start,window_end,max_shifts,notes',
+    `shift,${exampleName},,2026-09-15,11:00,19:00,,,,,,,`,
+    `cap,,,2026-09-15,,,,,,11:00,15:00,2,lunch rush`,
+    `swap,${exampleName},,2026-09-15,11:00,,,,,,,,can't make it`,
+    `template,,Opener,,09:00,15:00,1 2 3 4 5,,1,,,,`,
   ];
   return lines.join('\n') + '\n';
 }
@@ -135,13 +145,32 @@ export function buildTemplateCsv(users) {
 export function validateImportRows(rows, { users, shifts }) {
   const nameIndex = buildNameIndex(users);
   const errors = [];
-  const resolved = { shifts: [], caps: [], swaps: [] };
+  const resolved = { shifts: [], caps: [], swaps: [], templates: [] };
 
   rows.forEach((row, i) => {
     const line = i + 2; // +1 for 0-index, +1 for the header row
     const type = String(row.type || 'shift').trim().toLowerCase();
     if (!TYPES.has(type)) {
-      errors.push(`Row ${line}: type must be "shift", "cap", or "swap" (got "${type}").`);
+      errors.push(`Row ${line}: type must be "shift", "cap", "swap", or "template" (got "${type}").`);
+      return;
+    }
+
+    if (type === 'template') {
+      const name = String(row.name || '').trim();
+      const days_of_week = parseDaysOfWeek(row.days_of_week);
+      const start_time = String(row.start_time || '').trim();
+      const end_time = String(row.end_time || '').trim();
+      const minParsed = parseStaffCount(row.min_staff);
+      const maxParsed = parseStaffCount(row.max_staff);
+      if (!name) errors.push(`Row ${line}: name is required.`);
+      if (!days_of_week) errors.push(`Row ${line}: days_of_week must list at least one day, 0 (Sun) through 6 (Sat) — comma, space, or "|" separated.`);
+      if (!TIME_RE.test(start_time)) errors.push(`Row ${line}: start_time must be HH:MM (got "${start_time}").`);
+      if (!TIME_RE.test(end_time)) errors.push(`Row ${line}: end_time must be HH:MM (got "${end_time}").`);
+      if (!minParsed.ok) errors.push(`Row ${line}: min_staff must be a whole number ≥ 0, or blank (got "${row.min_staff}").`);
+      if (!maxParsed.ok) errors.push(`Row ${line}: max_staff must be a whole number ≥ 0, or blank (got "${row.max_staff}").`);
+      if (name && days_of_week && TIME_RE.test(start_time) && TIME_RE.test(end_time) && minParsed.ok && maxParsed.ok) {
+        resolved.templates.push({ name, days_of_week, start_time, end_time, min_staff: minParsed.value, max_staff: maxParsed.value });
+      }
       return;
     }
 
@@ -208,8 +237,12 @@ export function validateImportRows(rows, { users, shifts }) {
 // Runs validation then writes everything: shifts (tagged to the import
 // batch, so "remove upload" can undo them), day caps (upserted directly —
 // not batch-undoable, since a cap upsert has no clean prior state to
-// revert to), and swap posts (also not batch-undoable — cancelling a post
-// is a distinct business action, done from the Shift Swap board).
+// revert to), swap posts (also not batch-undoable — cancelling a post is a
+// distinct business action, done from the Shift Swap board), and shift
+// templates (upserted by exact name against the roster snapshot taken
+// before this loop — two new-template rows in the same batch that happen
+// to share a name won't see each other, an accepted edge case rather than
+// worth a second DB round-trip per row).
 export async function runShiftImport(db, { rows, filename, uploaded_by }) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return { error: 'No rows to import.' };
@@ -218,13 +251,13 @@ export async function runShiftImport(db, { rows, filename, uploaded_by }) {
     return { error: 'Too many rows in one upload (max 1000).' };
   }
 
-  const [users, shifts] = await Promise.all([db.listUsers(), db.listShifts()]);
+  const [users, shifts, shiftTemplates] = await Promise.all([db.listUsers(), db.listShifts(), db.listShiftTemplates()]);
   const { errors, resolved } = validateImportRows(rows, { users, shifts });
   if (errors) {
     return { error: 'Fix these rows and re-upload — nothing was imported.', rowErrors: errors.slice(0, 50) };
   }
 
-  const totalCount = resolved.shifts.length + resolved.caps.length + resolved.swaps.length;
+  const totalCount = resolved.shifts.length + resolved.caps.length + resolved.swaps.length + resolved.templates.length;
   const importRow = await db.createShiftImport({
     uploaded_by: uploaded_by || null,
     filename: filename ? String(filename).slice(0, 200) : null,
@@ -239,11 +272,30 @@ export async function runShiftImport(db, { rows, filename, uploaded_by }) {
   for (const swap of resolved.swaps) {
     await db.createSwapPost(swap);
   }
+  let templatesCreated = 0;
+  let templatesUpdated = 0;
+  for (const tpl of resolved.templates) {
+    const existing = shiftTemplates.find((t) => t.name.trim().toLowerCase() === tpl.name.trim().toLowerCase());
+    if (existing) {
+      await db.updateShiftTemplate(existing.id, tpl);
+      templatesUpdated++;
+    } else {
+      await db.createShiftTemplate(tpl);
+      templatesCreated++;
+    }
+  }
 
   return {
     ok: true,
     import: importRow,
     count: totalCount,
-    breakdown: { shifts: resolved.shifts.length, caps: resolved.caps.length, swaps: resolved.swaps.length },
+    breakdown: {
+      shifts: resolved.shifts.length,
+      caps: resolved.caps.length,
+      swaps: resolved.swaps.length,
+      templates: resolved.templates.length,
+    },
+    templatesCreated,
+    templatesUpdated,
   };
 }
