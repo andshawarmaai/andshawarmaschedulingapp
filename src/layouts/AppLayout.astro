@@ -1,6 +1,8 @@
 ---
 import '../styles/global.css';
 import Icon from '../components/Icon.astro';
+import LangToggle from '../components/LangToggle.astro';
+import { getLang, t } from '../lib/i18n.js';
 
 interface Props {
   title?: string;
@@ -17,16 +19,17 @@ const { title = '&Shawarma — My Shifts', active = '', showBrandText = false } 
 // never null here.
 const user = Astro.locals.user;
 const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
+const lang = getLang(Astro);
 
 const navItems = [
-  { href: '/', key: 'home', label: 'Home', icon: 'home' },
-  { href: '/schedule', key: 'schedule', label: 'Schedule', icon: 'calendar' },
-  { href: '/shift-swap', key: 'swap', label: 'Swap', icon: 'swap' },
-  { href: '/time-off', key: 'timeoff', label: 'Time Off', icon: 'timeoff' },
+  { href: '/', key: 'home', label: t(lang, 'nav.home'), icon: 'home' },
+  { href: '/schedule', key: 'schedule', label: t(lang, 'nav.schedule'), icon: 'calendar' },
+  { href: '/shift-swap', key: 'swap', label: t(lang, 'nav.swap'), icon: 'swap' },
+  { href: '/time-off', key: 'timeoff', label: t(lang, 'nav.timeoff'), icon: 'timeoff' },
 ];
 ---
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -44,8 +47,9 @@ const navItems = [
         {showBrandText && <span>&amp;Shawarma</span>}
       </a>
       <div class="header-actions">
-        <span class="user-pill">{user.display_name}<br /><span class="role">{user.role}</span></span>
-        <button id="logout-btn" class="btn-logout" type="button"><Icon name="logout" size={14} /> Logout</button>
+        <LangToggle lang={lang} variant="dark" />
+        <span class="user-pill">{user.display_name}<br /><span class="role">{t(lang, `role.${user.role}`)}</span></span>
+        <button id="logout-btn" class="btn-logout" type="button"><Icon name="logout" size={14} /> {t(lang, 'logout')}</button>
       </div>
     </div>
   </header>
@@ -64,13 +68,16 @@ const navItems = [
     {isStaffOrAbove && (
       <a href="/admin" class={active === 'admin' ? 'active' : ''}>
         <Icon name="admin" size={20} />
-        <span>Manage</span>
+        <span>{t(lang, 'nav.manage')}</span>
       </a>
     )}
   </nav>
 
   <div class="toast" id="toast"></div>
 
+  <script define:vars={{ lang }}>
+    window.__lang = lang;
+  </script>
   <script>
     document.getElementById('logout-btn')?.addEventListener('click', async () => {
       await fetch('/api/auth/logout', { method: 'POST' });

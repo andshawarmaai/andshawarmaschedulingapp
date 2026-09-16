@@ -1,65 +1,72 @@
 ---
 import AppLayout from '../layouts/AppLayout.astro';
 import Icon from '../components/Icon.astro';
+import { getLang, t } from '../lib/i18n.js';
 
 const user = Astro.locals.user;
+const lang = getLang(Astro);
 ---
 <AppLayout title="&Shawarma" active="home">
   <div class="card">
-    <h1>Welcome, {user.display_name}</h1>
-    <p style="color:var(--color-muted);margin:0;">Your role: <span class={`badge badge-${user.role}`}>{user.role}</span></p>
+    <h1>{t(lang, 'home.welcome', { name: user.display_name })}</h1>
+    <p style="color:var(--color-muted);margin:0;">{t(lang, 'home.yourRole')} <span class={`badge badge-${user.role}`}>{t(lang, `role.${user.role}`)}</span></p>
   </div>
 
   {(user.role === 'admin' || user.role === 'manager') && (
     <a href="/admin" id="approvals-alert" class="card" style="display:none;border-color:#fbbf24;background:#fffbeb;text-decoration:none;color:inherit;">
-      <h2><Icon name="bell" size={18} class="icon-inline" /> Pending Approvals <span id="approvals-count" class="badge badge-pending">0</span></h2>
-      <p class="card-sub" style="margin:0;">Shift requests, time-off, shift-swap volunteers, and password reset requests waiting on your review. Tap to open Manage.</p>
+      <h2><Icon name="bell" size={18} class="icon-inline" /> {t(lang, 'home.pendingApprovals')} <span id="approvals-count" class="badge badge-pending">0</span></h2>
+      <p class="card-sub" style="margin:0;">{t(lang, 'home.pendingApprovalsSub')}</p>
     </a>
   )}
 
   <div class="card">
-    <h2><Icon name="calendar" size={18} class="icon-inline" /> My Upcoming Shifts</h2>
-    <div id="shifts-list"><p class="empty">Loading...</p></div>
+    <h2><Icon name="calendar" size={18} class="icon-inline" /> {t(lang, 'home.myUpcomingShifts')}</h2>
+    <div id="shifts-list"><p class="empty">{t(lang, 'common.loading')}</p></div>
   </div>
 
   <div class="grid-2">
     <a href="/schedule" class="tile">
       <div class="tile-icon"><Icon name="calendar" size={28} /></div>
-      <div class="tile-title">Full Schedule</div>
-      <div class="tile-sub">View all shifts</div>
+      <div class="tile-title">{t(lang, 'home.tileFullSchedule')}</div>
+      <div class="tile-sub">{t(lang, 'home.tileFullScheduleSub')}</div>
     </a>
     <a href="/shift-swap" class="tile">
       <div class="tile-icon"><Icon name="swap" size={28} /></div>
-      <div class="tile-title">Shift Swap</div>
-      <div class="tile-sub">Request a swap</div>
+      <div class="tile-title">{t(lang, 'home.tileSwap')}</div>
+      <div class="tile-sub">{t(lang, 'home.tileSwapSub')}</div>
     </a>
     <a href="/time-off" class="tile">
       <div class="tile-icon"><Icon name="timeoff" size={28} /></div>
-      <div class="tile-title">Time Off</div>
-      <div class="tile-sub">Request / view</div>
+      <div class="tile-title">{t(lang, 'home.tileTimeOff')}</div>
+      <div class="tile-sub">{t(lang, 'home.tileTimeOffSub')}</div>
     </a>
     {(user.role === 'admin' || user.role === 'manager') && (
       <a href="/admin" class="tile">
         <div class="tile-icon"><Icon name="admin" size={28} /></div>
-        <div class="tile-title">Manage</div>
-        <div class="tile-sub">Admin tools</div>
+        <div class="tile-title">{t(lang, 'home.tileManage')}</div>
+        <div class="tile-sub">{t(lang, 'home.tileManageSub')}</div>
       </a>
     )}
   </div>
 
   <div class="card">
-    <h2><Icon name="users" size={18} class="icon-inline" /> Team Roster</h2>
-    <p class="card-sub">Everyone on the &amp;Shawarma crew and how to reach them.</p>
-    <div class="roster-grid" id="roster-grid"><p class="empty">Loading...</p></div>
+    <h2><Icon name="users" size={18} class="icon-inline" /> {t(lang, 'home.teamRoster')}</h2>
+    <p class="card-sub">{t(lang, 'home.teamRosterSub')}</p>
+    <div class="roster-grid" id="roster-grid"><p class="empty">{t(lang, 'common.loading')}</p></div>
   </div>
 
+  <script define:vars={{ lang }}>
+    window.__lang = lang;
+  </script>
   <script>
     import { formatDate, formatTime12, todayISO, escapeHtml } from '../lib/client/format.js';
+    import { t } from '../lib/i18n.js';
+    const lang = window.__lang;
 
     async function init() {
       const res = await fetch('/api/state');
       if (!res.ok) {
-        document.getElementById('shifts-list').innerHTML = '<p class="empty">Could not load data.</p>';
+        document.getElementById('shifts-list').innerHTML = `<p class="empty">${t(lang, 'home.couldNotLoad')}</p>`;
         return;
       }
       const data = await res.json();
@@ -85,11 +92,11 @@ const user = Astro.locals.user;
 
       const shiftsList = document.getElementById('shifts-list');
       shiftsList.innerHTML = myShifts.length === 0
-        ? '<p class="empty">No upcoming shifts scheduled.</p>'
+        ? `<p class="empty">${t(lang, 'home.noUpcomingShifts')}</p>`
         : myShifts.map((s) => `
           <div class="list-item">
             <div>
-              <div class="who">${formatDate(s.date, { short: true })}</div>
+              <div class="who">${formatDate(s.date, { short: true, lang })}</div>
               <div class="meta">${formatTime12(s.start_time)} – ${formatTime12(s.end_time)}</div>
             </div>
           </div>
@@ -102,8 +109,8 @@ const user = Astro.locals.user;
           .filter((s) => s.user_id === u.id && s.date >= today)
           .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time))[0];
         const nextHtml = next
-          ? `<div class="roster-card-next">${formatDate(next.date, { short: true })} · ${formatTime12(next.start_time)}</div>`
-          : '<div class="roster-card-next off">No upcoming shifts</div>';
+          ? `<div class="roster-card-next">${formatDate(next.date, { short: true, lang })} · ${formatTime12(next.start_time)}</div>`
+          : `<div class="roster-card-next off">${t(lang, 'home.noUpcomingShiftsShort')}</div>`;
         const contact = [
           u.phone ? `<a href="tel:${escapeHtml(u.phone)}">${escapeHtml(u.phone)}</a>` : '',
           u.email ? `<a href="mailto:${escapeHtml(u.email)}">${escapeHtml(u.email)}</a>` : '',
@@ -112,7 +119,7 @@ const user = Astro.locals.user;
           <div class="roster-card">
             <div class="roster-card-head">
               <span class="roster-card-name">${escapeHtml(u.display_name)}</span>
-              <span class="badge badge-${u.role}">${u.role}</span>
+              <span class="badge badge-${u.role}">${t(lang, `role.${u.role}`)}</span>
             </div>
             ${nextHtml}
             ${contact ? `<div class="roster-card-contact">${contact}</div>` : ''}

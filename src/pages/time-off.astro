@@ -1,43 +1,48 @@
 ---
 import AppLayout from '../layouts/AppLayout.astro';
 import Icon from '../components/Icon.astro';
+import { getLang, t } from '../lib/i18n.js';
 const user = Astro.locals.user;
 const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
+const lang = getLang(Astro);
 ---
 <AppLayout title="&Shawarma — Time Off" active="timeoff">
   <div class="card">
-    <h2><Icon name="timeoff" size={18} class="icon-inline" /> Request Time Off</h2>
+    <h2><Icon name="timeoff" size={18} class="icon-inline" /> {t(lang, 'timeoff.requestTimeOff')}</h2>
     <form id="request-form">
-      <div class="field"><label for="start_date">Start date</label><input type="date" id="start_date" class="input" required /></div>
+      <div class="field"><label for="start_date">{t(lang, 'timeoff.startDate')}</label><input type="date" id="start_date" class="input" required /></div>
       <p id="short-notice-warning" class="card-sub" style="color:#991b1b;margin:-0.5rem 0 0.875rem;" hidden>
-        <Icon name="alert" size={14} class="icon-inline" /> Less than 7 days' notice — this request may not be approved in time due to staffing constraints.
+        <Icon name="alert" size={14} class="icon-inline" /> {t(lang, 'timeoff.shortNotice')}
       </p>
-      <div class="field"><label for="end_date">End date</label><input type="date" id="end_date" class="input" required /></div>
-      <div class="field"><label for="reason">Reason</label><input type="text" id="reason" class="input" placeholder="Vacation, appointment, etc." required /></div>
-      <button type="submit" class="btn-primary">Submit request</button>
+      <div class="field"><label for="end_date">{t(lang, 'timeoff.endDate')}</label><input type="date" id="end_date" class="input" required /></div>
+      <div class="field"><label for="reason">{t(lang, 'timeoff.reason')}</label><input type="text" id="reason" class="input" placeholder={t(lang, 'timeoff.reasonPlaceholder')} required /></div>
+      <button type="submit" class="btn-primary">{t(lang, 'timeoff.submit')}</button>
     </form>
   </div>
 
   <div class="card">
-    <h2>My Time-Off Requests</h2>
-    <div id="my-list"><p class="empty">Loading...</p></div>
+    <h2>{t(lang, 'timeoff.myRequests')}</h2>
+    <div id="my-list"><p class="empty">{t(lang, 'common.loading')}</p></div>
   </div>
 
   {isStaffOrAbove && (
     <div class="card">
-      <h2>All Time-Off Requests</h2>
-      <p class="card-sub">Manager / admin only.</p>
-      <div id="all-list"><p class="empty">Loading...</p></div>
+      <h2>{t(lang, 'timeoff.allRequests')}</h2>
+      <p class="card-sub">{t(lang, 'timeoff.managerOnly')}</p>
+      <div id="all-list"><p class="empty">{t(lang, 'common.loading')}</p></div>
     </div>
   )}
 
-  <script define:vars={{ myUserId: user.id, isStaffOrAbove }}>
+  <script define:vars={{ myUserId: user.id, isStaffOrAbove, lang }}>
     window.__timeOffCtx = { myUserId, isStaffOrAbove };
+    window.__lang = lang;
   </script>
   <script>
     import { formatDate, escapeHtml } from '../lib/client/format.js';
+    import { t } from '../lib/i18n.js';
 
     const ctx = window.__timeOffCtx;
+    const lang = window.__lang;
     let data = null;
 
     async function loadState() {
@@ -47,39 +52,39 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
 
     function userName(id) {
       const u = data.users.find((x) => x.id === id);
-      return u ? u.display_name : 'Unknown';
+      return u ? u.display_name : t(lang, 'common.unknown');
     }
 
     function renderMine() {
       const el = document.getElementById('my-list');
       const mine = data.timeOffMine.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
       if (mine.length === 0) {
-        el.innerHTML = '<p class="empty">No requests yet.</p>';
+        el.innerHTML = `<p class="empty">${t(lang, 'timeoff.noRequestsYet')}</p>`;
         return;
       }
       el.innerHTML = mine.map((it) => {
         const denialHtml = it.status === 'denied' && it.denial_reason
-          ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">Admin says: ${escapeHtml(it.denial_reason)}</div>`
+          ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">${t(lang, 'common.adminSays')} ${escapeHtml(it.denial_reason)}</div>`
           : '';
-        const cancelBtn = `<button class="btn-danger" data-cancel="${it.id}">${it.status === 'pending' ? 'Cancel' : 'Remove'}</button>`;
+        const cancelBtn = `<button class="btn-danger" data-cancel="${it.id}">${it.status === 'pending' ? t(lang, 'common.cancel') : t(lang, 'timeoff.remove')}</button>`;
         return `<div class="list-item" style="align-items:flex-start;">
           <div>
-            <div class="who">${formatDate(it.start_date, { short: true })} – ${formatDate(it.end_date, { short: true })}</div>
+            <div class="who">${formatDate(it.start_date, { short: true, lang })} – ${formatDate(it.end_date, { short: true, lang })}</div>
             <div class="meta">${escapeHtml(it.reason || '—')}</div>
             ${denialHtml}
           </div>
           <div style="display:flex;gap:0.375rem;align-items:center;">
-            <span class="badge badge-${it.status}">${it.status}</span>
+            <span class="badge badge-${it.status}">${t(lang, `status.${it.status}`)}</span>
             ${cancelBtn}
           </div>
         </div>`;
       }).join('');
       el.querySelectorAll('[data-cancel]').forEach((b) => {
         b.addEventListener('click', async () => {
-          if (!confirm('Remove this time-off request?')) return;
+          if (!confirm(t(lang, 'timeoff.confirmRemove'))) return;
           const r = await window.shawarmaApi('DELETE', `/api/timeoff/${b.getAttribute('data-cancel')}`);
-          if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
-          window.shawarmaToast('Removed');
+          if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'common.failed')); return; }
+          window.shawarmaToast(t(lang, 'timeoff.toastRemoved'));
           await refreshAndRender();
         });
       });
@@ -91,17 +96,17 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
       if (!el) return;
       const all = (data.timeOffAll || []).slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
       if (all.length === 0) {
-        el.innerHTML = '<p class="empty">No requests.</p>';
+        el.innerHTML = `<p class="empty">${t(lang, 'timeoff.noRequests')}</p>`;
         return;
       }
       el.innerHTML = all.map((it) => {
         const actions = it.status === 'pending'
-          ? `<button class="btn-primary" data-approve="${it.id}">Approve</button> <button class="btn-secondary" data-deny="${it.id}">Deny</button>`
-          : `<span class="badge badge-${it.status}">${it.status}</span>`;
+          ? `<button class="btn-primary" data-approve="${it.id}">${t(lang, 'timeoff.approve')}</button> <button class="btn-secondary" data-deny="${it.id}">${t(lang, 'timeoff.deny')}</button>`
+          : `<span class="badge badge-${it.status}">${t(lang, `status.${it.status}`)}</span>`;
         return `<div class="list-item" style="align-items:flex-start;">
           <div>
             <div class="who">${escapeHtml(userName(it.user_id))}</div>
-            <div class="meta">${formatDate(it.start_date, { short: true })} – ${formatDate(it.end_date, { short: true })} · ${escapeHtml(it.reason || '—')}</div>
+            <div class="meta">${formatDate(it.start_date, { short: true, lang })} – ${formatDate(it.end_date, { short: true, lang })} · ${escapeHtml(it.reason || '—')}</div>
           </div>
           <div style="display:flex;gap:0.5rem;align-items:center;">${actions}</div>
         </div>`;
@@ -109,18 +114,18 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
       el.querySelectorAll('[data-approve]').forEach((b) => {
         b.addEventListener('click', async () => {
           const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-approve')}`, { status: 'approved' });
-          if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
-          window.shawarmaToast('Approved');
+          if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'common.failed')); return; }
+          window.shawarmaToast(t(lang, 'timeoff.toastApproved'));
           await refreshAndRender();
         });
       });
       el.querySelectorAll('[data-deny]').forEach((b) => {
         b.addEventListener('click', async () => {
-          const reason = prompt('Why are you denying this request? (shown to the staff member)');
+          const reason = prompt(t(lang, 'timeoff.denyPrompt'));
           if (reason === null) return;
-          const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-deny')}`, { status: 'denied', denial_reason: reason || 'No reason given' });
-          if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
-          window.shawarmaToast('Denied');
+          const r = await window.shawarmaApi('PATCH', `/api/timeoff/${b.getAttribute('data-deny')}`, { status: 'denied', denial_reason: reason || t(lang, 'timeoff.noReasonGiven') });
+          if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'common.failed')); return; }
+          window.shawarmaToast(t(lang, 'timeoff.toastDenied'));
           await refreshAndRender();
         });
       });
@@ -152,10 +157,10 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
         reason: document.getElementById('reason').value.trim(),
       };
       const r = await window.shawarmaApi('POST', '/api/timeoff', payload);
-      if (!r.ok) { window.shawarmaToast(r.error || 'Could not submit request'); return; }
+      if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'timeoff.toastCouldNotSubmit')); return; }
       document.getElementById('request-form').reset();
       noticeWarning.hidden = true;
-      window.shawarmaToast('Time-off submitted — admin must approve');
+      window.shawarmaToast(t(lang, 'timeoff.toastSubmitted'));
       await refreshAndRender();
     });
 
