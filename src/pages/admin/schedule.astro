@@ -179,7 +179,7 @@ import Icon from '../../components/Icon.astro';
 
   <script>
     import { escapeHtml, formatTime12, getMonthCells } from '../../lib/client/format.js';
-    import { computeShiftRequestConflicts, computeDayCoverage, dayOfWeek } from '../../lib/client/coverage.js';
+    import { computeShiftRequestConflicts, computeDayCoverage, computeTemplateTimeGaps, dayOfWeek } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
@@ -272,6 +272,13 @@ import Icon from '../../components/Icon.astro';
     anchor.setHours(0, 0, 0, 0);
     let editingTemplateId = null;
     let editingShiftId = null;
+    // Click-to-select fallback for filling a coverage block/open slot —
+    // native HTML5 drag-and-drop isn't reliable on every trackpad/browser
+    // combo, so tap a roster name to arm it, then tap a block to open the
+    // Add Shift modal pre-filled with that person and the block's time.
+    // Dragging still works wherever it does; this is just a second path
+    // to the same result, not a replacement.
+    let selectedRosterUserId = null;
 
     // ----- Undo -----
     // A plain in-memory stack (cleared on reload — no server-side history)
@@ -415,35 +422,61 @@ import Icon from '../../components/Icon.astro';
         const height = Math.max(3, ((end - start) / windowMin) * 100);
         const widthPct = 100 / cols;
         const leftPct = col * widthPct;
-        if (kind === 'coverage-gap') return coverageGapBarHtml(item.template, top, height, leftPct, widthPct);
+        if (kind === 'coverage-gap') return coverageGapBarHtml(item.template, item.gapStart, item.gapEnd, item.gapDate, top, height, leftPct, widthPct);
         const row = item.row;
         const conflictNote = conflicts.get(row.id);
         return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftPct, widthPct, !!conflictNote, conflictNote);
       }).join('');
     }
 
-    // One "ghost" item per still-needed head on an understaffed template —
-    // e.g. "Mid AM" short by 2 produces two separate open-slot blocks, each
-    // competing for its own column in the packing above, not one band that
-    // can be fully hidden if real bars already fill the width.
-    function computeGhostItems(coverage, startMin, windowMin) {
+    function minutesToHHMM(raw) {
+      const m = ((raw % (24 * 60)) + 24 * 60) % (24 * 60);
+      return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    }
+
+    function addDays(iso, n) {
+      const d = new Date(`${iso}T00:00:00`);
+      d.setDate(d.getDate() + n);
+      return isoOf(d);
+    }
+
+    // One "ghost" item per still-needed head on an actual gap SEGMENT (see
+    // computeTemplateTimeGaps) — a segment needing 2 more produces two
+    // separate open-slot blocks, each competing for its own column in the
+    // packing above, not one band that can be fully hidden if real bars
+    // already fill the width. Each ghost carries the segment's own precise
+    // start/end (not the whole template's) so filling it schedules exactly
+    // the hours that are actually missing.
+    //
+    // A segment can land entirely past midnight (e.g. the tail of an
+    // overnight closer block, raw minutes >= 1440) — its plain HH:MM looks
+    // like an ordinary same-day range (e.g. "01:30-02:30"), so filling it
+    // must record the shift against TOMORROW's date, not `iso`, or it'd
+    // silently land on the wrong calendar day. A segment straddling
+    // midnight itself doesn't need this: its own start_time > end_time
+    // already encodes the wraparound the way every other shift in this
+    // app does, dated `iso` as normal.
+    function computeGhostItems(timeGaps, startMin, windowMin, iso) {
       const ghosts = [];
-      for (const { template, count, status } of coverage) {
-        if (status !== 'under') continue;
-        const [dispStart, dispEnd] = displayRange(template.start_time, template.end_time, startMin);
-        const end = Math.min(dispEnd, windowMin);
-        for (let i = 0; i < template.min_staff - count; i++) {
-          ghosts.push({ kind: 'coverage-gap', start: dispStart, end, template });
+      for (const { template, start, end, needed } of timeGaps) {
+        const dispStart = Math.max(0, toDisplayMinutes(start, startMin));
+        const dispEnd = Math.min(toDisplayMinutes(end, startMin), windowMin);
+        if (dispEnd <= dispStart) continue;
+        const gapStart = minutesToHHMM(start);
+        const gapEnd = minutesToHHMM(end);
+        const gapDate = start >= 24 * 60 ? addDays(iso, 1) : iso;
+        for (let i = 0; i < needed; i++) {
+          ghosts.push({ kind: 'coverage-gap', start: dispStart, end: dispEnd, template, gapStart, gapEnd, gapDate });
         }
       }
       return ghosts;
     }
 
-    function coverageGapBarHtml(template, top, height, leftPct, widthPct) {
+    function coverageGapBarHtml(template, gapStart, gapEnd, gapDate, top, height, leftPct, widthPct) {
       return `
-        <div class="coverage-gap" data-template-id="${template.id}" data-start="${template.start_time}" data-end="${template.end_time}"
+        <div class="coverage-gap" data-template-id="${template.id}" data-start="${gapStart}" data-end="${gapEnd}" data-date="${gapDate}"
              style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);"
-             title="Drag a name here, or click to add a shift for this block">
+             title="Click to schedule this open slot">
           <span class="coverage-gap-label">${escapeHtml(template.name)} — open slot</span>
         </div>
       `;
@@ -585,7 +618,8 @@ import Icon from '../../components/Icon.astro';
       }
 
       const coverage = computeDayCoverage(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
-      const ghostItems = computeGhostItems(coverage, startMin, windowMin);
+      const timeGaps = computeTemplateTimeGaps(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
+      const ghostItems = computeGhostItems(timeGaps, startMin, windowMin, iso);
       const bars = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems);
       const coverageHtml = renderCoveragePanel(coverage);
 
@@ -654,13 +688,14 @@ import Icon from '../../components/Icon.astro';
       return `
         <div class="coverage-panel no-print">
           <div class="coverage-blocks">${blocks}</div>
-          <div class="coverage-roster-label">Drag a name onto a block to fill it:</div>
+          <div class="coverage-roster-label">Drag a name onto a block, or click a name then a block, to fill it:</div>
           <div class="coverage-roster">${roster}</div>
         </div>
       `;
     }
 
     function wireCoverageInteractions(root, iso) {
+      selectedRosterUserId = null;
       root.querySelectorAll('.roster-chip').forEach((chip) => {
         chip.addEventListener('dragstart', (e) => {
           e.stopPropagation();
@@ -668,10 +703,26 @@ import Icon from '../../components/Icon.astro';
           e.dataTransfer.setData('application/x-kind', 'roster-user');
           e.dataTransfer.effectAllowed = 'copy';
         });
+        chip.addEventListener('click', () => {
+          const userId = chip.getAttribute('data-user-id');
+          const wasSelected = selectedRosterUserId === userId;
+          root.querySelectorAll('.roster-chip.selected').forEach((c) => c.classList.remove('selected'));
+          selectedRosterUserId = wasSelected ? null : userId;
+          if (!wasSelected) chip.classList.add('selected');
+        });
       });
       root.querySelectorAll('.coverage-block, .coverage-gap').forEach((block) => {
+        // A .coverage-gap for a segment entirely past midnight carries its
+        // own data-date (tomorrow, not `iso`) — see computeGhostItems.
+        // .coverage-block (the whole-template card) never needs this: its
+        // start/end are always the template's own declared HH:MM, and the
+        // usual end<=start wraparound convention already covers it dated `iso`.
+        const blockDate = block.getAttribute('data-date') || iso;
         block.addEventListener('click', () => {
-          openAddShiftModal(iso, block.getAttribute('data-start'), block.getAttribute('data-end'));
+          const userId = selectedRosterUserId;
+          selectedRosterUserId = null;
+          root.querySelectorAll('.roster-chip.selected').forEach((c) => c.classList.remove('selected'));
+          openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
         });
         block.addEventListener('dragover', (e) => {
           if (![...e.dataTransfer.types].includes('application/x-kind')) return;
@@ -686,7 +737,7 @@ import Icon from '../../components/Icon.astro';
           const userId = e.dataTransfer.getData('text/plain');
           const r = await window.shawarmaApi('POST', '/api/shifts', {
             user_id: userId,
-            date: iso,
+            date: blockDate,
             start_time: block.getAttribute('data-start'),
             end_time: block.getAttribute('data-end'),
           });
@@ -1025,13 +1076,13 @@ import Icon from '../../components/Icon.astro';
     }
     document.getElementById('as-date').addEventListener('change', renderTemplatePicker);
 
-    function openAddShiftModal(iso, prefillStart, prefillEnd) {
+    function openAddShiftModal(iso, prefillStart, prefillEnd, prefillUserId) {
       editingShiftId = null;
       document.getElementById('as-title').textContent = 'Add shift';
       document.getElementById('as-delete').hidden = true;
       const userSelect = document.getElementById('as-user');
       userSelect.innerHTML = (data.users || []).filter((u) => !u.disabled).map((u) =>
-        `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`
+        `<option value="${u.id}" ${u.id === prefillUserId ? 'selected' : ''}>${escapeHtml(u.display_name)}</option>`
       ).join('');
       document.getElementById('as-date').value = iso;
       document.getElementById('as-start').value = prefillStart || '11:00';

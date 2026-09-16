@@ -45,6 +45,35 @@ function templatesForDate(templates, dateStr) {
   return templates.filter((t) => t.days_of_week.split(',').map((d) => d.trim()).includes(dow));
 }
 
+function addDaysISO(dateStr, n) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// A template's window can run past midnight (e.g. a closer block ending
+// 2:30am), and filling the tail of that window has to be dated the NEXT
+// calendar day for calendar accuracy (see computeGhostItems's date-bump in
+// admin/schedule.astro) — a shift genuinely starting at 1:30am happens
+// tomorrow, not today. But that means the shift meant to cover today's
+// overnight tail is dated tomorrow, so it has to be pulled back in here,
+// shifted +24h, or filling that gap would never make the red block clear.
+function rowsForSweep(shifts, shiftRequests, dateStr) {
+  const tomorrow = addDaysISO(dateStr, 1);
+  const sameDay = [
+    ...shifts.filter((s) => s.date === dateStr),
+    ...shiftRequests.filter((r) => r.status === 'pending' && r.action === 'create' && r.date === dateStr),
+  ];
+  const nextDay = [
+    ...shifts.filter((s) => s.date === tomorrow),
+    ...shiftRequests.filter((r) => r.status === 'pending' && r.action === 'create' && r.date === tomorrow),
+  ];
+  return [
+    ...sameDay.map((row) => rowRange(row)),
+    ...nextDay.map((row) => { const [s, e] = rowRange(row); return [s + 24 * 60, e + 24 * 60]; }),
+  ];
+}
+
 // A restaurant's templates routinely nest — e.g. "1 Opener, 9am-9:30pm"
 // and "3 Mid AM, 9am-6pm" both legitimately run at once, and every Mid AM
 // shift also technically *fits inside* the wider Opener window. Attributing
@@ -116,30 +145,81 @@ export function computeShiftRequestConflicts(shiftTemplates, shifts, shiftReques
   return conflicts;
 }
 
-// One row per template that applies to `dateStr`, with how many people are
-// currently assigned to it (using the same best-fit attribution as
-// computeShiftRequestConflicts, so this agrees with the conflict flags
-// rather than a separately-computed number). Powers the Schedule Builder's
-// Day view "coverage" panel — a plain-English, at-a-glance answer to "is
-// today's schedule actually filled in" instead of making an admin infer it
-// from a pile of individual chips.
+// How many people are actually present, instant-by-instant, across a
+// template's window — deliberately ANY-OVERLAP here, not the strict
+// best-fit containment computeShiftRequestConflicts uses. That function is
+// answering "which named role does this shift represent" (so a nested
+// template's headcount isn't double-counted); this one is answering "is
+// this window covered at all, and by how many people, right now" — a
+// shift that starts an hour early or ends an hour late relative to the
+// template's declared time is still real, physical coverage during the
+// part that overlaps, and has to count or a merely time-shifted shift
+// would look like a totally open slot it isn't. Splits the window into
+// the minimal set of sub-intervals where the concurrent count doesn't
+// change, so a partial gap (e.g. the last hour of a closer block nobody
+// covers) is found precisely instead of only as a daily total.
+function sweepTemplateCoverage(template, ranges) {
+  const [tStart, tEnd] = templateRange(template);
+  const overlapping = ranges
+    .filter(([s, e]) => s < tEnd && e > tStart)
+    .map(([s, e]) => [Math.max(s, tStart), Math.min(e, tEnd)]);
+
+  const points = [...new Set([tStart, tEnd, ...overlapping.flat()])].sort((a, b) => a - b);
+  const segments = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const start = points[i];
+    const end = points[i + 1];
+    if (end <= start) continue;
+    const count = overlapping.filter(([s, e]) => s <= start && e >= end).length;
+    segments.push({ start, end, count });
+  }
+  return segments.length ? segments : [{ start: tStart, end: tEnd, count: 0 }];
+}
+
+// One row per template that applies to `dateStr`. Powers the Schedule
+// Builder's Day view "coverage" panel — a plain-English, at-a-glance
+// answer to "is today's schedule actually filled in" instead of making an
+// admin infer it from a pile of individual chips. The displayed count is
+// the WORST moment in the window (its minimum concurrent headcount) when
+// there's a min_staff to judge against — a template that's fully staffed
+// 9-5 but drops to zero for the last hour is not "fully staffed", and a
+// single daily total would hide exactly that. `over` instead looks at the
+// PEAK moment, since exceeding max_staff even briefly is the problem.
 export function computeDayCoverage(shiftTemplates, shifts, shiftRequests, dateStr) {
   const templates = templatesForDate(shiftTemplates, dateStr);
-  const dayShifts = shifts.filter((s) => s.date === dateStr);
-  const pendingCreates = shiftRequests.filter((r) => r.status === 'pending' && r.action === 'create' && r.date === dateStr);
-
-  const counts = new Map(); // template -> count
-  for (const row of [...dayShifts, ...pendingCreates]) {
-    const template = bestFitTemplate(templates, row);
-    if (!template) continue;
-    counts.set(template, (counts.get(template) || 0) + 1);
-  }
+  const ranges = rowsForSweep(shifts, shiftRequests, dateStr);
 
   return templates.map((template) => {
-    const count = counts.get(template) || 0;
-    const overMax = template.max_staff != null && count > template.max_staff;
-    const underMin = template.min_staff != null && count < template.min_staff;
+    const segments = sweepTemplateCoverage(template, ranges);
+    const counts = segments.map((s) => s.count);
+    const minCount = Math.min(...counts);
+    const maxCount = Math.max(...counts);
+    const overMax = template.max_staff != null && maxCount > template.max_staff;
+    const underMin = template.min_staff != null && minCount < template.min_staff;
     const status = overMax ? 'over' : underMin ? 'under' : template.min_staff != null ? 'filled' : 'neutral';
+    const count = status === 'over' || status === 'neutral' ? maxCount : minCount;
     return { template, count, status };
   });
+}
+
+// The actual sub-intervals of each date-applicable template's window that
+// aren't covered by enough people at that exact moment — not just "the
+// daily headcount is short," but "which specific hours are short" (see
+// sweepTemplateCoverage). Each returned gap is one contiguous segment plus
+// how many more people it's short by; a segment needing 2 more should
+// become two separate fillable slots, not one, hence `needed` rather than
+// a single flat "understaffed" flag. Powers the Day view timeline's open-
+// slot blocks (see computeGhostItems in admin/schedule.astro).
+export function computeTemplateTimeGaps(shiftTemplates, shifts, shiftRequests, dateStr) {
+  const templates = templatesForDate(shiftTemplates, dateStr);
+  const ranges = rowsForSweep(shifts, shiftRequests, dateStr);
+
+  const gaps = [];
+  for (const template of templates) {
+    if (template.min_staff == null) continue;
+    for (const { start, end, count } of sweepTemplateCoverage(template, ranges)) {
+      if (count < template.min_staff) gaps.push({ template, start, end, needed: template.min_staff - count });
+    }
+  }
+  return gaps;
 }
