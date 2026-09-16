@@ -21,11 +21,16 @@ const navItems = [
 ];
 ---
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#dc2626" />
+  <!-- The staff-facing app has its own EN/ES switch (LangToggle) — this
+       side stays English-only, but Chrome could still offer to translate
+       it for a Spanish-browser admin, which would be the same confusing
+       double-prompt. Suppress it here too for consistency. -->
+  <meta name="google" content="notranslate" />
   <title>{title}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
