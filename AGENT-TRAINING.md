@@ -17,7 +17,7 @@ This document tells an AI agent (or any other system authenticating with an API 
 
 **Never invent people, never invent templates.** Resolve a name against GET /api/state's `users` array (or the bulk-import template's roster comment) before referencing a user_id — match on username, exact display name, or first name, and if more than one person shares that first name, ask rather than guessing which one. Do not create a new user account (out of scope for this API entirely — that stays a human, in-app action). Creating a new shift_template changes ongoing weekly coverage rules for everyone; only do it on an explicit, specific instruction, never as a guess at what a schedule "probably" needs.
 
-**Idempotency is mostly your responsibility.** Almost nothing below has a database-enforced dedup key (day_caps upserts by date+window are the one exception). A retried or resent instruction WILL create a second shift, a second availability entry, or a second swap post if you call the same write twice — track what you've already submitted for a given conversation/message yourself, the API will not catch a duplicate for you. The one bulk path with no built-in dedup at all is /api/public/shift-imports' `shift` and `swap` row types — re-submitting the same CSV/JSON batch a second time creates duplicate shifts (a `cap` row is safe to resubmit; a `shift` or `swap` row is not).
+**Idempotency is mostly your responsibility.** Almost nothing below has a database-enforced dedup key (day_caps upserts by date+window are the one exception). A retried or resent instruction WILL create a second shift, a second availability entry, or a second swap post if you call the same write twice — track what you've already submitted for a given conversation/message yourself, the API will not catch a duplicate for you. Within /api/public/shift-imports, `cap` rows upsert by (date, window_start, window_end) and `template` rows upsert by exact name, so both are safe to resubmit — `shift` and `swap` rows have no dedup key at all and WILL duplicate on a resubmit.
 
 **Authentication.** Every call below uses an API key created via POST /api/admin/api-keys (admin session) or the Manage → API Keys card in the UI: header Authorization: Bearer shwrm_xxxxx. The key resolves to the real user who created it and acts with that user's exact role and identity — there is no separate "service account" concept, and a write is attributed to that real person just as if they'd clicked it themselves. A 403 means the key's owner does not hold the role a given action requires — create the key from an account with sufficient role rather than trying to escalate.
 
@@ -257,7 +257,7 @@ Human-only — finalizing a swap reassigns the shift between two real people; do
 
 ## Bulk schedule import
 
-For loading a whole schedule at once (a spreadsheet, a photo of a handwritten schedule, a pasted message spanning many shifts) instead of one-row-at-a-time direct-action calls. One batch can mix all three row types below.
+For loading a whole schedule at once (a spreadsheet, a photo of a handwritten schedule, a pasted message spanning many shifts) instead of one-row-at-a-time direct-action calls. One batch can mix all four row types below.
 
 - Call with an API key: `POST /api/public/shift-imports  (Authorization: Bearer shwrm_xxxxx)`
 - Or with an admin/manager session (the Manage UI's own path): `POST /api/admin/shift-imports  (admin/manager session — used by the Manage UI)`
@@ -270,5 +270,6 @@ For loading a whole schedule at once (a spreadsheet, a photo of a handwritten sc
 | `shift` | username, date, start_time, end_time, notes | Creates an actual, immediately-live scheduled shift (not a pending availability entry). No idempotency key — resubmitting the same batch creates duplicate shifts. |
 | `cap` | date, window_start, window_end, max_shifts, notes | A one-off exception on a single date/window (separate from a recurring shift_template). Upserted by (date, window_start, window_end) — safe to resubmit. |
 | `swap` | username, date, start_time, notes (= swap reason) | Posts an EXISTING shift (matched by username+date+start_time) for swap — errors if no such shift exists yet. No idempotency key — resubmitting posts it again. |
+| `template` | name, days_of_week, start_time, end_time, min_staff, max_staff | Creates or updates a recurring weekly shift_template. days_of_week is 0(Sun)-6(Sat), separated by comma, space, or "|" (e.g. "1 2 3 4 5"). Matched and upserted by exact `name` — importing the same name again UPDATES it in place, safe to resubmit. |
 
 Name matching (the `username` column on `shift`/`swap` rows) is fuzzy on purpose: it accepts the exact system username, a full display name, or a first name — a first name shared by two people is treated as ambiguous and errors rather than guessing.

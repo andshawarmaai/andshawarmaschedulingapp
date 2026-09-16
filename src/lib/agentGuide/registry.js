@@ -32,7 +32,7 @@ export const PRINCIPLES = [
   },
   {
     title: 'Idempotency is mostly your responsibility',
-    body: 'Almost nothing below has a database-enforced dedup key (day_caps upserts by date+window are the one exception). A retried or resent instruction WILL create a second shift, a second availability entry, or a second swap post if you call the same write twice — track what you\'ve already submitted for a given conversation/message yourself, the API will not catch a duplicate for you. The one bulk path with no built-in dedup at all is /api/public/shift-imports\' `shift` and `swap` row types — re-submitting the same CSV/JSON batch a second time creates duplicate shifts (a `cap` row is safe to resubmit; a `shift` or `swap` row is not).',
+    body: 'Almost nothing below has a database-enforced dedup key (day_caps upserts by date+window are the one exception). A retried or resent instruction WILL create a second shift, a second availability entry, or a second swap post if you call the same write twice — track what you\'ve already submitted for a given conversation/message yourself, the API will not catch a duplicate for you. Within /api/public/shift-imports, `cap` rows upsert by (date, window_start, window_end) and `template` rows upsert by exact name, so both are safe to resubmit — `shift` and `swap` rows have no dedup key at all and WILL duplicate on a resubmit.',
   },
   {
     title: 'Authentication',

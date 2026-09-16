@@ -24,6 +24,11 @@ const BULK_IMPORT_ROW_TYPES = [
     columns: ['username', 'date', 'start_time', 'notes (= swap reason)'],
     description: 'Posts an EXISTING shift (matched by username+date+start_time) for swap — errors if no such shift exists yet. No idempotency key — resubmitting posts it again.',
   },
+  {
+    type: 'template',
+    columns: ['name', 'days_of_week', 'start_time', 'end_time', 'min_staff', 'max_staff'],
+    description: 'Creates or updates a recurring weekly shift_template. days_of_week is 0(Sun)-6(Sat), separated by comma, space, or "|" (e.g. "1 2 3 4 5"). Matched and upserted by exact `name` — importing the same name again UPDATES it in place, safe to resubmit.',
+  },
 ];
 
 export function buildAgentGuide() {
