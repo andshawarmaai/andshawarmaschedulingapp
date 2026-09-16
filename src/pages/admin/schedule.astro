@@ -425,17 +425,57 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // midnight itself doesn't need this: its own start_time > end_time
     // already encodes the wraparound the way every other shift in this
     // app does, dated `iso` as normal.
+    // A template short by, say, 3 people used to get 3 independent ghost
+    // items PER SEGMENT — and a real request overlapping just part of the
+    // window (e.g. David 11am-7pm inside a 9am-6pm block) splits that
+    // block into segments with a DIFFERENT needed-count each side of
+    // 11am. Handing packOverlaps three separate short ghosts per segment
+    // let it column-assign each segment independently, so the same
+    // logical "slot 1" could land in a different column before and after
+    // 11am — visually, open slots fragmenting and stacking instead of
+    // staying in clean vertical lanes.
+    //
+    // Fix: assign each template a fixed set of lane INDEXES (0..maxNeeded-1)
+    // up front, independent of segmentation. Lane i is "open" for exactly
+    // the segments where needed > i; adjoining open segments for the same
+    // lane are merged into one continuous bar before they ever reach
+    // packOverlaps, so a lane that's needed across several segments stays
+    // one stable column instead of several disjoint ones the packer is
+    // free to scatter.
     function computeGhostItems(timeGaps, startMin, windowMin, iso) {
+      const byTemplate = new Map();
+      for (const gap of timeGaps) {
+        if (!byTemplate.has(gap.template)) byTemplate.set(gap.template, []);
+        byTemplate.get(gap.template).push(gap);
+      }
+
       const ghosts = [];
-      for (const { template, start, end, needed } of timeGaps) {
-        const dispStart = Math.max(0, toDisplayMinutes(start, startMin));
-        const dispEnd = Math.min(toDisplayMinutes(end, startMin), windowMin);
-        if (dispEnd <= dispStart) continue;
-        const gapStart = minutesToHHMM(start);
-        const gapEnd = minutesToHHMM(end);
-        const gapDate = start >= 24 * 60 ? addDays(iso, 1) : iso;
-        for (let i = 0; i < needed; i++) {
-          ghosts.push({ kind: 'coverage-gap', start: dispStart, end: dispEnd, template, gapStart, gapEnd, gapDate });
+      for (const [template, segments] of byTemplate) {
+        const maxNeeded = Math.max(...segments.map((s) => s.needed));
+        for (let lane = 0; lane < maxNeeded; lane++) {
+          let runStart = null;
+          let runEnd = null;
+          const flushRun = () => {
+            if (runStart == null) return;
+            const dispStart = Math.max(0, toDisplayMinutes(runStart, startMin));
+            const dispEnd = Math.min(toDisplayMinutes(runEnd, startMin), windowMin);
+            if (dispEnd > dispStart) {
+              ghosts.push({
+                kind: 'coverage-gap', start: dispStart, end: dispEnd, template,
+                gapStart: minutesToHHMM(runStart), gapEnd: minutesToHHMM(runEnd),
+                gapDate: runStart >= 24 * 60 ? addDays(iso, 1) : iso,
+              });
+            }
+            runStart = null;
+            runEnd = null;
+          };
+          for (const seg of segments) {
+            if (seg.needed <= lane) { flushRun(); continue; }
+            if (runStart == null) { runStart = seg.start; runEnd = seg.end; }
+            else if (seg.start === runEnd) { runEnd = seg.end; }
+            else { flushRun(); runStart = seg.start; runEnd = seg.end; }
+          }
+          flushRun();
         }
       }
       return ghosts;
