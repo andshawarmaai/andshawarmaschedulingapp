@@ -1,0 +1,26 @@
+---
+// A plain "flip of a switch" language toggle — no account/login needed,
+// works before sign-in too (login.astro renders it standalone). Sets a
+// cookie and reloads so the very next server render picks the new
+// language up immediately (see src/lib/i18n.js's getLang). `variant="dark"`
+// is for use on the red site-header; the default suits a white card.
+interface Props {
+  lang: 'en' | 'es';
+  variant?: 'light' | 'dark';
+}
+const { lang, variant = 'light' } = Astro.props as Props;
+---
+<div class={`lang-toggle${variant === 'dark' ? ' on-dark' : ''}`} role="group" aria-label="Language / Idioma">
+  <button type="button" data-set-lang="en" class={lang === 'en' ? 'active' : ''} aria-pressed={lang === 'en'}>EN</button>
+  <button type="button" data-set-lang="es" class={lang === 'es' ? 'active' : ''} aria-pressed={lang === 'es'}>ES</button>
+</div>
+<script>
+  document.querySelectorAll('.lang-toggle [data-set-lang]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.getAttribute('data-set-lang');
+      if (btn.classList.contains('active')) return;
+      document.cookie = `shawarma_lang=${next}; path=/; max-age=31536000; SameSite=Lax`;
+      window.location.reload();
+    });
+  });
+</script>

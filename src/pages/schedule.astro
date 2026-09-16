@@ -1,35 +1,37 @@
 ---
 import AppLayout from '../layouts/AppLayout.astro';
+import { getLang, t } from '../lib/i18n.js';
 const user = Astro.locals.user;
 const canEdit = user.role === 'admin' || user.role === 'manager';
+const lang = getLang(Astro);
 ---
 <AppLayout title="&Shawarma — Schedule" active="schedule">
   <div class="calendar-nav">
-    <button class="btn-secondary" id="prev-period">Prev</button>
-    <h2 id="period-label">Loading...</h2>
-    <button class="btn-secondary" id="next-period">Next</button>
+    <button class="btn-secondary" id="prev-period">{t(lang, 'common.prev')}</button>
+    <h2 id="period-label">{t(lang, 'common.loading')}</h2>
+    <button class="btn-secondary" id="next-period">{t(lang, 'common.next')}</button>
   </div>
   <div class="calendar-nav" style="margin-top:-0.5rem;">
     <div class="view-toggle" id="view-toggle">
-      <button data-view="month" class="active">Month</button>
-      <button data-view="day">Day</button>
+      <button data-view="month" class="active">{t(lang, 'common.month')}</button>
+      <button data-view="day">{t(lang, 'common.day')}</button>
     </div>
   </div>
 
-  <div id="view-container"><p class="empty">Loading...</p></div>
+  <div id="view-container"><p class="empty">{t(lang, 'common.loading')}</p></div>
 
   {!canEdit && (
     <div class="card">
-      <h2>My Availability</h2>
-      <p class="card-sub">Days/times you've shown as available, plus any change or removal requests on shifts you're already scheduled for. A manager or admin schedules you from these on the Schedule Builder — there's nothing further for you to approve or deny.</p>
-      <div id="my-requests"><p class="empty">Loading...</p></div>
+      <h2>{t(lang, 'schedule.myAvailability')}</h2>
+      <p class="card-sub">{t(lang, 'schedule.myAvailabilitySub')}</p>
+      <div id="my-requests"><p class="empty">{t(lang, 'common.loading')}</p></div>
     </div>
   )}
 
   <div class="modal-backdrop" id="day-modal">
     <div class="modal">
       <div class="modal-header">
-        <h2 id="modal-title">Day</h2>
+        <h2 id="modal-title">{t(lang, 'schedule.day')}</h2>
         <button class="modal-close" id="modal-close" aria-label="Close" type="button">&times;</button>
       </div>
       <div class="modal-body">
@@ -42,38 +44,41 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
   <div class="modal-backdrop" id="editor-modal">
     <div class="modal">
       <div class="modal-header">
-        <h2 id="editor-title">New shift</h2>
+        <h2 id="editor-title">{t(lang, 'schedule.editorTitleNewShift')}</h2>
         <button class="modal-close" id="editor-close" aria-label="Close" type="button">&times;</button>
       </div>
       <div class="modal-body">
-        <p id="editor-note" class="card-sub" style="margin-top:0;" hidden>This shows a manager or admin you're available — it doesn't put you on the schedule by itself. They'll schedule you for an actual shift from the Schedule Builder.</p>
+        <p id="editor-note" class="card-sub" style="margin-top:0;" hidden>{t(lang, 'schedule.editorNote')}</p>
         <div class="field" id="editor-staff-field">
-          <label for="ed-user">Staff</label>
+          <label for="ed-user">{t(lang, 'schedule.staff')}</label>
           <select id="ed-user" class="input"></select>
         </div>
-        <div class="field"><label for="ed-date">Date</label><input type="date" id="ed-date" class="input" /></div>
+        <div class="field"><label for="ed-date">{t(lang, 'schedule.date')}</label><input type="date" id="ed-date" class="input" /></div>
         <label id="ed-all-day-field" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:400;margin-bottom:0.875rem;" hidden>
           <input type="checkbox" id="ed-all-day" style="width:1rem;height:1rem;" />
-          <span>Available all day</span>
+          <span>{t(lang, 'schedule.availableAllDay')}</span>
         </label>
-        <div class="field"><label for="ed-start">Start time</label><input type="time" id="ed-start" class="input" value="11:00" /></div>
-        <div class="field"><label for="ed-end">End time</label><input type="time" id="ed-end" class="input" value="19:00" /></div>
-        <div class="field"><label for="ed-notes">Notes</label><input type="text" id="ed-notes" class="input" placeholder="Optional" /></div>
+        <div class="field"><label for="ed-start">{t(lang, 'schedule.startTime')}</label><input type="time" id="ed-start" class="input" value="11:00" /></div>
+        <div class="field"><label for="ed-end">{t(lang, 'schedule.endTime')}</label><input type="time" id="ed-end" class="input" value="19:00" /></div>
+        <div class="field"><label for="ed-notes">{t(lang, 'common.notes')}</label><input type="text" id="ed-notes" class="input" placeholder={t(lang, 'common.optional')} /></div>
       </div>
       <div class="modal-footer">
-        <button class="btn-danger" id="ed-delete" hidden>Delete</button>
-        <button class="btn-primary" id="ed-save">Save</button>
+        <button class="btn-danger" id="ed-delete" hidden>{t(lang, 'schedule.deleteBtn')}</button>
+        <button class="btn-primary" id="ed-save">{t(lang, 'common.save')}</button>
       </div>
     </div>
   </div>
 
-  <script define:vars={{ canEdit, myUserId: user.id }}>
+  <script define:vars={{ canEdit, myUserId: user.id, lang }}>
     window.__scheduleCtx = { canEdit, myUserId };
+    window.__lang = lang;
   </script>
   <script>
     import { formatDate, formatTime12, todayISO, getMonthCells, isBlocked, escapeHtml, slotStatus } from '../lib/client/format.js';
+    import { t } from '../lib/i18n.js';
 
     const ctx = window.__scheduleCtx;
+    const lang = window.__lang;
     let data = null;
     let view = 'month';
     const today = todayISO();
@@ -90,7 +95,7 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
 
     function userName(id) {
       const u = data.users.find((x) => x.id === id);
-      return u ? u.display_name : 'Unassigned';
+      return u ? u.display_name : t(lang, 'schedule.unassigned');
     }
 
     function shiftsForDate(iso) {
@@ -122,19 +127,20 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
 
       if (view === 'day') {
         const iso = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(viewDay).padStart(2, '0')}`;
-        label.textContent = formatDate(iso);
+        label.textContent = formatDate(iso, { lang });
         const shifts = shiftsForDate(iso);
-        const addBtn = `<button class="btn-primary" id="day-add" style="margin-top:0.5rem;">${ctx.canEdit ? '+ Add shift' : '+ Request shift'}</button>`;
+        const addBtn = `<button class="btn-primary" id="day-add" style="margin-top:0.5rem;">${ctx.canEdit ? t(lang, 'schedule.addShift') : t(lang, 'schedule.requestShift')}</button>`;
         container.innerHTML = (shifts.length === 0
-          ? '<p class="empty">No shifts on this day.</p>'
+          ? `<p class="empty">${t(lang, 'schedule.noShiftsOnDay')}</p>`
           : `<div class="day-view">${shifts.map(renderDayShift).join('')}</div>`) + addBtn;
         wireDayView(iso, shifts);
         return;
       }
 
-      label.textContent = formatDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-01`, { monthYear: true });
+      label.textContent = formatDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-01`, { monthYear: true, lang });
       const cells = getMonthCells(viewYear, viewMonth);
-      const head = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="calendar-head">${d}</div>`).join('');
+      const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const head = dayKeys.map((d) => `<div class="calendar-head">${t(lang, `days.${d}`)}</div>`).join('');
       const body = cells.map((c) => {
         const dayShifts = shiftsForDate(c.iso);
         const timeOffHere = data.timeOffApproved.filter((b) => c.iso >= b.start_date && c.iso <= b.end_date);
@@ -143,7 +149,7 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
           const firstName = userName(s.user_id).split(' ')[0];
           return `<span class="shift-line${blocked ? ' on-leave' : ''}"><strong>${escapeHtml(firstName)}</strong> ${formatTime12(s.start_time)}</span>`;
         }).join('');
-        const more = dayShifts.length > 3 ? `<span class="shift-line">+${dayShifts.length - 3} more</span>` : '';
+        const more = dayShifts.length > 3 ? `<span class="shift-line">${t(lang, 'schedule.more', { n: dayShifts.length - 3 })}</span>` : '';
         // Outlook-style block: the bar only carries the name + reason on the
         // first day of a run; every day after that renders as a lighter
         // "continued" bar so a multi-day time-off reads as one span instead
@@ -156,8 +162,8 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
           const prevISO = prev.toISOString().slice(0, 10);
           const isStart = !isBlocked(data.timeOffApproved, prevISO, block.user_id);
           offBar = isStart
-            ? `<div class="time-off-bar">${escapeHtml(userName(block.user_id))} — off</div>`
-            : `<div class="time-off-bar time-off-cont">continued</div>`;
+            ? `<div class="time-off-bar">${escapeHtml(userName(block.user_id))} — ${t(lang, 'schedule.off')}</div>`
+            : `<div class="time-off-bar time-off-cont">${t(lang, 'schedule.continued')}</div>`;
         }
         const isToday = c.iso === today;
         return `<div class="calendar-day${c.other ? ' other-month' : ''}${isToday ? ' today' : ''}${timeOffHere.length ? ' has-timeoff' : ''}" data-iso="${c.iso}">
@@ -174,8 +180,8 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
     function renderDayShift(s) {
       const pending = pendingRequestForShift(s.id);
       const canAct = canRequestOn(s);
-      const editBtn = canAct ? `<button class="btn-secondary" data-edit="${s.id}">${ctx.canEdit ? 'Edit' : 'Request change'}</button>` : '';
-      const pendingBadge = pending ? ` <span class="badge badge-pending">${pending.action} pending</span>` : '';
+      const editBtn = canAct ? `<button class="btn-secondary" data-edit="${s.id}">${ctx.canEdit ? t(lang, 'schedule.edit') : t(lang, 'schedule.requestChange')}</button>` : '';
+      const pendingBadge = pending ? ` <span class="badge badge-pending">${t(lang, `schedule.action.${pending.action}`)} ${t(lang, 'schedule.pendingSuffix')}</span>` : '';
       return `<div class="day-shift">
         <div class="day-shift-main">
           <div class="day-shift-name">${escapeHtml(userName(s.user_id))}${slotBadge(s.date, s.start_time)}${pendingBadge}</div>
@@ -196,11 +202,11 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
 
     function openDay(iso) {
       const shifts = shiftsForDate(iso);
-      document.getElementById('modal-title').textContent = formatDate(iso);
+      document.getElementById('modal-title').textContent = formatDate(iso, { lang });
       document.getElementById('modal-shifts').innerHTML = shifts.length === 0
-        ? '<p class="empty">No shifts scheduled.</p>'
+        ? `<p class="empty">${t(lang, 'schedule.noShiftsScheduled')}</p>`
         : shifts.map(renderDayShift).join('');
-      const addBtn = `<button class="btn-primary" id="modal-add-shift">${ctx.canEdit ? '+ Add shift' : '+ Request shift'}</button>`;
+      const addBtn = `<button class="btn-primary" id="modal-add-shift">${ctx.canEdit ? t(lang, 'schedule.addShift') : t(lang, 'schedule.requestShift')}</button>`;
       document.getElementById('modal-actions').innerHTML = addBtn;
       document.getElementById('modal-add-shift').addEventListener('click', () => openEditor(iso, null));
       document.querySelectorAll('#modal-shifts [data-edit]').forEach((b) => {
@@ -227,8 +233,8 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
       // assigning someone a specific shift.
       const showAllDay = !ctx.canEdit && !shift;
       document.getElementById('editor-title').textContent = shift
-        ? (ctx.canEdit ? 'Edit shift' : 'Request a change')
-        : (ctx.canEdit ? 'New shift' : 'Show availability');
+        ? (ctx.canEdit ? t(lang, 'schedule.editorTitleEditShift') : t(lang, 'schedule.editorTitleRequestChange'))
+        : (ctx.canEdit ? t(lang, 'schedule.editorTitleNewShift') : t(lang, 'schedule.editorTitleShowAvailability'));
       document.getElementById('editor-note').hidden = ctx.canEdit;
       document.getElementById('ed-all-day-field').hidden = !showAllDay;
       document.getElementById('ed-all-day').checked = false;
@@ -245,7 +251,7 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
       }
       document.getElementById('ed-notes').value = shift && shift.notes ? shift.notes : '';
       document.getElementById('ed-delete').hidden = !shift;
-      document.getElementById('ed-delete').textContent = ctx.canEdit ? 'Delete' : 'Request removal';
+      document.getElementById('ed-delete').textContent = ctx.canEdit ? t(lang, 'schedule.deleteBtn') : t(lang, 'schedule.requestRemoval');
       document.getElementById('day-modal').classList.remove('show');
       document.getElementById('editor-modal').classList.add('show');
     }
@@ -281,10 +287,10 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
           ...payload,
         });
       }
-      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed'); return; }
+      if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'schedule.toastSaveFailed')); return; }
       window.shawarmaToast(ctx.canEdit
-        ? (editingShiftId ? 'Shift updated' : 'Shift added')
-        : (editingShiftId ? 'Change requested' : 'Availability shown — a manager will schedule you from it'));
+        ? (editingShiftId ? t(lang, 'schedule.toastShiftUpdated') : t(lang, 'schedule.toastShiftAdded'))
+        : (editingShiftId ? t(lang, 'schedule.toastChangeRequested') : t(lang, 'schedule.toastAvailabilityShown')));
       closeEditor();
       await refreshAndRender();
     });
@@ -292,14 +298,14 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
     document.getElementById('ed-delete').addEventListener('click', async () => {
       if (!editingShiftId) return;
       const confirmMsg = ctx.canEdit
-        ? 'Delete this shift? It will be removed from the calendar immediately.'
-        : 'Request that this shift be removed? A manager or admin will need to approve it.';
+        ? t(lang, 'schedule.confirmDeleteShift')
+        : t(lang, 'schedule.confirmRequestRemoval');
       if (!confirm(confirmMsg)) return;
       const r = ctx.canEdit
         ? await window.shawarmaApi('DELETE', `/api/shifts/${editingShiftId}`)
         : await window.shawarmaApi('POST', '/api/shift-requests', { action: 'delete', shift_id: editingShiftId });
-      if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
-      window.shawarmaToast(ctx.canEdit ? 'Shift deleted' : 'Removal requested — waiting on manager approval');
+      if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'common.failed')); return; }
+      window.shawarmaToast(ctx.canEdit ? t(lang, 'schedule.toastShiftDeleted') : t(lang, 'schedule.toastRemovalRequested'));
       closeEditor();
       await refreshAndRender();
     });
@@ -352,18 +358,18 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
         .filter((r) => r.user_id === ctx.myUserId)
         .sort((a, b) => b.created_at.localeCompare(a.created_at));
       if (mine.length === 0) {
-        el.innerHTML = '<p class="empty">Nothing yet — show your availability by adding a day above.</p>';
+        el.innerHTML = `<p class="empty">${t(lang, 'schedule.nothingYet')}</p>`;
         return;
       }
       el.innerHTML = mine.map((r) => {
-        const label = r.action === 'create' ? 'Available' : r.action === 'delete' ? 'Remove shift' : 'Change shift';
+        const label = r.action === 'create' ? t(lang, 'schedule.labelAvailable') : r.action === 'delete' ? t(lang, 'schedule.labelRemoveShift') : t(lang, 'schedule.labelChangeShift');
         const isAllDay = r.start_time === '00:00' && r.end_time === '23:59';
-        const timeText = isAllDay ? 'All day' : `${formatTime12(r.start_time)}–${formatTime12(r.end_time)}`;
-        const detail = r.date ? `${formatDate(r.date, { short: true })} · ${timeText}` : '';
+        const timeText = isAllDay ? t(lang, 'schedule.allDay') : `${formatTime12(r.start_time)}–${formatTime12(r.end_time)}`;
+        const detail = r.date ? `${formatDate(r.date, { short: true, lang })} · ${timeText}` : '';
         const denialHtml = r.status === 'denied' && r.denial_reason
-          ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">Admin says: ${escapeHtml(r.denial_reason)}</div>`
+          ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">${t(lang, 'common.adminSays')} ${escapeHtml(r.denial_reason)}</div>`
           : '';
-        const cancelBtn = r.status === 'pending' ? `<button class="btn-danger" data-cancel-req="${r.id}">Cancel</button>` : '';
+        const cancelBtn = r.status === 'pending' ? `<button class="btn-danger" data-cancel-req="${r.id}">${t(lang, 'common.cancel')}</button>` : '';
         return `<div class="list-item" style="align-items:flex-start;">
           <div>
             <div class="who">${label}</div>
@@ -371,7 +377,7 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
             ${denialHtml}
           </div>
           <div style="display:flex;gap:0.375rem;align-items:center;">
-            <span class="badge badge-${r.status}">${r.status}</span>
+            <span class="badge badge-${r.status}">${t(lang, `status.${r.status}`)}</span>
             ${cancelBtn}
           </div>
         </div>`;
@@ -379,8 +385,8 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
       el.querySelectorAll('[data-cancel-req]').forEach((b) => {
         b.addEventListener('click', async () => {
           const r = await window.shawarmaApi('DELETE', `/api/shift-requests/${b.getAttribute('data-cancel-req')}`);
-          if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
-          window.shawarmaToast('Request cancelled');
+          if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'common.failed')); return; }
+          window.shawarmaToast(t(lang, 'schedule.toastRequestCancelled'));
           await refreshAndRender();
         });
       });

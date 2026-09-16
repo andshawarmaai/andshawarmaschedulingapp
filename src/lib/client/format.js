@@ -4,15 +4,20 @@ export function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// `lang` defaults to 'en' for every existing caller that doesn't pass one
+// (the admin/Manage side, which stays English-only — see i18n.js) — only
+// the staff-facing pages pass window.__lang through to get 'es' month/day
+// names instead of just translating the surrounding UI text around them.
 export function formatDate(iso, opts = {}) {
   const d = new Date(iso + 'T00:00:00');
+  const locale = opts.lang === 'es' ? 'es' : 'en-US';
   if (opts.short) {
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   }
   if (opts.monthYear) {
-    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
   }
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 export function formatTime12(t) {

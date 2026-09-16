@@ -234,7 +234,22 @@ what an agent can call and which actions are human-only by design.
 - **Shift-to-template matching is containment, not overlap** (see §3) — this was a real, shipped bug once (an unrelated shift touching part of a template's window counted against its capacity).
 - **`db.getUserById(me.id)` can return `null` for a session that predates a reseed** (local dev only, but the same class of bug could occur in prod against a deleted user) — `checkShiftCreateLimit` in `tierLimits.js` doesn't guard against this and throws a 500 instead of a clean re-auth prompt. Known, not yet fixed (see any open task for "Fix 500 on stale-session shift request"). **This bug is contagious**: an API key's `created_by` is set from `context.locals.user.id` at the moment it's created (`POST /api/admin/api-keys`) — a key created from a stale session inherits that same nonexistent user id, and `resolveApiKeyUser()` in `middleware.js` will then correctly-but-confusingly reject every call made with that key as 401 (it fails closed, it doesn't crash — but the symptom looks like "the key doesn't work" rather than "the session that created it was already broken"). If a freshly-created key immediately 401s on every call, check this before assuming the new middleware code is at fault: log out and log back in properly, then create the key again.
 
-## 8. Verification checklist before calling a change done
+## 8. Internationalization (English/Spanish)
+
+The staff-facing app (Home, Schedule, Swap, Time Off, Login) has a plain
+EN/ES toggle — **not** the admin/Manage side, which stays English-only on
+purpose. It's a simple cookie (`shawarma_lang`, see `src/lib/i18n.js`), not
+a per-user account setting: the owner explicitly wanted "anybody" using a
+device to be able to flip it, including before logging in (the login page
+itself renders in the chosen language).
+
+- `src/lib/i18n.js` is the single dictionary (`en`/`es`) and `t(lang, key, vars)` helper — isomorphic, imported both from Astro frontmatter (`getLang(Astro)` reads the cookie) and from page `<script>` modules (each page sets `window.__lang` via a tiny `define:vars` script, then imports `t` directly from `i18n.js`).
+- `src/components/LangToggle.astro` is the switch itself (sets the cookie, reloads) — rendered in `AppLayout.astro`'s header (`variant="dark"`) and standalone on `login.astro` (default light variant, since login has no AppLayout).
+- `formatDate()` in `src/lib/client/format.js` takes an optional `{ lang }` to localize month/weekday names via `toLocaleDateString` (e.g. "septiembre" not "September") — pass it through on every call from a translated page; it defaults to English for admin-side callers that don't pass it.
+- **Known, accepted gap**: error messages that come from the *server* (e.g. a failed login's "Incorrect username or password...", or any API route's `error` field) stay in English regardless of the toggle — only client-side/static UI text is translated. Translating server error strings would mean threading `lang` through every API route; out of scope for a "flip of a switch" feature.
+- **Adding a new staff-facing string**: add the key to both `en` and `es` in `i18n.js`, then use `t(lang, 'your.key')` in the `.astro` markup (frontmatter must call `getLang(Astro)` first) and/or in that page's client `<script>` (must import `t` and read `window.__lang`, set by that page's own `define:vars` block — copy the pattern from any of the four pages above, they're all identical).
+
+## 9. Verification checklist before calling a change done
 
 1. `npm run build` — catches Astro/type errors immediately.
 2. If you touched `src/styles/global.css`: check comment balance (§7).

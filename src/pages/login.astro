@@ -1,16 +1,21 @@
 ---
 import '../styles/global.css';
 import Icon from '../components/Icon.astro';
+import LangToggle from '../components/LangToggle.astro';
+import { getLang, t } from '../lib/i18n.js';
 // middleware.js already redirects to "/" if a valid session cookie exists,
-// so if we're rendering at all, the visitor is genuinely signed out.
+// so if we're rendering at all, the visitor is genuinely signed out. The
+// language cookie works even signed out (see i18n.js) — someone who reads
+// Spanish needs the login screen itself in Spanish before they can sign in.
+const lang = getLang(Astro);
 ---
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#dc2626" />
-  <title>Sign in — &amp;Shawarma</title>
+  <title>{t(lang, 'login.title')} — &amp;Shawarma</title>
   <link rel="icon" type="image/jpeg" href="/logo.jpg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,10 +24,13 @@ import Icon from '../components/Icon.astro';
 <body>
   <div class="login-wrap">
     <div class="login-card">
+      <div style="display:flex;justify-content:flex-end;">
+        <LangToggle lang={lang} />
+      </div>
       <div class="login-header">
         <img src="/logo.jpg" alt="&Shawarma" />
-        <h1 class="login-title">Sign in</h1>
-        <p class="login-sub">Enter your credentials to view the schedule</p>
+        <h1 class="login-title">{t(lang, 'login.title')}</h1>
+        <p class="login-sub">{t(lang, 'login.sub')}</p>
       </div>
 
       <div class="error" id="err" hidden>
@@ -32,37 +40,43 @@ import Icon from '../components/Icon.astro';
 
       <form id="login-form" novalidate>
         <div class="field">
-          <label for="username">Username</label>
+          <label for="username">{t(lang, 'login.username')}</label>
           <input type="text" id="username" name="username" class="input" autocomplete="username" required autofocus />
         </div>
         <div class="field">
-          <label for="password">Password</label>
+          <label for="password">{t(lang, 'login.password')}</label>
           <input type="password" id="password" name="password" class="input" autocomplete="current-password" required />
           <p id="capslock-warning" class="error" hidden style="margin:0.5rem 0 0;">
-            <Icon name="alert" size={14} /> <span>Caps Lock is on</span>
+            <Icon name="alert" size={14} /> <span>{t(lang, 'login.capsLock')}</span>
           </p>
         </div>
-        <button type="submit" class="btn-primary btn-block" id="signin-btn">Sign in</button>
+        <button type="submit" class="btn-primary btn-block" id="signin-btn">{t(lang, 'login.signIn')}</button>
       </form>
 
       <p style="text-align:center;margin-top:1rem;font-size:0.75rem;">
-        <a href="#" id="forgot-link">Forgot your password?</a>
+        <a href="#" id="forgot-link">{t(lang, 'login.forgot')}</a>
       </p>
 
       <div id="forgot-panel" hidden style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--color-border);">
-        <label for="forgot-username">Username</label>
+        <label for="forgot-username">{t(lang, 'login.username')}</label>
         <input type="text" id="forgot-username" class="input" autocomplete="username" />
-        <button type="button" class="btn-secondary btn-block" id="forgot-submit" style="margin-top:0.5rem;">Notify an admin</button>
+        <button type="button" class="btn-secondary btn-block" id="forgot-submit" style="margin-top:0.5rem;">{t(lang, 'login.notifyAdmin')}</button>
         <p id="forgot-status" class="card-sub" style="margin:0.5rem 0 0;text-align:center;"></p>
       </div>
 
       <p style="text-align:center;margin-top:1rem;font-size:0.75rem;color:var(--color-muted);">
-        Need access? Ask an admin to create an account for you.
+        {t(lang, 'login.needAccess')}
       </p>
     </div>
   </div>
 
+  <script define:vars={{ lang }}>
+    window.__lang = lang;
+  </script>
   <script>
+    import { t } from '../lib/i18n.js';
+    const lang = window.__lang;
+
     const form = document.getElementById('login-form');
     const errBox = document.getElementById('err');
     const errText = document.getElementById('err-text');
@@ -107,7 +121,7 @@ import Icon from '../components/Icon.astro';
     document.getElementById('forgot-submit').addEventListener('click', async () => {
       const submitBtn = document.getElementById('forgot-submit');
       const username = document.getElementById('forgot-username').value.trim();
-      if (!username) { forgotStatus.textContent = 'Enter your username first.'; return; }
+      if (!username) { forgotStatus.textContent = t(lang, 'login.errEnterUsername'); return; }
       submitBtn.disabled = true;
       try {
         const res = await fetch('/api/auth/request-password-reset', {
@@ -118,7 +132,7 @@ import Icon from '../components/Icon.astro';
         const data = await res.json().catch(() => null);
         forgotStatus.textContent = (data && data.message) || 'Request submitted.';
       } catch {
-        forgotStatus.textContent = 'Network error — try again.';
+        forgotStatus.textContent = t(lang, 'login.errNetworkForgot');
       } finally {
         submitBtn.disabled = false;
       }
@@ -131,12 +145,12 @@ import Icon from '../components/Icon.astro';
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
       if (!username || !password) {
-        showError('Enter both a username and a password.');
+        showError(t(lang, 'login.errBoth'));
         return;
       }
 
       btn.disabled = true;
-      btn.textContent = 'Signing in...';
+      btn.textContent = t(lang, 'login.signingIn');
 
       try {
         const res = await fetch('/api/auth/login', {
@@ -148,9 +162,9 @@ import Icon from '../components/Icon.astro';
         try { data = await res.json(); } catch { /* no body */ }
 
         if (!res.ok) {
-          showError((data && data.error) || 'Sign in failed. Please try again.');
+          showError((data && data.error) || t(lang, 'login.errFailed'));
           btn.disabled = false;
-          btn.textContent = 'Sign in';
+          btn.textContent = t(lang, 'login.signIn');
           document.getElementById('password').focus();
           return;
         }
@@ -158,12 +172,12 @@ import Icon from '../components/Icon.astro';
         // Server set an httpOnly session cookie. A full navigation (not a
         // fetch) is what lets the browser send it back, so middleware.js can
         // verify it on the very next request and let us through.
-        btn.textContent = 'Loading...';
+        btn.textContent = t(lang, 'login.loading');
         window.location.href = '/';
       } catch (err) {
-        showError('Network error — check your connection and try again.');
+        showError(t(lang, 'login.errNetwork'));
         btn.disabled = false;
-        btn.textContent = 'Sign in';
+        btn.textContent = t(lang, 'login.signIn');
       }
     });
   </script>
