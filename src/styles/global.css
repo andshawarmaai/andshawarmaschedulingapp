@@ -65,23 +65,45 @@ a:hover { text-decoration: underline; }
    No PDF library needed — every major browser's own print dialog offers
    "Save as PDF" as a destination, so a plain @media print stylesheet plus
    window.print() covers both "print" and "save as PDF" from one button.
-   .print-only content (a plain shift list/export summary) is invisible on
-   screen and only appears in the printed/PDF output; .no-print is the
-   reverse — controls that make no sense on paper (the sidebar, topbar,
-   toasts, buttons) — Layout.astro already tags the sidebar/backdrop/topbar
-   with it, so nothing print-specific needs naming here. */
+
+   The printed page is a dedicated, page-sized SHEET built fresh by JS
+   right before printing (renderPrintSheet() in admin/schedule.astro,
+   renderPrintList()/renderPrintCalendar() in schedule.astro) — never a
+   printout of the on-screen interactive calendar (fixed min-widths, hover-
+   only affordances, absolute-positioned drag bars, none of which means
+   anything on paper). `.print-only` marks that sheet: invisible on screen,
+   shown only for print. `.print-keep` marks it as the ONE thing that
+   should survive onto the printed page — every other direct child of
+   main.app-page (toolbars, cards, the interactive calendar, coverage
+   panels) is hidden by default so printing never picks up stray page
+   content, the way printing a full webpage normally would. The sidebar/
+   topbar/toasts/modals are still caught by their own `.no-print` (Layout.astro
+   already tags them) as a second layer, since they live outside
+   main.app-page entirely. */
+@page { size: letter landscape; margin: 0.5in; }
 .print-only { display:none; }
 @media print {
   .toast, .no-print, .modal-backdrop, #context-menu { display:none !important; }
   .print-only { display:block !important; }
-  .calendar-nav button, #view-toggle, .cal-add-btn, .cal-add-btn-inline { display:none !important; }
+  main.app-page > *:not(.print-keep) { display:none !important; }
   main.app-page { padding:0; max-width:none; }
   body { background:#fff; }
-  .card { box-shadow:none; border:none; }
 }
+.print-sheet-header { display:flex; align-items:baseline; justify-content:space-between; gap:1rem; margin-bottom:0.625rem; border-bottom:2px solid #1c1917; padding-bottom:0.375rem; }
+.print-sheet-header h1 { margin:0; font-size:1.375rem; font-family:var(--shell-font-heading, inherit); }
+.print-sheet-header p { margin:0; font-size:1rem; font-weight:600; color:#555; }
+.print-month-grid { width:100%; border-collapse:collapse; table-layout:fixed; margin-bottom:0.875rem; }
+.print-month-grid th { border:1px solid #999; background:#f3f3f3; padding:0.25rem; font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.03em; }
+.print-month-grid td { border:1px solid #999; padding:0.1875rem 0.25rem; vertical-align:top; height:0.95in; font-size:0.6875rem; overflow:hidden; page-break-inside:avoid; break-inside:avoid; }
+.print-month-grid td.pd-other { background:#fafafa; color:#aaa; }
+.print-month-grid .pd-num { display:block; font-weight:700; font-size:0.8125rem; margin-bottom:0.125rem; }
+.print-shift-line { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.35; }
+.print-list-heading { font-size:1rem; margin:0 0 0.375rem; }
+.print-generated-at { margin:0.625rem 0 0; color:#777; font-size:0.75rem; }
 .print-shift-table { width:100%; border-collapse:collapse; margin-top:0.5rem; }
-.print-shift-table th, .print-shift-table td { border:1px solid #ccc; padding:0.375rem 0.5rem; text-align:left; font-size:0.875rem; }
+.print-shift-table th, .print-shift-table td { border:1px solid #ccc; padding:0.375rem 0.5rem; text-align:left; font-size:0.8125rem; }
 .print-shift-table th { background:#f3f3f3; }
+.print-shift-table tr { page-break-inside:avoid; break-inside:avoid; }
 
 /* ----- Cards ----- */
 .card {
