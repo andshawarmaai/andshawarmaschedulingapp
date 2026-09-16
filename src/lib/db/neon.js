@@ -50,8 +50,11 @@ export async function updateUser(userId, updates) {
   if (!u) return null;
   const merged = {
     display_name: updates.display_name ?? u.display_name,
-    phone: updates.phone ?? u.phone,
-    email: updates.email ?? u.email,
+    // Explicit null (clearing the field) must stick, same reasoning as
+    // tier_id below — ?? would fall back to the old value since null is
+    // nullish too, which would silently break "clear my phone/email".
+    phone: updates.phone !== undefined ? updates.phone : u.phone,
+    email: updates.email !== undefined ? updates.email : u.email,
     role: updates.role ?? u.role,
     disabled: updates.disabled ?? u.disabled,
     // Explicit null (un-assigning a tier) must stick — ?? would fall back
