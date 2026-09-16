@@ -24,7 +24,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import Icon from '../../components/Icon.astro';
 ---
 <AdminLayout title="&Shawarma — Schedule" active="schedule">
-  <div class="card" style="margin-bottom:1rem;">
+  <div class="card no-print" style="margin-bottom:1rem;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
       <div style="display:flex;align-items:center;gap:0.75rem;">
         <button class="btn-secondary" id="prev-btn" type="button">&larr; Prev</button>
@@ -44,17 +44,37 @@ import Icon from '../../components/Icon.astro';
       <span><span class="legend-dot" style="background:#e0e7ff;border:1px solid #6366f1;"></span> Time off (pending)</span>
       <span><span class="legend-dot" style="background:#6366f1;border:1px solid #4338ca;"></span> Time off (approved)</span>
     </div>
-    <p class="card-sub" style="margin-top:0.5rem;">
-      Click a scheduled (green) shift to edit its time, assigned staff, or notes, or use its Delete
-      button there to remove it. Drag it instead for a quick date-only move. Right-click a pending
-      request or time off to approve or deny it; right-click a scheduled shift or approved (solid
-      indigo) time off to remove it without opening anything. Drag a pending request — but not time
-      off — onto another day to move it there too; it stays pending either way, so nothing is approved
-      just by moving it. In Month view, click a day (not a chip) to see it in detail; hover a day (or a
-      Week day header) for a "+" to add a brand new shift, or use Day view's "+ Add shift" button. This
-      is the only place time off, once approved, can be removed — the Time Off page only ever shows
-      pending items to review, not a way to undo an approved one.
-    </p>
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
+      <button class="btn-secondary" id="help-btn" type="button">❓ How to use this</button>
+      <button class="btn-secondary" id="export-btn" type="button">⬇️ Export to spreadsheet</button>
+      <button class="btn-secondary" id="cal-print-btn" type="button">🖨️ Print / Save as PDF</button>
+    </div>
+  </div>
+
+  <!-- Collapsible help — a popup instead of a permanent wall of text on the
+       page. Same info as before, just in a list and out of the way until
+       asked for. -->
+  <div class="modal-backdrop" id="help-modal">
+    <div class="modal">
+      <div class="modal-header"><h2>How to use this calendar</h2><button class="modal-close" id="help-close" type="button">&times;</button></div>
+      <div class="modal-body">
+        <ul class="help-list">
+          <li><strong>Click</strong> a scheduled (green) shift to edit its time, assigned staff, or notes — or use its Delete button there to remove it.</li>
+          <li><strong>Drag</strong> a scheduled shift or a pending request for a quick date-only move (not time off — it spans a date range, not one day). A dragged pending request stays pending; nothing is approved just by moving it.</li>
+          <li><strong>Right-click</strong> a pending request or time off to approve or deny it.</li>
+          <li><strong>Right-click</strong> a scheduled shift or approved (solid indigo) time off to remove it instantly, no dialog.</li>
+          <li>In <strong>Month</strong> view, click a day (not a chip) to see it in Day view.</li>
+          <li>Hover a day in Month, or a day header in Week, for a <strong>"+"</strong> to add a brand-new shift. Day view has an always-visible "+ Add shift" button instead.</li>
+          <li>This is the <strong>only</strong> place approved time off can be removed — the Time Off page only ever shows pending items to review.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Print/Save-as-PDF only: see .print-only in global.css. -->
+  <div class="print-only" id="cal-print-header">
+    <h1 style="margin-bottom:0.25rem;">Schedule</h1>
+    <p id="cal-print-generated-at" style="margin:0 0 1rem;color:#555;font-size:0.8125rem;"></p>
   </div>
 
   <div class="card cal-scroll" style="padding:0;">
@@ -798,6 +818,69 @@ import Icon from '../../components/Icon.astro';
       window.shawarmaToast('Removed from schedule');
       editingShiftId = null;
       await refreshAndRender();
+    });
+
+    // ----- Help popup -----
+    document.getElementById('help-btn').addEventListener('click', () => {
+      document.getElementById('help-modal').classList.add('show');
+    });
+    document.getElementById('help-close').addEventListener('click', () => {
+      document.getElementById('help-modal').classList.remove('show');
+    });
+    document.getElementById('help-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'help-modal') e.target.classList.remove('show');
+    });
+
+    // ----- Print / Save as PDF (native browser print — see .print-only in global.css) -----
+    document.getElementById('cal-print-btn').addEventListener('click', () => {
+      document.getElementById('cal-print-generated-at').textContent =
+        `${document.getElementById('period-label').textContent} — generated ${new Date().toLocaleDateString('en-US', { dateStyle: 'medium' })}`;
+      window.print();
+    });
+
+    // ----- Export to spreadsheet (CSV) — a backup of the durable schedule
+    // data (shifts, day caps, shift templates), in exactly the row shape
+    // /api/public/shift-imports and /api/admin/shift-imports accept, so
+    // the same file can be re-imported later if this ever needs restoring.
+    // Deliberately excludes pending requests/time-off and swap posts —
+    // those are in-flight workflow state, not durable schedule structure,
+    // and there's no import row type that recreates a *pending* item
+    // anyway (type=shift always creates a live, approved shift). -----
+    function csvField(v) {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    function csvRow(fields) {
+      return fields.map(csvField).join(',');
+    }
+    function buildExportCsv() {
+      const users = data.users || [];
+      const usernameFor = (id) => { const u = users.find((x) => x.id === id); return u ? u.username : ''; };
+      const rows = [csvRow(['type', 'username', 'name', 'date', 'start_time', 'end_time', 'days_of_week', 'min_staff', 'max_staff', 'window_start', 'window_end', 'max_shifts', 'notes'])];
+      for (const s of (data.shifts || [])) {
+        rows.push(csvRow(['shift', usernameFor(s.user_id), '', s.date, s.start_time, s.end_time, '', '', '', '', '', '', s.notes || '']));
+      }
+      for (const c of (data.dayCaps || [])) {
+        rows.push(csvRow(['cap', '', '', c.date, '', '', '', '', '', c.window_start, c.window_end, c.max_shifts, c.note || '']));
+      }
+      for (const tpl of (data.shiftTemplates || [])) {
+        rows.push(csvRow(['template', '', tpl.name, '', tpl.start_time, tpl.end_time, tpl.days_of_week.split(',').join(' '), tpl.min_staff ?? '', tpl.max_staff ?? '', '', '', '', '']));
+      }
+      return rows.join('\n') + '\n';
+    }
+    document.getElementById('export-btn').addEventListener('click', () => {
+      const csv = buildExportCsv();
+      const stamp = new Date().toISOString().slice(0, 10);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `shawarma-schedule-export-${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      window.shawarmaToast('Exported — this file can be re-imported later from Manage → Bulk Schedule Import');
     });
 
     async function refreshAndRender() {

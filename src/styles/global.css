@@ -100,6 +100,26 @@ a:hover { text-decoration: underline; }
 /* ----- Main container ----- */
 main { max-width: 64rem; margin: 0 auto; padding: 1.5rem 1rem; }
 
+/* ----- Print / Save-as-PDF (schedule.astro, admin/schedule.astro) -----
+   No PDF library needed — every major browser's own print dialog offers
+   "Save as PDF" as a destination, so a plain @media print stylesheet plus
+   window.print() covers both "print" and "save as PDF" from one button.
+   .print-only content (a plain shift list/export summary) is invisible on
+   screen and only appears in the printed/PDF output; .no-print is the
+   reverse — controls that make no sense on paper (buttons, nav, toggles). */
+.print-only { display:none; }
+@media print {
+  .site-header, .bottom-nav, .toast, .no-print, .modal-backdrop, #context-menu { display:none !important; }
+  .print-only { display:block !important; }
+  .calendar-nav button, #view-toggle, .cal-add-btn, .cal-add-btn-inline { display:none !important; }
+  main, .admin-page { padding:0; max-width:none; }
+  body { background:#fff; }
+  .card { box-shadow:none; border:none; }
+}
+.print-shift-table { width:100%; border-collapse:collapse; margin-top:0.5rem; }
+.print-shift-table th, .print-shift-table td { border:1px solid #ccc; padding:0.375rem 0.5rem; text-align:left; font-size:0.875rem; }
+.print-shift-table th { background:#f3f3f3; }
+
 /* ----- Cards ----- */
 .card {
   background: #fff;
@@ -571,3 +591,8 @@ main.admin-page { padding: 1.5rem; max-width: 90rem; overflow-x: auto; }
 .context-menu button { display:block; width:100%; text-align:left; background:none; border:none; padding:0.5rem 0.875rem; font-size:0.875rem; cursor:pointer; font-family:inherit; }
 .context-menu button:hover { background:var(--color-bg-soft); }
 .context-menu button[data-action="deny"] { color:#991b1b; }
+
+/* Schedule Builder's "How to use this" popup — a plain, scannable list
+   instead of the wall-of-text paragraph it replaced. */
+.help-list { margin:0; padding-left:1.25rem; display:flex; flex-direction:column; gap:0.625rem; font-size:0.875rem; line-height:1.5; }
+.help-list li { padding-left:0.125rem; }

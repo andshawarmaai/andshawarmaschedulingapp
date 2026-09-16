@@ -6,6 +6,9 @@ const canEdit = user.role === 'admin' || user.role === 'manager';
 const lang = getLang(Astro);
 ---
 <AppLayout title="&Shawarma — Schedule" active="schedule">
+  <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;">
+    <button class="btn-secondary no-print" id="print-btn" type="button">🖨️ {t(lang, 'schedule.print')}</button>
+  </div>
   <div class="calendar-nav">
     <button class="btn-secondary" id="prev-period">{t(lang, 'common.prev')}</button>
     <h2 id="period-label">{t(lang, 'common.loading')}</h2>
@@ -18,10 +21,25 @@ const lang = getLang(Astro);
     </div>
   </div>
 
+  <!-- Print/Save-as-PDF-only: a plain list of the signed-in person's own
+       upcoming shifts, since a compact calendar cell truncates times and
+       names — this is what actually reads cleanly on paper. Hidden on
+       screen (see .print-only in global.css), shown only inside the
+       browser's native print dialog (which is also how "Save as PDF"
+       works in every major browser — no extra library needed). -->
+  <div class="print-only" id="print-shift-list">
+    <h1 style="margin-bottom:0.25rem;">{user.display_name} — {t(lang, 'schedule.print')}</h1>
+    <p id="print-generated-at" style="margin:0 0 1rem;color:#555;font-size:0.8125rem;"></p>
+    <table class="print-shift-table">
+      <thead><tr><th>{t(lang, 'schedule.date')}</th><th>{t(lang, 'schedule.startTime')}</th><th>{t(lang, 'schedule.endTime')}</th><th>{t(lang, 'common.notes')}</th></tr></thead>
+      <tbody id="print-shift-rows"></tbody>
+    </table>
+  </div>
+
   <div id="view-container"><p class="empty">{t(lang, 'common.loading')}</p></div>
 
   {!canEdit && (
-    <div class="card">
+    <div class="card no-print">
       <h2>{t(lang, 'schedule.myAvailability')}</h2>
       <p class="card-sub">{t(lang, 'schedule.myAvailabilitySub')}</p>
       <div id="my-requests"><p class="empty">{t(lang, 'common.loading')}</p></div>
@@ -261,10 +279,30 @@ const lang = getLang(Astro);
       editingShiftId = null;
     }
 
+    function renderPrintList() {
+      const rows = document.getElementById('print-shift-rows');
+      if (!rows) return;
+      const mine = data.shifts
+        .filter((s) => s.user_id === ctx.myUserId && s.date >= today)
+        .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+      document.getElementById('print-generated-at').textContent =
+        t(lang, 'schedule.printGeneratedAt', { date: new Date().toLocaleDateString(lang === 'es' ? 'es' : 'en-US', { dateStyle: 'medium' }) });
+      rows.innerHTML = mine.length === 0
+        ? `<tr><td colspan="4">${t(lang, 'schedule.printNoShifts')}</td></tr>`
+        : mine.map((s) => `<tr>
+            <td>${formatDate(s.date, { lang })}</td>
+            <td>${formatTime12(s.start_time)}</td>
+            <td>${formatTime12(s.end_time)}</td>
+            <td>${escapeHtml(s.notes || '')}</td>
+          </tr>`).join('');
+    }
+    document.getElementById('print-btn').addEventListener('click', () => window.print());
+
     async function refreshAndRender() {
       await loadState();
       render();
       renderMyRequests();
+      renderPrintList();
     }
 
     document.getElementById('ed-save').addEventListener('click', async () => {
