@@ -1,12 +1,12 @@
 ---
-import AppLayout from '../layouts/AppLayout.astro';
+import Layout from '../layouts/Layout.astro';
 import Icon from '../components/Icon.astro';
 import { getLang, t } from '../lib/i18n.js';
 const user = Astro.locals.user;
 const canEdit = user.role === 'admin' || user.role === 'manager';
 const lang = getLang(Astro);
 ---
-<AppLayout title="&Shawarma — Schedule" active="schedule">
+<Layout title="&Shawarma — Schedule" active="schedule">
   <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;">
     <button class="btn-secondary no-print" id="print-btn" type="button"><Icon name="print" size={16} class="icon-inline" /> {t(lang, 'schedule.print')}</button>
   </div>
@@ -37,7 +37,7 @@ const lang = getLang(Astro);
     </table>
   </div>
 
-  <div id="view-container"><p class="empty">{t(lang, 'common.loading')}</p></div>
+  <div id="view-container" class="cal-scroll"><p class="empty">{t(lang, 'common.loading')}</p></div>
 
   {!canEdit && (
     <div class="card no-print">
@@ -457,4 +457,4 @@ const lang = getLang(Astro);
 
     refreshAndRender();
   </script>
-</AppLayout>
+</Layout>

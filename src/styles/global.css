@@ -43,50 +43,14 @@ h1, h2, h3, h4, .card h2, .login-title, .modal-header h2, .day-shift-name {
   letter-spacing: -0.015em;
 }
 
-body { min-height: 100vh; padding-bottom: 5rem; }
+body { min-height: 100vh; }
 
 a { color: var(--color-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ----- Header ----- */
-.site-header {
-  background: var(--color-primary);
-  color: #fff;
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  box-shadow: var(--shadow-card);
-}
-.site-header-inner {
-  max-width: 64rem;
-  margin: 0 auto;
-  padding: 0.75rem 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.brand { display: flex; align-items: center; gap: 0.75rem; color: #fff; font-weight: 700; font-size: 1.125rem; }
-.brand:hover { text-decoration: none; }
-.brand img { height: 2.5rem; width: auto; background: #fff; padding: 0.25rem; border-radius: 0.5rem; display: block; }
-.header-actions { display: flex; align-items: center; gap: 0.75rem; }
-.user-pill { font-size: 0.75rem; opacity: 0.9; text-align: right; }
-.user-pill .role { text-transform: capitalize; opacity: 0.85; }
-.btn-logout {
-  display: inline-flex; align-items: center; gap: 0.375rem;
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.4);
-  color: #fff;
-  padding: 0.375rem 0.75rem;
-  border-radius: 0.375rem;
-  font-size: 0.75rem;
-  font-family: inherit;
-  cursor: pointer;
-}
-.btn-logout:hover { background: rgba(255,255,255,0.1); }
-
-/* Language toggle — see components/LangToggle.astro. Two contexts: a white
-   card (login) and the red site-header, hence the .on-dark variant instead
-   of one fixed color scheme. */
+/* Language toggle — see components/LangToggle.astro. .on-dark exists for
+   any future dark-background placement; every current spot (login's white
+   card, the sidebar) uses the plain light variant. */
 .lang-toggle { display: inline-flex; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; }
 .lang-toggle button {
   border: none; background: none; font-family: inherit; font-size: 0.6875rem; font-weight: 700;
@@ -97,22 +61,21 @@ a:hover { text-decoration: underline; }
 .lang-toggle.on-dark button { color: rgba(255,255,255,0.85); }
 .lang-toggle.on-dark button.active { background: rgba(255,255,255,0.95); color: var(--color-primary); }
 
-/* ----- Main container ----- */
-main { max-width: 64rem; margin: 0 auto; padding: 1.5rem 1rem; }
-
 /* ----- Print / Save-as-PDF (schedule.astro, admin/schedule.astro) -----
    No PDF library needed — every major browser's own print dialog offers
    "Save as PDF" as a destination, so a plain @media print stylesheet plus
    window.print() covers both "print" and "save as PDF" from one button.
    .print-only content (a plain shift list/export summary) is invisible on
    screen and only appears in the printed/PDF output; .no-print is the
-   reverse — controls that make no sense on paper (buttons, nav, toggles). */
+   reverse — controls that make no sense on paper (the sidebar, topbar,
+   toasts, buttons) — Layout.astro already tags the sidebar/backdrop/topbar
+   with it, so nothing print-specific needs naming here. */
 .print-only { display:none; }
 @media print {
-  .site-header, .bottom-nav, .toast, .no-print, .modal-backdrop, #context-menu { display:none !important; }
+  .toast, .no-print, .modal-backdrop, #context-menu { display:none !important; }
   .print-only { display:block !important; }
   .calendar-nav button, #view-toggle, .cal-add-btn, .cal-add-btn-inline { display:none !important; }
-  main, .admin-page { padding:0; max-width:none; }
+  main.app-page { padding:0; max-width:none; }
   body { background:#fff; }
   .card { box-shadow:none; border:none; }
 }
@@ -243,26 +206,10 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
   border: 1px solid #fecaca;
 }
 
-/* ----- Bottom nav ----- */
-.bottom-nav {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  background: #fff;
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-around;
-  padding: 0.5rem 0;
-  z-index: 40;
-  box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
-}
-.bottom-nav a { display: flex; flex-direction: column; align-items: center; gap: 0.125rem; padding: 0.25rem 0.75rem; color: var(--color-muted); font-size: 0.6875rem; font-weight: 600; }
-.bottom-nav a:hover { text-decoration: none; }
-.bottom-nav a.active { color: var(--color-primary); }
-
 /* ----- Toasts ----- */
 .toast {
   position: fixed;
-  bottom: 5rem;
+  bottom: 1.5rem;
   left: 50%;
   transform: translateX(-50%);
   background: #1c1917;
@@ -355,15 +302,22 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 .calendar-nav h2 { margin: 0; font-size: 1.125rem; }
 .nav-btn { display: inline-flex; align-items: center; gap: 0.25rem; }
 
-.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; background: var(--color-border); border: 1px solid var(--color-border-soft); border-radius: 0.25rem; overflow: hidden; min-width: 0; box-shadow: var(--shadow-card); }
-.calendar-head { background: var(--color-bg-soft); padding: 0.5rem; text-align: center; font-size: 0.6875rem; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.calendar-day { background: #fff; min-height: 6.5rem; padding: 0.5rem 0.375rem; cursor: pointer; transition: background 0.1s; position: relative; min-width: 0; }
-.calendar-day:hover { background: #f5f5f4; }
-.calendar-day.other-month { background: #fafaf9; color: var(--color-muted); }
-.calendar-day.today { background: #fff7ed; }
-.calendar-day.today .day-num { color: var(--color-primary); font-weight: 800; }
-.calendar-day .day-num { font-size: 0.875rem; font-weight: 700; color: var(--color-ink); display: block; margin-bottom: 0.25rem; }
-.calendar-day .shift-line { font-size: 0.6875rem; color: var(--color-ink-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 1.3; margin-bottom: 1px; }
+/* Sized and styled to match the Schedule Builder's calendar
+   (admin/schedule.astro's .cal-month-grid/.cal-month-cell) — same
+   minmax() floor so a tile never gets too narrow to write a name and
+   time in, same border-per-cell (not gap-based) grid, same sticky
+   header, same red-circle "today" badge instead of tinting the whole
+   cell. Wrapped in .cal-scroll (see schedule.astro) so it can grow past
+   `main`'s width and scroll horizontally rather than ever squeezing
+   narrower than that floor. */
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(6.5rem, 1fr)); min-width: 45.5rem; border: 1px solid var(--color-border-soft); border-radius: 0.25rem; overflow: hidden; box-shadow: var(--shadow-card); }
+.calendar-head { background: var(--color-bg-soft); padding: 0.5rem; text-align: center; font-size: 0.6875rem; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--color-border); position: sticky; top: 0; z-index: 2; }
+.calendar-day { background: #fff; min-height: 7.5rem; padding: 0.5rem 0.375rem; cursor: pointer; transition: background 0.1s; position: relative; border-left: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.calendar-day:hover { background: color-mix(in srgb, var(--color-primary) 4%, white); }
+.calendar-day.other-month { background: var(--color-bg-soft); opacity: 0.55; }
+.calendar-day.today .day-num { background: var(--color-primary); color: #fff; border-radius: 9999px; }
+.calendar-day .day-num { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5rem; height: 1.5rem; padding: 0 0.25rem; font-size: 0.875rem; font-weight: 700; color: var(--color-ink); margin-bottom: 0.25rem; }
+.calendar-day .shift-line { font-size: 0.75rem; color: var(--color-ink-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 1.4; margin-bottom: 2px; }
 .calendar-day .shift-line.foh { color: var(--color-foh); }
 .calendar-day .shift-line.boh { color: var(--color-boh); }
 .calendar-day .shift-line strong { color: var(--color-ink); font-weight: 700; }
@@ -416,68 +370,118 @@ hr.divider { border: none; border-top: 1px solid var(--color-border); margin: 1r
    a minimal (no pill/no background) active-nav indicator. Brand color
    stays &Shawarma's own red — only the *shape* of things changes.
 
-   Scoped entirely under .admin-shell / .admin-page so none of it touches
-   the mobile-first header+bottom-nav shell staff-facing pages use — the
-   card/button/badge overrides below intentionally reuse the SAME class
-   names admin.astro's markup already has, rather than renaming anything
-   there, since a descendant selector is enough to keep this contained. */
-.admin-shell {
-  --admin-font-heading: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --admin-border: #e5e5e5;
-  --admin-border-soft: #ececee;
-  --admin-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 10px 24px -8px rgba(0, 0, 0, 0.16);
-  --admin-shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.08), 0 20px 44px -12px rgba(0, 0, 0, 0.28);
+   One shell, one sidebar, for every page — staff and admin/manager alike
+   (see layouts/Layout.astro) — so the app never feels like two different
+   products stitched together. The visual language (Plus Jakarta Sans
+   headings, near-square corners, flat white canvas with two-layer
+   "floating card" shadows, translucent blurred sidebar, minimal no-pill
+   active-nav indicator) is what used to be admin-only; it now applies
+   everywhere. The sidebar collapses two different ways depending on
+   viewport — see the two blocks below the base rules. */
+.app-shell {
+  --shell-font-heading: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --shell-border: #e5e5e5;
+  --shell-border-soft: #ececee;
+  --shell-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 10px 24px -8px rgba(0, 0, 0, 0.16);
+  --shell-shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.08), 0 20px 44px -12px rgba(0, 0, 0, 0.28);
+  --shell-sidebar-width: 15rem;
+  --shell-sidebar-collapsed-width: 4.25rem;
   display: flex; min-height: 100vh; background: #fff; color: var(--color-ink);
 }
-.admin-shell h1, .admin-shell h2, .admin-shell h3,
-.admin-shell .card h2, .admin-topbar h1, .admin-shell .modal-header h2 {
-  font-family: var(--admin-font-heading); letter-spacing: -0.015em;
+.app-shell h1, .app-shell h2, .app-shell h3,
+.app-shell .card h2, .app-topbar h1, .app-shell .modal-header h2 {
+  font-family: var(--shell-font-heading); letter-spacing: -0.015em;
 }
-.admin-sidebar {
-  width: 15rem; flex-shrink: 0;
+.app-sidebar {
+  width: var(--shell-sidebar-width); flex-shrink: 0;
   background: rgba(246, 246, 248, 0.78);
   -webkit-backdrop-filter: blur(24px) saturate(1.8);
   backdrop-filter: blur(24px) saturate(1.8);
-  border-right: 1px solid var(--admin-border);
-  display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  border-right: 1px solid var(--shell-border);
+  display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; overflow-x: hidden;
+  transition: width 0.15s ease;
 }
-.admin-sidebar-brand { display: flex; align-items: center; padding: 1.25rem; }
-.admin-sidebar-brand img { height: 2.5rem; width: auto; display: block; }
-.admin-sidebar nav { flex: 1; padding: 0.5rem 0.75rem; }
-.admin-sidebar nav a {
+.app-sidebar-brand { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem; }
+.app-sidebar-brand-link { display: flex; min-width: 0; }
+.app-sidebar-brand img { height: 2.5rem; width: auto; display: block; }
+.sidebar-collapse-btn {
+  background: none; border: none; color: var(--color-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  width: 1.75rem; height: 1.75rem; border-radius: 0.375rem; flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.sidebar-collapse-btn:hover { background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
+.app-sidebar nav { flex: 1; padding: 0.5rem 0.75rem; }
+.app-sidebar nav a {
   display: flex; align-items: center; gap: 0.625rem; padding: 0.4375rem 0.75rem; border-radius: 0;
   color: var(--color-ink); font-size: 0.875rem; font-weight: 500; margin-bottom: 1px;
-  transition: background-color 0.1s ease;
+  transition: background-color 0.1s ease; white-space: nowrap;
 }
-.admin-sidebar nav a:hover { background: color-mix(in srgb, var(--color-ink) 6%, transparent); text-decoration: none; }
-.admin-sidebar nav a.active { background: none; color: var(--color-primary); font-size: 0.9375rem; font-weight: 700; }
-.admin-sidebar-footer { padding: 0.75rem; border-top: 1px solid var(--admin-border); }
-.admin-sidebar-user { font-size: 0.8125rem; padding: 0 0.25rem 0.5rem; }
-.admin-sidebar-user .name { font-weight: 600; }
-.admin-sidebar-user .role { color: var(--color-muted); text-transform: capitalize; }
+.app-sidebar nav a:hover { background: color-mix(in srgb, var(--color-ink) 6%, transparent); text-decoration: none; }
+.app-sidebar nav a.active { background: none; color: var(--color-primary); font-size: 0.9375rem; font-weight: 700; }
+.sidebar-divider { height: 1px; background: var(--shell-border-soft); margin: 0.5rem 0.75rem; }
+.app-sidebar-footer { padding: 0.75rem; border-top: 1px solid var(--shell-border); }
+.app-sidebar-user { font-size: 0.8125rem; padding: 0.5rem 0.25rem; }
+.app-sidebar-user .name { font-weight: 600; }
+.app-sidebar-user .role { color: var(--color-muted); text-transform: capitalize; }
 
-.admin-content { flex: 1; min-width: 0; background: #fff; }
-.admin-topbar {
+/* Icon-only rail — desktop only, toggled by .sidebar-collapse-btn and
+   remembered in localStorage (see Layout.astro's script). */
+.app-shell.sidebar-collapsed .app-sidebar { width: var(--shell-sidebar-collapsed-width); }
+.app-shell.sidebar-collapsed .app-sidebar .nav-label { display: none; }
+.app-shell.sidebar-collapsed .app-sidebar-brand { justify-content: center; padding: 1.25rem 0.5rem; }
+.app-shell.sidebar-collapsed .sidebar-collapse-btn { transform: rotate(180deg); }
+.app-shell.sidebar-collapsed .app-sidebar nav a { justify-content: center; padding: 0.5rem; }
+.app-shell.sidebar-collapsed .app-sidebar-footer { padding: 0.75rem 0.375rem; }
+.app-shell.sidebar-collapsed .app-sidebar-user { display: none; }
+.app-shell.sidebar-collapsed .app-sidebar-footer .btn-secondary { padding: 0.5rem; }
+
+.sidebar-backdrop { display: none; }
+
+.app-content { flex: 1; min-width: 0; background: #fff; }
+.app-topbar {
   background: rgba(255, 255, 255, 0.82);
   -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--admin-border);
-  padding: 0.875rem 1.5rem; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--shell-border);
+  padding: 0.875rem 1.5rem; display: flex; align-items: center; gap: 0.75rem;
   position: sticky; top: 0; z-index: 10;
 }
-.admin-topbar h1 { margin: 0; font-size: 1.375rem; font-weight: 700; }
-main.admin-page { padding: 1.5rem; max-width: 90rem; overflow-x: auto; }
+.app-topbar h1 { margin: 0; font-size: 1.375rem; font-weight: 700; }
+.sidebar-toggle-btn {
+  display: none; background: none; border: none; color: var(--color-ink); cursor: pointer;
+  align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 0.375rem; flex-shrink: 0;
+}
+.sidebar-toggle-btn:hover { background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
+main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: auto; }
 
-/* .card, .btn-primary/secondary/danger, and .modal no longer need
-   admin-scoped overrides here — the base rules earlier in this file now
-   use these same Work Buddy proportions everywhere, admin and staff
-   screens alike. */
-
+/* Off-canvas drawer — mobile only. The sidebar is otherwise always on
+   screen (full or collapsed); below this width it hides entirely behind
+   a hamburger in the topbar instead, per the owner's explicit choice of a
+   collapsible drawer over a permanent icon rail on small screens. */
 @media (max-width: 860px) {
-  .admin-shell { flex-direction: column; }
-  .admin-sidebar { position: static; height: auto; width: 100%; flex-direction: row; align-items: center; overflow-x: auto; -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--color-bg-soft); }
-  .admin-sidebar nav { display: flex; padding: 0.5rem; }
-  .admin-sidebar-footer { display: none; }
-  .admin-topbar { padding-top: 0.875rem; }
+  .app-sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; width: 16rem;
+    max-width: 82vw; z-index: 60; transform: translateX(-100%);
+    transition: transform 0.2s ease; box-shadow: var(--shell-shadow-raised);
+  }
+  .app-shell.sidebar-open .app-sidebar { transform: translateX(0); }
+  /* Collapsed state is a desktop-only concept; on mobile the drawer is
+     always full width with labels visible when it's open. */
+  .app-shell.sidebar-collapsed .app-sidebar { width: 16rem; }
+  .app-shell.sidebar-collapsed .app-sidebar .nav-label { display: inline; }
+  .app-shell.sidebar-collapsed .app-sidebar-brand { justify-content: space-between; padding: 1.25rem; }
+  .app-shell.sidebar-collapsed .sidebar-collapse-btn { transform: none; }
+  .app-shell.sidebar-collapsed .app-sidebar nav a { justify-content: flex-start; padding: 0.4375rem 0.75rem; }
+  .app-shell.sidebar-collapsed .app-sidebar-footer { padding: 0.75rem; }
+  .app-shell.sidebar-collapsed .app-sidebar-user { display: block; }
+  .sidebar-collapse-btn { display: none; }
+  .sidebar-toggle-btn { display: flex; }
+  .sidebar-backdrop {
+    display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 55;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+  }
+  .app-shell.sidebar-open .sidebar-backdrop { opacity: 1; pointer-events: auto; }
+  main.app-page { padding: 1rem; }
 }
 
 /* ----- Approval calendar (admin/schedule.astro) -----

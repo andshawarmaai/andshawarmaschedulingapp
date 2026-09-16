@@ -1,12 +1,12 @@
 ---
-import AppLayout from '../layouts/AppLayout.astro';
+import Layout from '../layouts/Layout.astro';
 import Icon from '../components/Icon.astro';
 import { getLang, t } from '../lib/i18n.js';
 
 const user = Astro.locals.user;
 const lang = getLang(Astro);
 ---
-<AppLayout title="&Shawarma" active="home">
+<Layout title="&Shawarma" active="home">
   <div class="card">
     <h1>{t(lang, 'home.welcome', { name: user.display_name })}</h1>
     <p style="color:var(--color-muted);margin:0;">{t(lang, 'home.yourRole')} <span class={`badge badge-${user.role}`}>{t(lang, `role.${user.role}`)}</span></p>
@@ -130,4 +130,4 @@ const lang = getLang(Astro);
 
     init();
   </script>
-</AppLayout>
+</Layout>
