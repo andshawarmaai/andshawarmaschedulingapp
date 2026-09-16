@@ -11,6 +11,8 @@ This document tells an AI agent (or any other system authenticating with an API 
 
 ## Ground rules
 
+**A dropped-in file is yours to convert, not the human's.** If someone hands you an actual file — a .xlsx/.csv spreadsheet, a Google Sheets export, a photo of a handwritten or printed schedule, a screenshot of a text message — read it yourself and map each row to the canonical shape below (a `shift`/`cap`/`swap`/`template` row) and POST it as JSON to /api/public/shift-imports. Do not ask the human to reformat it into CSV first, and do not just describe what the file contains — actually perform the ingestion. Converting whatever you were handed into the canonical shape IS your job here; the endpoint only ever accepts that one shape because doing the conversion is what you're for.
+
 **Approval decisions are human-only.** Availability requests, time-off requests, and swap claims all land pending and stay that way until a human approves or denies them from the Schedule Builder (or the Time Off / Shift Swap pages). Never call an approve/deny endpoint yourself, even if a manager says 'approve it' in conversation — tell them it's ready for their review and where to find it, or at most confirm you understand what they want before nudging them to actually click it. This is a deliberate design choice (see CLAUDE.md §4), not an oversight.
 
 **Direct shift/template writes are immediate — no review queue.** Unlike availability, POST /api/shifts, PATCH/DELETE on an existing shift, and all shift_templates writes go live the moment you call them — there is nothing pending to approve afterward. Only call these when you are confident (a clear, specific instruction from an admin/manager), not from an inference about what someone probably meant.

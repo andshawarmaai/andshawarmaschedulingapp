@@ -149,10 +149,14 @@ the table below.
    comment header lists every active `username -> Display Name` pair — use
    it (or `GET /api/state`'s `users` array, if you have a session instead
    of an API key) to know exactly who's who before building rows.
-3. **Convert whatever the human handed you** (a photo of a handwritten
-   schedule, a pasted spreadsheet, a Telegram message, a messy CSV) into
-   rows matching the shape below — this conversion is the agent's job; the
-   endpoint only accepts the canonical shape.
+3. **Convert whatever the human handed you** — an actual `.xlsx`/`.csv`
+   spreadsheet file, a Google Sheets export, a photo of a handwritten
+   schedule, a pasted Telegram message, a messy CSV — into rows matching
+   the shape below. **Do this yourself; don't ask the human to reformat
+   it or hand back a description of what the file contains.** Read the
+   file directly (an `.xlsx` can be opened and read like any other file),
+   build the canonical rows, and POST them — that conversion is the whole
+   point of routing this through an agent instead of a rigid upload form.
 4. **POST to `/api/public/shift-imports`**:
    ```
    Authorization: Bearer shwrm_xxxxxxxxxxxxxxxxxxxxxxxx
