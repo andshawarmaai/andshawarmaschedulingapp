@@ -1,0 +1,165 @@
+---
+// Recurring weekly shift templates (name, days, times, min/max staff) —
+// self-contained (fetches/CRUDs its own data via /api/state and
+// /api/admin/shift-templates rather than sharing a parent page's own
+// `data` object) so it can be dropped into more than one page without
+// coupling to either page's own state. Used on both the Schedule Builder
+// (admin/schedule.astro, which also checks pending requests against these)
+// and Manage (admin.astro, where an admin who never opens the calendar can
+// still define/edit them) — per the owner's explicit ask to stop routing
+// "how many people, what times" through the unrelated one-off Slot Caps
+// feature now that this already does that job. Dispatches a
+// "shift-templates-changed" window event after any save/delete so a host
+// page showing template-derived data elsewhere (the calendar's coverage
+// checks) knows to refresh its own view.
+import Icon from './Icon.astro';
+---
+<div class="card">
+  <h2>Shift Templates</h2>
+  <p class="card-sub">
+    The recurring shift blocks this business runs every week (e.g. "Opener, 9am–3pm, Mon–Fri").
+    Give each one the days it applies to, a minimum staff count (a request that would drop
+    coverage below this is flagged for review, never auto-denied) and/or a maximum (over this is
+    flagged as a conflict on the Schedule Builder calendar).
+  </p>
+  <button class="btn-primary" id="stp-add-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Add shift template</button>
+  <div id="stp-list"><p class="empty">Loading...</p></div>
+</div>
+
+<div class="modal-backdrop" id="stp-modal">
+  <div class="modal">
+    <div class="modal-header"><h2 id="stp-modal-title">Add shift template</h2><button class="modal-close" id="stp-modal-close" type="button">&times;</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Name</label><input type="text" id="stp-name" class="input" placeholder="e.g. Opener, Late night" /></div>
+      <div class="field">
+        <label>Days</label>
+        <div id="stp-days" style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, i) => (
+            <label style="display:flex;align-items:center;gap:0.25rem;font-weight:400;cursor:pointer;">
+              <input type="checkbox" class="stp-day" value={i} style="width:1rem;height:1rem;" /> {label}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div class="field"><label>Start time</label><input type="time" id="stp-start" class="input" /></div>
+      <div class="field">
+        <label>End time</label>
+        <input type="time" id="stp-end" class="input" />
+        <p class="card-sub" style="margin:0.25rem 0 0;">End before start is fine — it means the shift crosses midnight (e.g. 4:30pm–2:30am).</p>
+      </div>
+      <div class="field"><label>Minimum staff</label><input type="number" id="stp-min-staff" class="input" min="0" step="1" placeholder="No minimum" /></div>
+      <div class="field"><label>Maximum staff</label><input type="number" id="stp-max-staff" class="input" min="0" step="1" placeholder="No maximum" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="stp-delete" style="margin-right:auto;" type="button" hidden>Delete template</button>
+      <button class="btn-primary" id="stp-save" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { escapeHtml, formatTime12 } from '../lib/client/format.js';
+
+  const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let templates = [];
+  let editingId = null;
+
+  async function loadTemplates() {
+    const res = await fetch('/api/state');
+    const data = await res.json();
+    templates = data.shiftTemplates || [];
+    render();
+  }
+
+  function render() {
+    const el = document.getElementById('stp-list');
+    if (templates.length === 0) {
+      el.innerHTML = '<p class="empty">No shift templates yet.</p>';
+      return;
+    }
+    el.innerHTML = templates.map((t) => {
+      const days = t.days_of_week.split(',').map((d) => DAY_LABELS[Number(d)]).join(', ');
+      const staff = [
+        t.min_staff != null ? `min ${t.min_staff}` : null,
+        t.max_staff != null ? `max ${t.max_staff}` : null,
+      ].filter(Boolean).join(' · ') || 'no min/max set';
+      return `
+        <div class="list-item">
+          <div>
+            <div class="who">${escapeHtml(t.name)}</div>
+            <div class="meta">${days} · ${formatTime12(t.start_time)}–${formatTime12(t.end_time)} · ${staff}</div>
+          </div>
+          <button class="btn-secondary" data-edit="${t.id}">Edit</button>
+        </div>
+      `;
+    }).join('');
+    el.querySelectorAll('[data-edit]').forEach((b) => {
+      b.addEventListener('click', () => openModal(b.getAttribute('data-edit')));
+    });
+  }
+
+  function openModal(templateId) {
+    editingId = templateId || null;
+    const template = templateId ? templates.find((t) => t.id === templateId) : null;
+    document.getElementById('stp-modal-title').textContent = template ? `Edit: ${template.name}` : 'Add shift template';
+    document.getElementById('stp-name').value = template ? template.name : '';
+    const checkedDays = template ? template.days_of_week.split(',') : [];
+    document.querySelectorAll('.stp-day').forEach((cb) => {
+      cb.checked = checkedDays.includes(cb.value);
+    });
+    document.getElementById('stp-start').value = template ? template.start_time : '';
+    document.getElementById('stp-end').value = template ? template.end_time : '';
+    document.getElementById('stp-min-staff').value = template && template.min_staff != null ? template.min_staff : '';
+    document.getElementById('stp-max-staff').value = template && template.max_staff != null ? template.max_staff : '';
+    document.getElementById('stp-delete').hidden = !template;
+    document.getElementById('stp-modal').classList.add('show');
+  }
+
+  function notifyChanged() {
+    window.dispatchEvent(new CustomEvent('shift-templates-changed'));
+  }
+
+  document.getElementById('stp-add-btn').addEventListener('click', () => openModal(null));
+  document.getElementById('stp-modal-close').addEventListener('click', () => {
+    document.getElementById('stp-modal').classList.remove('show');
+    editingId = null;
+  });
+  document.getElementById('stp-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'stp-modal') { e.target.classList.remove('show'); editingId = null; }
+  });
+  document.getElementById('stp-save').addEventListener('click', async () => {
+    const days_of_week = [...document.querySelectorAll('.stp-day:checked')].map((cb) => cb.value);
+    const payload = {
+      name: document.getElementById('stp-name').value.trim(),
+      days_of_week,
+      start_time: document.getElementById('stp-start').value,
+      end_time: document.getElementById('stp-end').value,
+      min_staff: document.getElementById('stp-min-staff').value.trim(),
+      max_staff: document.getElementById('stp-max-staff').value.trim(),
+    };
+    if (!payload.name) { window.shawarmaToast('Name is required'); return; }
+    if (days_of_week.length === 0) { window.shawarmaToast('Pick at least one day'); return; }
+    if (!payload.start_time || !payload.end_time) { window.shawarmaToast('Start and end time are required'); return; }
+    const url = editingId ? `/api/admin/shift-templates/${editingId}` : '/api/admin/shift-templates';
+    const r = await window.shawarmaApi(editingId ? 'PATCH' : 'POST', url, payload);
+    if (!r.ok) { window.shawarmaToast(r.error || 'Could not save shift template'); return; }
+    document.getElementById('stp-modal').classList.remove('show');
+    window.shawarmaToast('Shift template saved');
+    editingId = null;
+    await loadTemplates();
+    notifyChanged();
+  });
+  document.getElementById('stp-delete').addEventListener('click', async () => {
+    const template = templates.find((t) => t.id === editingId);
+    if (!template || !confirm(`Delete "${template.name}"?`)) return;
+    const r = await window.shawarmaApi('DELETE', `/api/admin/shift-templates/${editingId}`);
+    if (!r.ok) { window.shawarmaToast(r.error || 'Delete failed'); return; }
+    document.getElementById('stp-modal').classList.remove('show');
+    window.shawarmaToast('Shift template deleted');
+    editingId = null;
+    await loadTemplates();
+    notifyChanged();
+  });
+
+  loadTemplates();
+</script>

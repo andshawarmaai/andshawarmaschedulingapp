@@ -109,7 +109,7 @@ seeds an initial admin against whichever backend is active.
 - **`time_off_requests`** — `id, user_id, start_date, end_date, reason, status, denial_reason, staffing_warning`.
 - **`swap_posts`** / **`swap_claims`** — a staff member posts an existing shift for swap; another claims it (optionally offering one of their own shifts back); admin/the poster resolves it.
 - **`shift_imports`** — one row per bulk import batch (`uploaded_by, filename, row_count`); shifts created by that batch are tagged with its id via `shifts.import_id` so "remove upload" can undo just those rows. Caps and swap posts created by an import are **not** batch-undoable.
-- **`day_caps`** — a one-off exception on a single date/window (`date, window_start, window_end, max_shifts, note`), separate from the recurring `shift_templates`.
+- **`day_caps`** — a one-off exception on a single date/window (`date, window_start, window_end, max_shifts, note`), separate from the recurring `shift_templates`. **The "Slot Caps" Manage-page UI for creating/clearing these was removed 2026-09-16** (the owner found it redundant with Shift Templates, which already covers "how many people, what times") — the data model, `/api/admin/day-caps`, and `type=cap` bulk-import rows are all still fully functional, there's just no manual form for it any more. Create one via a bulk import or have an agent do it if it's ever needed again.
 - **`api_keys`** — programmatic access for an external agent (see §5). `label, key_prefix, key_hash, created_by, last_used_at, revoked`. The raw key is shown exactly once at creation.
 - **`password_reset_requests`** — there's no email sender; "Forgot password?" files a row here for an admin to see and resolve manually.
 
@@ -154,12 +154,16 @@ the table below.
 
 ### How an agent should use it, end to end
 
-1. **Get an API key** (once, then reuse it): an admin creates one via the
-   Manage UI, or `POST /api/admin/shift-imports` needs an admin session —
-   but key creation itself is `POST /api/admin/api-keys` with `{ "label":
-   "Hermes" }` (also admin-session-gated). The raw key
+1. **Get an API key** (once, then reuse it): create one via `POST
+   /api/admin/api-keys` with `{ "label": "Hermes" }` (admin-session-gated) —
+   the Manage → API Keys card in the UI does the same thing. The raw key
    (`shwrm_<32 chars>`) is returned **once**, in the response body — save
-   it; only its hash is kept server-side after that.
+   it; only its hash is kept server-side after that. (`POST
+   /api/admin/shift-imports` also still works with an admin session
+   instead of a key, for the same all-or-nothing CSV/JSON upload, but
+   there's no manual upload form left in the UI for it any more — see §3's
+   `day_caps` entry for the parallel Slot Caps removal; use the API
+   directly, or have an agent do it.)
 2. **Resolve the current roster** so names in freeform input map to real
    users: `GET /api/admin/shift-import-template` returns a CSV whose
    comment header lists every active `username -> Display Name` pair — use
@@ -285,8 +289,9 @@ explicit complaint that the staff Schedule and the admin Schedule Builder
 - **The EN/ES toggle is intentionally excluded from admin-only pages** even though it's in the now-shared sidebar footer — see §8.
 - Client-JS-built markup (e.g. the Schedule Builder's calendar, built via `innerHTML`) still can't use the `<Icon>` Astro component — inline raw SVG string constants instead (see `CHECK_SVG`/`ALERT_SVG` in `schedule.astro`/`admin/schedule.astro` for the pattern).
 - **The staff Schedule calendar (`.calendar-grid`/`.calendar-day` in `global.css`) intentionally mirrors the Schedule Builder's own month-grid styling** (sticky header, bordered cells, red-circle today badge, `min-width: 45.5rem` so tiles have real room for a name + time before scrolling) — the owner explicitly wanted the two calendars to look like the same product, not a plainer staff version next to a nicer admin one. `main.app-page` is shared at `max-width: 90rem` for the same reason; keep any future calendar tweak applied to both, or they'll visibly drift apart again.
+- **Shift Templates management is a shared component, `src/components/ShiftTemplatesPanel.astro`, used on both Manage (`admin.astro`) and the Schedule Builder (`admin/schedule.astro`)** — added 2026-09-16 so an admin can define/edit templates from either page, since Manage no longer has its own separate way to do this (see §3's `day_caps`/Slot Caps note). It's fully self-contained: fetches its own `shiftTemplates` via `/api/state` and does its own CRUD via `/api/admin/shift-templates`, independent of whichever host page it's dropped into — it does NOT read or write the host page's own `data` object. After any save/delete it dispatches a `window` `"shift-templates-changed"` CustomEvent; `admin/schedule.astro` listens for that to re-run its own `refreshAndRender()` (its calendar/coverage logic reads templates from its own separate `/api/state` polling, so it has no other way to know the component's list changed). If you ever need a third page to show/edit templates, drop in `<ShiftTemplatesPanel />` there too — don't duplicate the CRUD logic again.
 
-## 9. Verification checklist before calling a change done
+## 10. Verification checklist before calling a change done
 
 1. `npm run build` — catches Astro/type errors immediately.
 2. If you touched `src/styles/global.css`: check comment balance (§7).

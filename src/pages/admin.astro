@@ -2,6 +2,7 @@
 // middleware.js already restricts /admin to admin/manager roles.
 import Layout from '../layouts/Layout.astro';
 import Icon from '../components/Icon.astro';
+import ShiftTemplatesPanel from '../components/ShiftTemplatesPanel.astro';
 const user = Astro.locals.user;
 ---
 <Layout title="&Shawarma — Manage" active="manage">
@@ -32,19 +33,7 @@ const user = Astro.locals.user;
     </div>
   )}
 
-  <div class="card">
-    <h2>Slot Caps</h2>
-    <p class="card-sub">One-off cap for a specific date, on top of any Shift Template. Informational — shows on the schedule and swap board.</p>
-    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin-bottom:0.75rem;">
-      <div class="field" style="margin:0;"><label style="font-size:0.75rem;">Date</label><input type="date" id="cap-date" class="input" /></div>
-      <div class="field" style="margin:0;flex:0 0 6rem;"><label style="font-size:0.75rem;">From</label><input type="time" id="cap-start" class="input" /></div>
-      <div class="field" style="margin:0;flex:0 0 6rem;"><label style="font-size:0.75rem;">To</label><input type="time" id="cap-end" class="input" value="23:59" /></div>
-      <div class="field" style="margin:0;flex:0 0 5rem;"><label style="font-size:0.75rem;">Max</label><input type="number" id="cap-max" class="input" min="0" step="1" /></div>
-      <div class="field" style="margin:0;flex:1 1 10rem;"><label style="font-size:0.75rem;">Note</label><input type="text" id="cap-note" class="input" placeholder="optional" /></div>
-      <button class="btn-primary" id="cap-save" type="button">Save</button>
-    </div>
-    <div id="caps-list"><p class="empty">Loading...</p></div>
-  </div>
+  <ShiftTemplatesPanel />
 
   <div class="card">
     <h2>API Keys</h2>
@@ -53,39 +42,13 @@ const user = Astro.locals.user;
       key a name, hand the key to that agent, and revoke it any time — revoking one key never touches the others.
     </p>
     <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
-      POST the CSV to <code>/api/public/shift-imports</code> with header <code>Authorization: Bearer &lt;key&gt;</code>
-      and <code>Content-Type: text/csv</code> (or JSON <code>{`{ "rows": [...] }`}</code>). Same
-      <code>type</code>-column format as the template above (shift / cap / swap).
+      POST to <code>/api/public/shift-imports</code> with header <code>Authorization: Bearer &lt;key&gt;</code>,
+      either <code>Content-Type: text/csv</code> or JSON <code>{`{ "rows": [...] }`}</code> — see
+      <code>AGENT-TRAINING.md</code> (or <code>GET /api/agent-guide/markdown</code>) for the exact row shapes
+      (<code>shift</code> / <code>cap</code> / <code>swap</code> / <code>template</code>).
     </p>
     <button class="btn-primary" id="add-key-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Create API key</button>
     <div id="keys-list"><p class="empty">Loading...</p></div>
-  </div>
-
-  <div class="card">
-    <h2>Bulk Schedule Import</h2>
-    <p class="card-sub">
-      Download the template — it's generated fresh from your current staff list every time, with a reference
-      list of valid usernames built in, so an AI assistant filling it out always matches real names. One file
-      handles three kinds of rows (set the <code>type</code> column): <strong>shift</strong> (add a shift),
-      <strong>cap</strong> (set a slot limit for a time window), and <strong>swap</strong> (post an existing
-      shift for swap). Fill it out, then upload the result here.
-    </p>
-    <p style="margin-bottom:0.75rem;">
-      <a href="/api/admin/shift-import-template" class="btn-secondary" style="text-decoration:none;display:inline-flex;">Download CSV template</a>
-    </p>
-    <div class="field">
-      <label for="import-file">CSV file</label>
-      <input type="file" id="import-file" class="input" accept=".csv,text/csv" />
-    </div>
-    <div id="import-errors" class="error" hidden></div>
-    <div id="import-preview" style="display:none;margin-bottom:0.75rem;">
-      <p class="card-sub" id="import-preview-text" style="margin:0 0 0.5rem;"></p>
-      <button class="btn-primary" id="import-confirm" type="button">Import</button>
-      <button class="btn-secondary" id="import-cancel" type="button">Cancel</button>
-    </div>
-    <h3 style="font-size:0.95rem;margin:1rem 0 0.5rem;">Import History</h3>
-    <p class="card-sub">Removing an upload undoes the shifts it created. Slot caps and swap postings from the same upload aren't part of that undo — clear a cap from Slot Caps above, or cancel a post from the Shift Swap board.</p>
-    <div id="imports-list"><p class="empty">Loading...</p></div>
   </div>
 
   <!-- New API key modal: shows the plaintext key exactly once -->
@@ -193,7 +156,6 @@ const user = Astro.locals.user;
   </script>
   <script>
     import { formatDate, formatTime12, escapeHtml } from '../lib/client/format.js';
-    import { parseCsv } from '../lib/shiftImport.js';
 
     const ctx = window.__adminCtx;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
@@ -533,135 +495,14 @@ const user = Astro.locals.user;
       });
     }
 
-    function renderCaps() {
-      const el = document.getElementById('caps-list');
-      const entries = data.dayCaps.slice().sort((a, b) => (a.date + a.window_start).localeCompare(b.date + b.window_start));
-      if (entries.length === 0) {
-        el.innerHTML = '<p class="empty">No slot caps set.</p>';
-        return;
-      }
-      el.innerHTML = entries.map((c) => {
-        const count = data.shifts.filter((s) => s.date === c.date && s.start_time >= c.window_start && s.start_time < c.window_end).length;
-        return `<div class="list-item">
-          <div>
-            <div class="who">${formatDate(c.date, { short: true })} · ${formatTime12(c.window_start)}–${formatTime12(c.window_end)}</div>
-            <div class="meta">${count}/${c.max_shifts} scheduled${c.note ? ' · ' + escapeHtml(c.note) : ''}</div>
-          </div>
-          <button class="btn-danger" data-clear-cap="${c.date}|${c.window_start}|${c.window_end}">Clear</button>
-        </div>`;
-      }).join('');
-      el.querySelectorAll('[data-clear-cap]').forEach((b) => {
-        b.addEventListener('click', async () => {
-          const [date, window_start, window_end] = b.getAttribute('data-clear-cap').split('|');
-          const r = await window.shawarmaApi('DELETE', `/api/admin/day-caps?date=${encodeURIComponent(date)}&window_start=${encodeURIComponent(window_start)}&window_end=${encodeURIComponent(window_end)}`);
-          if (!r.ok) { window.shawarmaToast(r.error || 'Clear failed'); return; }
-          window.shawarmaToast('Cap cleared');
-          await refreshAndRender();
-        });
-      });
-    }
-
-    document.getElementById('cap-save').addEventListener('click', async () => {
-      const date = document.getElementById('cap-date').value;
-      const window_start = document.getElementById('cap-start').value;
-      const window_end = document.getElementById('cap-end').value;
-      const max_shifts = parseInt(document.getElementById('cap-max').value, 10);
-      const note = document.getElementById('cap-note').value.trim() || null;
-      if (!date || !window_start || !window_end || !Number.isInteger(max_shifts) || max_shifts < 0) {
-        window.shawarmaToast('Fill in date, times, and a valid max'); return;
-      }
-      const r = await window.shawarmaApi('POST', '/api/admin/day-caps', { date, window_start, window_end, max_shifts, note });
-      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed'); return; }
-      window.shawarmaToast('Slot cap saved');
-      document.getElementById('cap-max').value = '';
-      document.getElementById('cap-note').value = '';
-      await refreshAndRender();
-    });
-
-    // ----- Bulk shift import -----
-
-    let pendingImportRows = null;
-
-    document.getElementById('import-file').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      const errBox = document.getElementById('import-errors');
-      const preview = document.getElementById('import-preview');
-      errBox.hidden = true;
-      preview.style.display = 'none';
-      pendingImportRows = null;
-      if (!file) return;
-
-      const text = await file.text();
-      const rows = parseCsv(text);
-      if (rows.length === 0) {
-        errBox.hidden = false;
-        errBox.textContent = 'No rows found in that file.';
-        return;
-      }
-      pendingImportRows = { filename: file.name, rows };
-      document.getElementById('import-preview-text').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} ready to import from "${file.name}".`;
-      preview.style.display = 'block';
-    });
-
-    document.getElementById('import-cancel').addEventListener('click', () => {
-      pendingImportRows = null;
-      document.getElementById('import-preview').style.display = 'none';
-      document.getElementById('import-file').value = '';
-    });
-
-    document.getElementById('import-confirm').addEventListener('click', async () => {
-      if (!pendingImportRows) return;
-      const btn = document.getElementById('import-confirm');
-      btn.disabled = true;
-      const r = await window.shawarmaApi('POST', '/api/admin/shift-imports', pendingImportRows);
-      btn.disabled = false;
-      const errBox = document.getElementById('import-errors');
-      if (!r.ok) {
-        errBox.hidden = false;
-        errBox.innerHTML = escapeHtml(r.error || 'Import failed') + (r.rowErrors ? '<ul style="margin:0.5rem 0 0 1rem;">' + r.rowErrors.map((e) => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>' : '');
-        return;
-      }
-      errBox.hidden = true;
-      document.getElementById('import-preview').style.display = 'none';
-      document.getElementById('import-file').value = '';
-      pendingImportRows = null;
-      const b = r.breakdown || {};
-      const parts = [];
-      if (b.shifts) parts.push(`${b.shifts} shift${b.shifts === 1 ? '' : 's'}`);
-      if (b.caps) parts.push(`${b.caps} cap${b.caps === 1 ? '' : 's'}`);
-      if (b.swaps) parts.push(`${b.swaps} swap post${b.swaps === 1 ? '' : 's'}`);
-      window.shawarmaToast(`Imported: ${parts.join(', ') || r.count}`);
-      await refreshAndRender();
-    });
-
-    function renderImports() {
-      const el = document.getElementById('imports-list');
-      const imports = data.shiftImports || [];
-      if (imports.length === 0) {
-        el.innerHTML = '<p class="empty">No uploads yet.</p>';
-        return;
-      }
-      el.innerHTML = imports.map((imp) => `
-        <div class="list-item">
-          <div>
-            <div class="who">${escapeHtml(imp.filename || 'Untitled upload')}</div>
-            <div class="meta">${imp.row_count} shift${imp.row_count === 1 ? '' : 's'} · uploaded by ${escapeHtml(userName(imp.uploaded_by))} · ${formatDate(imp.created_at.slice(0, 10), { short: true })}</div>
-          </div>
-          <button class="btn-danger" data-remove-import="${imp.id}">Remove</button>
-        </div>
-      `).join('');
-      el.querySelectorAll('[data-remove-import]').forEach((b) => {
-        b.addEventListener('click', async () => {
-          const imp = imports.find((x) => x.id === b.getAttribute('data-remove-import'));
-          if (!imp) return;
-          if (!confirm(`Remove "${imp.filename || 'this upload'}"? Its ${imp.row_count} shift(s) will be deleted from the calendar.`)) return;
-          const r = await window.shawarmaApi('DELETE', `/api/admin/shift-imports/${imp.id}`);
-          if (!r.ok) { window.shawarmaToast(r.error || 'Remove failed'); return; }
-          window.shawarmaToast('Upload removed');
-          await refreshAndRender();
-        });
-      });
-    }
+    // Slot Caps and the Bulk Schedule Import upload form were removed from
+    // this page — Shift Templates (the shared panel above) already covers
+    // "how many people, what times" without the redundant one-off-exception
+    // UI, and CSV upload was replaced by the API-key/agent ingestion path
+    // (see the API Keys card below, and CLAUDE.md §5). The underlying
+    // day_caps data model and /api/admin/shift-imports, /api/public/shift-
+    // imports endpoints are untouched — an agent or a `type=cap` bulk-import
+    // row can still create one, there's just no manual form for it here.
 
     // ----- API keys -----
 
@@ -720,8 +561,6 @@ const user = Astro.locals.user;
       await loadState();
       renderApprovals();
       renderUsers();
-      renderCaps();
-      renderImports();
       renderKeys();
       renderTiers();
     }
