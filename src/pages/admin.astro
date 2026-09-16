@@ -196,6 +196,9 @@ const user = Astro.locals.user;
     import { parseCsv } from '../lib/shiftImport.js';
 
     const ctx = window.__adminCtx;
+    // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
+    // character, for the staffing-warning banner built here in client JS.
+    const ALERT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
     let data = null;
     let editingUserId = null;
     let pendingResetRequestId = null;
@@ -240,7 +243,7 @@ const user = Astro.locals.user;
         </div>`;
       });
       const warningHtml = (w) => w
-        ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">⚠ Below minimum staffing: ${escapeHtml(w)}</div>`
+        ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">${ALERT_SVG} Below minimum staffing: ${escapeHtml(w)}</div>`
         : '';
       pendingShiftReqs.forEach((r) => {
         const label = r.action === 'create' ? 'new shift' : r.action === 'delete' ? 'remove shift' : 'change shift';
