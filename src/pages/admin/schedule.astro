@@ -65,6 +65,26 @@ import Icon from '../../components/Icon.astro';
     <button type="button" data-action="delete">Remove from schedule</button>
   </div>
 
+  <!-- Add shift directly (no availability submission needed first) — opened
+       via the "+" that appears hovering a Month cell, or the "+ Add shift"
+       button in Week/Day view. This is the only way an admin puts someone
+       on the schedule who hasn't (or won't) submit their own availability. -->
+  <div class="modal-backdrop" id="add-shift-modal">
+    <div class="modal">
+      <div class="modal-header"><h2>Add shift</h2><button class="modal-close" id="add-shift-close" type="button">&times;</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Staff</label><select id="as-user" class="input"></select></div>
+        <div class="field"><label>Date</label><input type="date" id="as-date" class="input" /></div>
+        <div class="field"><label>Start time</label><input type="time" id="as-start" class="input" value="11:00" /></div>
+        <div class="field"><label>End time</label><input type="time" id="as-end" class="input" value="19:00" /></div>
+        <div class="field"><label>Notes</label><input type="text" id="as-notes" class="input" placeholder="Optional" /></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" id="as-save" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
   <div class="card">
     <h2>Shift Templates</h2>
     <p class="card-sub">
@@ -294,6 +314,7 @@ import Icon from '../../components/Icon.astro';
         );
         return `<div class="cal-month-cell${c.other ? ' other-month' : ''}${c.iso === todayIso ? ' today' : ''}" data-date="${c.iso}">
           <span class="cal-month-daynum">${parseInt(c.iso.slice(8, 10), 10)}</span>
+          <button type="button" class="cal-add-btn" data-add-date="${c.iso}" title="Add shift" aria-label="Add shift">+</button>
           <div class="cal-month-chips">${approvedToChips.join('')}${toChips.join('')}${scheduledChips.join('')}${pendingChips.join('')}</div>
         </div>`;
       }).join('');
@@ -332,7 +353,10 @@ import Icon from '../../components/Icon.astro';
 
       const headCells = days.map((d) => {
         const iso = isoOf(d);
-        return `<div class="cal-week-headcell${iso === todayIso ? ' today' : ''}">${d.toLocaleDateString('en-US', { weekday: 'short' })}<span class="num">${d.getDate()}</span></div>`;
+        return `<div class="cal-week-headcell${iso === todayIso ? ' today' : ''}">
+          ${d.toLocaleDateString('en-US', { weekday: 'short' })}<span class="num">${d.getDate()}</span>
+          <button type="button" class="cal-add-btn" data-add-date="${iso}" title="Add shift" aria-label="Add shift">+</button>
+        </div>`;
       }).join('');
 
       const toCells = days.map((d) => {
@@ -399,6 +423,9 @@ import Icon from '../../components/Icon.astro';
       const bars = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin);
 
       document.getElementById('calendar-root').innerHTML = `
+        <div class="cal-day-toolbar">
+          <button type="button" class="btn-primary cal-add-btn-inline" data-add-date="${iso}">+ Add shift</button>
+        </div>
         <div class="cal-timeoff-row" style="grid-template-columns:3.5rem 1fr;">
           <div class="cal-timeoff-label">Time off</div>
           <div class="cal-timeoff-cell" data-date="${iso}">${toChips}</div>
@@ -487,13 +514,27 @@ import Icon from '../../components/Icon.astro';
       });
     }
 
+    // Shared by all three views — every "+" (hover-revealed on a Month
+    // cell or Week day header, always-visible in Day view's toolbar)
+    // opens the same Add Shift modal, prefilled with whatever date it
+    // was attached to.
+    function wireAddButtons(root) {
+      root.querySelectorAll('[data-add-date]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openAddShiftModal(btn.getAttribute('data-add-date'));
+        });
+      });
+    }
+
     function wireMonthInteractions() {
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
+      wireAddButtons(root);
       wireDragDrop(root, '.cal-month-cell');
       root.querySelectorAll('.cal-month-cell').forEach((cell) => {
         cell.addEventListener('click', (e) => {
-          if (e.target.closest('[data-kind]')) return; // chip clicks don't drill in
+          if (e.target.closest('[data-kind]') || e.target.closest('.cal-add-btn')) return; // chip/add clicks don't drill in
           anchor = new Date(`${cell.getAttribute('data-date')}T00:00:00`);
           view = 'day';
           document.querySelectorAll('#view-toggle button').forEach((b) => b.classList.toggle('active', b.dataset.view === 'day'));
@@ -505,12 +546,14 @@ import Icon from '../../components/Icon.astro';
     function wireWeekInteractions() {
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
+      wireAddButtons(root);
       wireDragDrop(root, '.cal-week-days .cal-day-col');
     }
 
     function wireDayInteractions() {
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
+      wireAddButtons(root);
       wireDragDrop(root, '.cal-day-col');
     }
 
@@ -652,6 +695,44 @@ import Icon from '../../components/Icon.astro';
       document.getElementById('template-modal').classList.remove('show');
       window.shawarmaToast('Shift template deleted');
       editingTemplateId = null;
+      await refreshAndRender();
+    });
+
+    // ----- Add shift directly (the "+" on a Month/Week cell, or Day's toolbar button) -----
+
+    function openAddShiftModal(iso) {
+      const userSelect = document.getElementById('as-user');
+      userSelect.innerHTML = (data.users || []).filter((u) => !u.disabled).map((u) =>
+        `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`
+      ).join('');
+      document.getElementById('as-date').value = iso;
+      document.getElementById('as-start').value = '11:00';
+      document.getElementById('as-end').value = '19:00';
+      document.getElementById('as-notes').value = '';
+      document.getElementById('add-shift-modal').classList.add('show');
+    }
+    document.getElementById('add-shift-close').addEventListener('click', () => {
+      document.getElementById('add-shift-modal').classList.remove('show');
+    });
+    document.getElementById('add-shift-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'add-shift-modal') e.target.classList.remove('show');
+    });
+    document.getElementById('as-save').addEventListener('click', async () => {
+      const payload = {
+        user_id: document.getElementById('as-user').value,
+        date: document.getElementById('as-date').value,
+        start_time: document.getElementById('as-start').value,
+        end_time: document.getElementById('as-end').value,
+        notes: document.getElementById('as-notes').value.trim() || null,
+      };
+      if (!payload.date || !payload.start_time || !payload.end_time) {
+        window.shawarmaToast('Date, start time, and end time are required');
+        return;
+      }
+      const r = await window.shawarmaApi('POST', '/api/shifts', payload);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Could not add shift'); return; }
+      document.getElementById('add-shift-modal').classList.remove('show');
+      window.shawarmaToast('Shift added');
       await refreshAndRender();
     });
 
