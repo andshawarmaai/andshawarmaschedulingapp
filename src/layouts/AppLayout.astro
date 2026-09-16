@@ -29,11 +29,16 @@ const navItems = [
 ];
 ---
 <!doctype html>
-<html lang={lang}>
+<html lang={lang} translate="no">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#dc2626" />
+  <!-- The app has its own EN/ES switch (LangToggle) — Chrome's own
+       "Translate this page?" prompt on top of that is just confusing, so
+       tell it not to offer. Both the meta tag and the html attribute are
+       Chrome's documented signals for this; belt and suspenders. -->
+  <meta name="google" content="notranslate" />
   <title>{title}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -10,11 +10,15 @@ import { getLang, t } from '../lib/i18n.js';
 const lang = getLang(Astro);
 ---
 <!doctype html>
-<html lang={lang}>
+<html lang={lang} translate="no">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#dc2626" />
+  <!-- See AppLayout.astro's identical tag — the app has its own EN/ES
+       switch, so Chrome's own translate prompt on top of it would just
+       be confusing. -->
+  <meta name="google" content="notranslate" />
   <title>{t(lang, 'login.title')} — &amp;Shawarma</title>
   <link rel="icon" type="image/jpeg" href="/logo.jpg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
