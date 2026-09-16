@@ -152,6 +152,10 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     import { computeShiftRequestConflicts, computeDayCoverage, computeTemplateTimeGaps, dayOfWeek } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
+    // Day view (only) gives every item a fixed-width lane of this size —
+    // see packNoReuse below for why Day can't share Week's space-efficient
+    // reuse behavior.
+    const DAY_COL_WIDTH_REM = 7.5;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
     // character for the conflict-flag indicator built here in client JS.
     const ALERT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
@@ -234,6 +238,24 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       }
       flush();
       return results;
+    }
+
+    // Day view's packer: every item gets its own permanent column for the
+    // whole day, in start-time order, and a column is NEVER freed/reused
+    // once its occupant ends — unlike packOverlaps above, which frees a
+    // column as soon as its occupant's time has passed so a later,
+    // unrelated item can take the same x-position. That reuse is exactly
+    // right for Week view (7 already-narrow day columns, space is tight),
+    // but in Day view it reads as one thing "stacking" on top of another
+    // even though the two never actually overlap in time — an admin
+    // explicitly does not want that. The tradeoff, also explicitly
+    // accepted, is narrower fixed-width columns plus horizontal scrolling
+    // (see DAY_COL_WIDTH_REM and .cal-day-body's overflow-x) instead of a
+    // compact, space-efficient grid.
+    function packNoReuse(items) {
+      const sorted = [...items].sort((a, b) => a.start - b.start || a.end - b.end);
+      const cols = sorted.length || 1;
+      return sorted.map((item, col) => ({ ...item, col, cols }));
     }
 
     let data = null;
@@ -328,7 +350,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}>${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</div>`;
     }
 
-    function barHtml(kind, id, label, when, top, height, leftPct, widthPct, flagged, note) {
+    function barHtml(kind, id, label, when, top, height, leftCss, widthCss, flagged, note) {
       const cls = kind === 'shift-approved' ? 'shift-bar' : 'req-bar';
       const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
       const titleAttr = flagged ? '' : `title="${escapeHtml(hint)}"`;
@@ -336,7 +358,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       return `
         <div class="${cls}${flagged ? ' flagged' : ''}" draggable="true"
              data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}
-             style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);">
+             style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);">
           <span class="who">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</span>
           <span class="when">${escapeHtml(when)}</span>
         </div>
@@ -375,7 +397,11 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // shifts rather than drawn as a separate background layer — that way
     // an open slot always gets its own visible column and can never be
     // silently hidden behind real bars that happen to fill the width.
-    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems) {
+    // `noReuse` (Day view only — see packNoReuse) returns fixed-width,
+    // never-shared columns instead of Week view's compact percentage-split
+    // ones; the caller needs the resulting column count back to size the
+    // scrollable container, so this always returns { html, cols }.
+    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems, noReuse) {
       const items = [
         ...shifts.filter((s) => s.date === iso).map((row) => ({ kind: 'shift-approved', row })),
         ...pendingShiftReqs.filter((r) => r.date === iso).map((row) => ({ kind: 'shift-pending', row })),
@@ -384,18 +410,27 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         return { start: dispStart, end: Math.min(dispEnd, windowMin), kind, row };
       });
       items.push(...(ghostItems || []));
-      const packed = packOverlaps(items);
-      return packed.map((item) => {
+      const packed = (noReuse ? packNoReuse : packOverlaps)(items);
+      const totalCols = packed.reduce((max, item) => Math.max(max, item.cols), 1);
+      const html = packed.map((item) => {
         const { start, end, col, cols, kind } = item;
         const top = Math.max(0, (start / windowMin) * 100);
         const height = Math.max(3, ((end - start) / windowMin) * 100);
-        const widthPct = 100 / cols;
-        const leftPct = col * widthPct;
-        if (kind === 'coverage-gap') return coverageGapBarHtml(item.template, item.gapStart, item.gapEnd, item.gapDate, top, height, leftPct, widthPct);
+        let leftCss, widthCss;
+        if (noReuse) {
+          widthCss = `${DAY_COL_WIDTH_REM}rem`;
+          leftCss = `${col * DAY_COL_WIDTH_REM}rem`;
+        } else {
+          const widthPct = 100 / cols;
+          leftCss = `${col * widthPct}%`;
+          widthCss = `${widthPct}%`;
+        }
+        if (kind === 'coverage-gap') return coverageGapBarHtml(item.template, item.gapStart, item.gapEnd, item.gapDate, top, height, leftCss, widthCss);
         const row = item.row;
         const conflictNote = conflicts.get(row.id);
-        return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftPct, widthPct, !!conflictNote, conflictNote);
+        return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftCss, widthCss, !!conflictNote, conflictNote);
       }).join('');
+      return { html, cols: totalCols };
     }
 
     function minutesToHHMM(raw) {
@@ -481,10 +516,10 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       return ghosts;
     }
 
-    function coverageGapBarHtml(template, gapStart, gapEnd, gapDate, top, height, leftPct, widthPct) {
+    function coverageGapBarHtml(template, gapStart, gapEnd, gapDate, top, height, leftCss, widthCss) {
       return `
         <div class="coverage-gap" data-template-id="${template.id}" data-start="${gapStart}" data-end="${gapEnd}" data-date="${gapDate}"
-             style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);"
+             style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);"
              title="Click to schedule this open slot">
           <span class="coverage-gap-label">${escapeHtml(template.name)} — open slot</span>
         </div>
@@ -578,7 +613,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
 
       const dayCols = days.map((d) => {
         const iso = isoOf(d);
-        const bars = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin);
+        const { html: bars } = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin);
         return `<div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * REM_PER_HOUR}rem;">${bars}</div>`;
       }).join('');
 
@@ -629,8 +664,9 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       const coverage = computeDayCoverage(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
       const timeGaps = computeTemplateTimeGaps(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
       const ghostItems = computeGhostItems(timeGaps, startMin, windowMin, iso);
-      const bars = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems);
+      const { html: bars, cols } = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems, true);
       const coverageHtml = renderCoveragePanel(coverage);
+      const colWidth = `${cols * DAY_COL_WIDTH_REM}rem`;
 
       document.getElementById('calendar-root').innerHTML = `
         <div class="cal-day-toolbar">
@@ -643,7 +679,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         </div>
         <div class="cal-day-body">
           <div class="cal-hours">${hourLabels.join('')}</div>
-          <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * REM_PER_HOUR}rem;">${bars}</div>
+          <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * REM_PER_HOUR}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
         </div>
       `;
       wireDayInteractions(iso);

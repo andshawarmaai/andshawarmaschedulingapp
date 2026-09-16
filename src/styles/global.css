@@ -576,7 +576,14 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .timeoff-chip.approved { background:#6366f1; border-color:#4338ca; color:#fff; }
 .timeoff-chip.approved.flagged { background:#fee2e2; border-color:#dc2626; color:#991b1b; }
 
-.cal-day-body { position:relative; display:grid; grid-template-columns: 3.5rem 1fr; }
+/* Day view only (Week uses .cal-week-body/.cal-week-days instead) — its
+   .cal-day-col is given a fixed, explicit width by admin/schedule.astro
+   based on however many never-reused columns packNoReuse needed for that
+   day (see DAY_COL_WIDTH_REM), so this scrolls horizontally instead of
+   squeezing everything into the visible width. minmax(0, 1fr) keeps the
+   grid track from auto-growing to fit that width itself, which is what
+   makes the overflow (and so the scrollbar) actually happen. */
+.cal-day-body { position:relative; display:grid; grid-template-columns: 3.5rem minmax(0, 1fr); overflow-x:auto; }
 .cal-hours { position:relative; border-right:1px solid var(--color-border); }
 .cal-hour-label { position:absolute; right:0.375rem; transform:translateY(-50%); font-size:0.6875rem; color:var(--color-muted); background:#fff; padding:0 0.1875rem; z-index:1; }
 .cal-day-col { position:relative; }
@@ -659,13 +666,13 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
    same window paints on top, leaving whatever's still uncovered visibly
    red underneath. */
 .coverage-gap {
-  position:absolute; left:0.125rem; right:0.125rem; border-radius:0.375rem;
+  position:absolute; border-radius:0.375rem; overflow:hidden;
   border:2px dashed #dc2626; background:rgba(220,38,38,0.08);
   padding:0.25rem 0.5rem; cursor:pointer; transition:background 0.1s;
 }
 .coverage-gap:hover { background:rgba(220,38,38,0.16); }
 .coverage-gap.drag-over { background:rgba(220,38,38,0.28); border-color:#991b1b; }
-.coverage-gap-label { font-size:0.6875rem; font-weight:700; color:#991b1b; }
+.coverage-gap-label { font-size:0.6875rem; font-weight:700; color:#991b1b; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Week view: a 7-column timeline sharing the Day view's hour rail. */
 .cal-week-head-row { display:grid; grid-template-columns: 3.5rem repeat(7, minmax(6rem, 1fr)); border-bottom:1px solid var(--color-border); position:sticky; top:0; z-index:2; background:#fff; min-width:45.5rem; }
