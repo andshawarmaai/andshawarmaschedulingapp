@@ -176,8 +176,15 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 .btn-secondary:hover { background: var(--color-border); }
 .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-danger { background: color-mix(in srgb, #dc2626 14%, transparent); color: #991b1b; padding: 0.5rem 0.875rem; font-size: 0.875rem; }
-.btn-danger:hover { background: color-mix(in srgb, #dc2626 22%, transparent); }
+/* Solid, not a soft tint — a pale 14%-opacity fill next to a bold solid
+   .btn-primary read as disabled/inactive rather than a real, clickable
+   delete action (reported live: an admin didn't realize the Schedule's
+   own "Delete" button worked at all). A destructive action should look
+   at least as actionable as the button next to it, just a different
+   color, not a fainter one. */
+.btn-danger { background: #991b1b; color: #fff; padding: 0.5rem 0.875rem; font-size: 0.875rem; }
+.btn-danger:hover { filter: brightness(0.9); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
 
 /* ----- Login ----- */
 .login-wrap {
