@@ -45,12 +45,15 @@ import Icon from '../../components/Icon.astro';
       <span><span class="legend-dot" style="background:#6366f1;border:1px solid #4338ca;"></span> Time off (approved)</span>
     </div>
     <p class="card-sub" style="margin-top:0.5rem;">
-      Right-click a pending request or time off to approve or deny it; right-click a scheduled (green)
-      shift or approved (solid indigo) time off to remove it from the schedule. Drag a shift or a pending
-      request — but not time off — onto another day to move it there; a pending request stays pending
-      either way, so nothing is approved just by moving it. In Month view, click a day (not a chip) to see
-      it in detail. This is the only place time off, once approved, can be removed — the Time Off page
-      only ever shows pending items to review, not a way to undo an approved one.
+      Click a scheduled (green) shift to edit its time, assigned staff, or notes, or use its Delete
+      button there to remove it. Drag it instead for a quick date-only move. Right-click a pending
+      request or time off to approve or deny it; right-click a scheduled shift or approved (solid
+      indigo) time off to remove it without opening anything. Drag a pending request — but not time
+      off — onto another day to move it there too; it stays pending either way, so nothing is approved
+      just by moving it. In Month view, click a day (not a chip) to see it in detail; hover a day (or a
+      Week day header) for a "+" to add a brand new shift, or use Day view's "+ Add shift" button. This
+      is the only place time off, once approved, can be removed — the Time Off page only ever shows
+      pending items to review, not a way to undo an approved one.
     </p>
   </div>
 
@@ -65,13 +68,16 @@ import Icon from '../../components/Icon.astro';
     <button type="button" data-action="delete">Remove from schedule</button>
   </div>
 
-  <!-- Add shift directly (no availability submission needed first) — opened
-       via the "+" that appears hovering a Month cell, or the "+ Add shift"
-       button in Week/Day view. This is the only way an admin puts someone
-       on the schedule who hasn't (or won't) submit their own availability. -->
+  <!-- Add OR edit a shift directly — opened either via the "+" that appears
+       hovering a Month cell / Week day header / Day's toolbar (add, no
+       shiftId), or by clicking an already-scheduled (green) chip/bar
+       (edit, shiftId set — see openShiftModal). Dragging still handles a
+       quick date-only move; this is for changing the time, the assigned
+       staff, or notes on an existing shift, or adding a brand new one
+       without waiting on someone's submitted availability. -->
   <div class="modal-backdrop" id="add-shift-modal">
     <div class="modal">
-      <div class="modal-header"><h2>Add shift</h2><button class="modal-close" id="add-shift-close" type="button">&times;</button></div>
+      <div class="modal-header"><h2 id="as-title">Add shift</h2><button class="modal-close" id="add-shift-close" type="button">&times;</button></div>
       <div class="modal-body">
         <div class="field"><label>Staff</label><select id="as-user" class="input"></select></div>
         <div class="field"><label>Date</label><input type="date" id="as-date" class="input" /></div>
@@ -80,6 +86,7 @@ import Icon from '../../components/Icon.astro';
         <div class="field"><label>Notes</label><input type="text" id="as-notes" class="input" placeholder="Optional" /></div>
       </div>
       <div class="modal-footer">
+        <button class="btn-danger" id="as-delete" style="margin-right:auto;" type="button" hidden>Delete</button>
         <button class="btn-primary" id="as-save" type="button">Save</button>
       </div>
     </div>
@@ -221,6 +228,7 @@ import Icon from '../../components/Icon.astro';
     let anchor = new Date(); // month view: its month matters; day view: the exact date matters
     anchor.setHours(0, 0, 0, 0);
     let editingTemplateId = null;
+    let editingShiftId = null;
 
     function isoOf(d) { return d.toISOString().slice(0, 10); }
 
@@ -246,14 +254,17 @@ import Icon from '../../components/Icon.astro';
       const cls = isTimeOff ? 'timeoff-chip' : kind === 'shift-approved' ? 'shift-chip' : 'req-chip';
       const approvedCls = kind === 'timeoff-approved' ? ' approved' : '';
       const draggable = kind === 'shift-pending' || kind === 'shift-approved' ? 'true' : 'false';
-      return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${escapeHtml(note || '')}">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</div>`;
+      const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
+      const title = escapeHtml(note || hint || '');
+      return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${title}">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</div>`;
     }
 
     function barHtml(kind, id, label, when, top, height, leftPct, widthPct, flagged, note) {
       const cls = kind === 'shift-approved' ? 'shift-bar' : 'req-bar';
+      const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
       return `
         <div class="${cls}${flagged ? ' flagged' : ''}" draggable="true"
-             data-kind="${kind}" data-id="${id}"
+             data-kind="${kind}" data-id="${id}" title="${escapeHtml(note || hint || '')}"
              style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);">
           <span class="who">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</span>
           <span class="when">${escapeHtml(when)}</span>
@@ -527,10 +538,25 @@ import Icon from '../../components/Icon.astro';
       });
     }
 
+    // Clicking an already-scheduled (green) chip/bar opens it for editing
+    // (time, assigned staff, notes) — dragging still handles a quick
+    // date-only move, and a completed drag never also fires this click
+    // (native HTML5 drag suppresses the click on its source element), so
+    // the two don't fight each other.
+    function wireShiftEditClicks(root) {
+      root.querySelectorAll('[data-kind="shift-approved"]').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openEditShiftModal(el.getAttribute('data-id'));
+        });
+      });
+    }
+
     function wireMonthInteractions() {
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
       wireAddButtons(root);
+      wireShiftEditClicks(root);
       wireDragDrop(root, '.cal-month-cell');
       root.querySelectorAll('.cal-month-cell').forEach((cell) => {
         cell.addEventListener('click', (e) => {
@@ -547,6 +573,7 @@ import Icon from '../../components/Icon.astro';
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
       wireAddButtons(root);
+      wireShiftEditClicks(root);
       wireDragDrop(root, '.cal-week-days .cal-day-col');
     }
 
@@ -554,6 +581,7 @@ import Icon from '../../components/Icon.astro';
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
       wireAddButtons(root);
+      wireShiftEditClicks(root);
       wireDragDrop(root, '.cal-day-col');
     }
 
@@ -698,9 +726,13 @@ import Icon from '../../components/Icon.astro';
       await refreshAndRender();
     });
 
-    // ----- Add shift directly (the "+" on a Month/Week cell, or Day's toolbar button) -----
+    // ----- Add OR edit a shift (the "+" on a Month/Week cell, Day's toolbar
+    // button, or clicking an already-scheduled chip/bar) -----
 
     function openAddShiftModal(iso) {
+      editingShiftId = null;
+      document.getElementById('as-title').textContent = 'Add shift';
+      document.getElementById('as-delete').hidden = true;
       const userSelect = document.getElementById('as-user');
       userSelect.innerHTML = (data.users || []).filter((u) => !u.disabled).map((u) =>
         `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`
@@ -711,11 +743,30 @@ import Icon from '../../components/Icon.astro';
       document.getElementById('as-notes').value = '';
       document.getElementById('add-shift-modal').classList.add('show');
     }
+
+    function openEditShiftModal(shiftId) {
+      const shift = (data.shifts || []).find((s) => s.id === shiftId);
+      if (!shift) return;
+      editingShiftId = shiftId;
+      document.getElementById('as-title').textContent = 'Edit shift';
+      document.getElementById('as-delete').hidden = false;
+      const userSelect = document.getElementById('as-user');
+      userSelect.innerHTML = (data.users || []).filter((u) => !u.disabled).map((u) =>
+        `<option value="${u.id}" ${u.id === shift.user_id ? 'selected' : ''}>${escapeHtml(u.display_name)}</option>`
+      ).join('');
+      document.getElementById('as-date').value = shift.date;
+      document.getElementById('as-start').value = shift.start_time;
+      document.getElementById('as-end').value = shift.end_time;
+      document.getElementById('as-notes').value = shift.notes || '';
+      document.getElementById('add-shift-modal').classList.add('show');
+    }
+
     document.getElementById('add-shift-close').addEventListener('click', () => {
       document.getElementById('add-shift-modal').classList.remove('show');
+      editingShiftId = null;
     });
     document.getElementById('add-shift-modal').addEventListener('click', (e) => {
-      if (e.target.id === 'add-shift-modal') e.target.classList.remove('show');
+      if (e.target.id === 'add-shift-modal') { e.target.classList.remove('show'); editingShiftId = null; }
     });
     document.getElementById('as-save').addEventListener('click', async () => {
       const payload = {
@@ -729,10 +780,23 @@ import Icon from '../../components/Icon.astro';
         window.shawarmaToast('Date, start time, and end time are required');
         return;
       }
-      const r = await window.shawarmaApi('POST', '/api/shifts', payload);
-      if (!r.ok) { window.shawarmaToast(r.error || 'Could not add shift'); return; }
+      const r = editingShiftId
+        ? await window.shawarmaApi('PATCH', `/api/shifts/${editingShiftId}`, payload)
+        : await window.shawarmaApi('POST', '/api/shifts', payload);
+      if (!r.ok) { window.shawarmaToast(r.error || (editingShiftId ? 'Could not update shift' : 'Could not add shift')); return; }
       document.getElementById('add-shift-modal').classList.remove('show');
-      window.shawarmaToast('Shift added');
+      window.shawarmaToast(editingShiftId ? 'Shift updated' : 'Shift added');
+      editingShiftId = null;
+      await refreshAndRender();
+    });
+    document.getElementById('as-delete').addEventListener('click', async () => {
+      if (!editingShiftId) return;
+      if (!confirm('Remove this shift from the schedule?')) return;
+      const r = await window.shawarmaApi('DELETE', `/api/shifts/${editingShiftId}`);
+      if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
+      document.getElementById('add-shift-modal').classList.remove('show');
+      window.shawarmaToast('Removed from schedule');
+      editingShiftId = null;
       await refreshAndRender();
     });
 
