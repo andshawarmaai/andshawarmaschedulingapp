@@ -745,12 +745,35 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         // (native HTML5 drag-and-drop isn't reliable on every trackpad/
         // browser to begin with), and either way an admin should get a
         // chance to check/adjust the time before it's actually scheduled.
-        block.addEventListener('drop', (e) => {
+        block.addEventListener('drop', async (e) => {
           e.preventDefault();
           block.classList.remove('drag-over');
-          if (e.dataTransfer.getData('application/x-kind') !== 'roster-user') return;
-          const userId = e.dataTransfer.getData('text/plain');
-          openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
+          const kind = e.dataTransfer.getData('application/x-kind');
+
+          if (kind === 'roster-user') {
+            const userId = e.dataTransfer.getData('text/plain');
+            openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
+            return;
+          }
+
+          // Dragging an existing pending request onto an open slot/coverage
+          // card approves it AT THE HOURS THEY ACTUALLY REQUESTED — never
+          // stretched to the block's full time — since the whole point is
+          // an admin visually confirming "yes, use this person for this
+          // slot," not silently rewriting what they said they're available
+          // for. If their hours don't cover the whole block, the remainder
+          // correctly stays a red open slot on its own (computeGhostItems'
+          // instant-by-instant sweep already handles a partially-covered
+          // window; no special-casing needed here for that).
+          if (kind === 'shift-pending') {
+            const id = e.dataTransfer.getData('text/plain');
+            const req = (data.shiftRequests || []).find((r) => r.id === id);
+            if (!req) return;
+            const r = await window.shawarmaApi('PATCH', `/api/shift-requests/${id}`, { status: 'approved' });
+            if (!r.ok) { window.shawarmaToast(r.error || 'Could not approve'); return; }
+            window.shawarmaToast(`Approved ${userName(req.user_id)}`);
+            await refreshAndRender();
+          }
         });
       });
     }
