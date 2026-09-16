@@ -72,10 +72,22 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     </div>
   </div>
 
-  <!-- Print/Save-as-PDF only: see .print-only in global.css. -->
-  <div class="print-only" id="cal-print-header">
-    <h1 style="margin-bottom:0.25rem;">Schedule</h1>
-    <p id="cal-print-generated-at" style="margin:0 0 1rem;color:#555;font-size:0.8125rem;"></p>
+  <!-- Print/Save-as-PDF only — a self-contained, page-sized sheet (clean
+       static month grid + a plain shift list below it), never the
+       interactive on-screen calendar: see .print-only / .print-keep and
+       the @page rule in global.css, and renderPrintSheet() below. -->
+  <div class="print-only print-keep" id="cal-print-sheet">
+    <div class="print-sheet-header">
+      <h1>&amp;Shawarma — Schedule</h1>
+      <p id="cal-print-period"></p>
+    </div>
+    <table class="print-month-grid" id="cal-print-grid"></table>
+    <h2 class="print-list-heading">Shift list</h2>
+    <table class="print-shift-table" id="cal-print-list">
+      <thead><tr><th>Date</th><th>Staff</th><th>Time</th><th>Notes</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p id="cal-print-generated-at" class="print-generated-at"></p>
   </div>
 
   <!-- Undo — reverses moving, adding, editing, or deleting a shift (in
@@ -136,7 +148,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
   <ShiftTemplatesPanel />
 
   <script>
-    import { escapeHtml, formatTime12, getMonthCells } from '../../lib/client/format.js';
+    import { escapeHtml, formatTime12, getMonthCells, formatDate } from '../../lib/client/format.js';
     import { computeShiftRequestConflicts, computeDayCoverage, computeTemplateTimeGaps, dayOfWeek } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
@@ -1050,10 +1062,79 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       if (e.target.id === 'help-modal') e.target.classList.remove('show');
     });
 
-    // ----- Print / Save as PDF (native browser print — see .print-only in global.css) -----
-    document.getElementById('cal-print-btn').addEventListener('click', () => {
+    // ----- Print / Save as PDF -----
+    // Builds a self-contained, page-sized sheet fresh every time (a clean
+    // static month grid + a plain shift list, never the interactive
+    // on-screen calendar — see #cal-print-sheet/.print-keep in the markup
+    // and @page/.print-month-grid in global.css) so it always reflects
+    // whatever's actually scheduled, regardless of which view (Month/Week/
+    // Day) the admin happens to be looking at on screen. Always prints the
+    // MONTH containing the current view's date — the natural "hang on the
+    // wall" unit — not whatever narrower range is on screen.
+
+    // A grid cell is only ~1.4in wide on a landscape letter page split into
+    // 7 columns — "9:00 AM–6:00 PM" doesn't fit next to a name, so the grid
+    // uses this compact form ("9a-6p", "4:30p-2:30a") instead. The full
+    // shift-list table below has real room and keeps the normal 12-hour
+    // format via timeLabel()/formatTime12.
+    function compactTime(t) {
+      const [h, m] = t.split(':').map(Number);
+      const period = h >= 12 ? 'p' : 'a';
+      const hour = h % 12 || 12;
+      return m === 0 ? `${hour}${period}` : `${hour}:${String(m).padStart(2, '0')}${period}`;
+    }
+    function compactTimeLabel(r) {
+      if (r.start_time === '00:00' && r.end_time === '23:59') return 'All day';
+      return `${compactTime(r.start_time)}-${compactTime(r.end_time)}`;
+    }
+
+    function renderPrintSheet() {
+      const year = anchor.getFullYear();
+      const month = anchor.getMonth() + 1;
+      document.getElementById('cal-print-period').textContent = anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+      const cells = getMonthCells(year, month);
+      const shiftsByDate = new Map();
+      for (const s of (data.shifts || [])) {
+        if (!shiftsByDate.has(s.date)) shiftsByDate.set(s.date, []);
+        shiftsByDate.get(s.date).push(s);
+      }
+
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const headRow = `<tr>${dayNames.map((d) => `<th>${d}</th>`).join('')}</tr>`;
+      const bodyRows = [];
+      for (let w = 0; w < cells.length / 7; w++) {
+        const tds = cells.slice(w * 7, w * 7 + 7).map((c) => {
+          const dayShifts = (shiftsByDate.get(c.iso) || []).slice().sort((a, b) => a.start_time.localeCompare(b.start_time));
+          const lines = dayShifts.map((s) => `<span class="print-shift-line">${escapeHtml(userName(s.user_id))} ${escapeHtml(compactTimeLabel(s))}</span>`).join('');
+          const dayNum = parseInt(c.iso.slice(8, 10), 10);
+          return `<td class="${c.other ? 'pd-other' : ''}"><span class="pd-num">${dayNum}</span>${lines}</td>`;
+        }).join('');
+        bodyRows.push(`<tr>${tds}</tr>`);
+      }
+      document.getElementById('cal-print-grid').innerHTML = `<thead>${headRow}</thead><tbody>${bodyRows.join('')}</tbody>`;
+
+      const firstIso = cells[0].iso;
+      const lastIso = cells[cells.length - 1].iso;
+      const monthShifts = (data.shifts || [])
+        .filter((s) => s.date >= firstIso && s.date <= lastIso)
+        .slice()
+        .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+      const listBody = document.querySelector('#cal-print-list tbody');
+      listBody.innerHTML = monthShifts.length === 0
+        ? '<tr><td colspan="4">No shifts scheduled this month.</td></tr>'
+        : monthShifts.map((s) => `<tr>
+            <td>${formatDate(s.date, { short: true })}</td>
+            <td>${escapeHtml(userName(s.user_id))}</td>
+            <td>${escapeHtml(timeLabel(s))}</td>
+            <td>${escapeHtml(s.notes || '')}</td>
+          </tr>`).join('');
+
       document.getElementById('cal-print-generated-at').textContent =
-        `${document.getElementById('period-label').textContent} — generated ${new Date().toLocaleDateString('en-US', { dateStyle: 'medium' })}`;
+        `Generated ${new Date().toLocaleDateString('en-US', { dateStyle: 'medium' })}`;
+    }
+    document.getElementById('cal-print-btn').addEventListener('click', () => {
+      renderPrintSheet();
       window.print();
     });
 

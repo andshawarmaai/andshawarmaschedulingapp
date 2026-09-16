@@ -22,19 +22,27 @@ const lang = getLang(Astro);
     </div>
   </div>
 
-  <!-- Print/Save-as-PDF-only: a plain list of the signed-in person's own
-       upcoming shifts, since a compact calendar cell truncates times and
-       names — this is what actually reads cleanly on paper. Hidden on
-       screen (see .print-only in global.css), shown only inside the
-       browser's native print dialog (which is also how "Save as PDF"
-       works in every major browser — no extra library needed). -->
-  <div class="print-only" id="print-shift-list">
-    <h1 style="margin-bottom:0.25rem;">{user.display_name} — {t(lang, 'schedule.print')}</h1>
-    <p id="print-generated-at" style="margin:0 0 1rem;color:#555;font-size:0.8125rem;"></p>
+  <!-- Print/Save-as-PDF-only: a self-contained, page-sized sheet — a clean
+       static month grid plus a plain shift list — never the interactive
+       on-screen calendar (fixed widths, a compact cell truncates times and
+       names, none of which means anything on paper). Hidden on screen (see
+       .print-only in global.css), shown only inside the browser's native
+       print dialog (which is also how "Save as PDF" works in every major
+       browser — no extra library needed). `print-keep` marks this as the
+       one thing that survives onto the printed page — everything else on
+       the page is hidden by default in print, see main.app-page's rule. -->
+  <div class="print-only print-keep" id="print-shift-list">
+    <div class="print-sheet-header">
+      <h1>{user.display_name} — {t(lang, 'schedule.print')}</h1>
+      <p id="print-period"></p>
+    </div>
+    <table class="print-month-grid" id="print-month-grid"></table>
+    <h2 class="print-list-heading">{t(lang, 'schedule.print')}</h2>
     <table class="print-shift-table">
       <thead><tr><th>{t(lang, 'schedule.date')}</th><th>{t(lang, 'schedule.startTime')}</th><th>{t(lang, 'schedule.endTime')}</th><th>{t(lang, 'common.notes')}</th></tr></thead>
       <tbody id="print-shift-rows"></tbody>
     </table>
+    <p id="print-generated-at" class="print-generated-at"></p>
   </div>
 
   <div id="view-container" class="cal-scroll"><p class="empty">{t(lang, 'common.loading')}</p></div>
@@ -286,9 +294,51 @@ const lang = getLang(Astro);
       editingShiftId = null;
     }
 
+    // A grid cell is only ~1.4in wide on a landscape letter page split into
+    // 7 columns — "9:00 AM–6:00 PM" doesn't fit, so the grid uses this
+    // compact form ("9a-6p", "4:30p-2:30a") instead. The list below keeps
+    // the normal 12-hour format since it has real room.
+    function compactTime(t) {
+      const [h, m] = t.split(':').map(Number);
+      const period = h >= 12 ? 'p' : 'a';
+      const hour = h % 12 || 12;
+      return m === 0 ? `${hour}${period}` : `${hour}:${String(m).padStart(2, '0')}${period}`;
+    }
+    function compactTimeLabel(s) {
+      if (s.start_time === '00:00' && s.end_time === '23:59') return t(lang, 'schedule.allDay');
+      return `${compactTime(s.start_time)}-${compactTime(s.end_time)}`;
+    }
+
+    function renderPrintMonthGrid() {
+      const el = document.getElementById('print-month-grid');
+      if (!el) return;
+      document.getElementById('print-period').textContent = formatDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-01`, { lang, monthYear: true });
+      const cells = getMonthCells(viewYear, viewMonth);
+      const mineByDate = new Map();
+      for (const s of data.shifts) {
+        if (s.user_id !== ctx.myUserId) continue;
+        if (!mineByDate.has(s.date)) mineByDate.set(s.date, []);
+        mineByDate.get(s.date).push(s);
+      }
+      const dayNames = [0, 1, 2, 3, 4, 5, 6].map((d) => new Date(2023, 0, 1 + d).toLocaleDateString(lang === 'es' ? 'es' : 'en-US', { weekday: 'short' }));
+      const headRow = `<tr>${dayNames.map((d) => `<th>${escapeHtml(d)}</th>`).join('')}</tr>`;
+      const bodyRows = [];
+      for (let w = 0; w < cells.length / 7; w++) {
+        const tds = cells.slice(w * 7, w * 7 + 7).map((c) => {
+          const dayShifts = (mineByDate.get(c.iso) || []).slice().sort((a, b) => a.start_time.localeCompare(b.start_time));
+          const lines = dayShifts.map((s) => `<span class="print-shift-line">${escapeHtml(compactTimeLabel(s))}</span>`).join('');
+          const dayNum = parseInt(c.iso.slice(8, 10), 10);
+          return `<td class="${c.other ? 'pd-other' : ''}"><span class="pd-num">${dayNum}</span>${lines}</td>`;
+        }).join('');
+        bodyRows.push(`<tr>${tds}</tr>`);
+      }
+      el.innerHTML = `<thead>${headRow}</thead><tbody>${bodyRows.join('')}</tbody>`;
+    }
+
     function renderPrintList() {
       const rows = document.getElementById('print-shift-rows');
       if (!rows) return;
+      renderPrintMonthGrid();
       const mine = data.shifts
         .filter((s) => s.user_id === ctx.myUserId && s.date >= today)
         .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
