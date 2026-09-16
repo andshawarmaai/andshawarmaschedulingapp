@@ -85,6 +85,10 @@ const lang = getLang(Astro);
           <input type="checkbox" id="ed-all-day" style="width:1rem;height:1rem;" />
           <span>{t(lang, 'schedule.availableAllDay')}</span>
         </label>
+        <div class="field" id="ed-template-field">
+          <label>{t(lang, 'schedule.quickFillTemplate')}</label>
+          <div id="ed-template-picker" class="template-picker"></div>
+        </div>
         <div class="field"><label for="ed-start">{t(lang, 'schedule.startTime')}</label><input type="time" id="ed-start" class="input" value="11:00" /></div>
         <div class="field"><label for="ed-end">{t(lang, 'schedule.endTime')}</label><input type="time" id="ed-end" class="input" value="19:00" /></div>
         <div class="field"><label for="ed-notes">{t(lang, 'common.notes')}</label><input type="text" id="ed-notes" class="input" placeholder={t(lang, 'common.optional')} /></div>
@@ -102,6 +106,7 @@ const lang = getLang(Astro);
   </script>
   <script>
     import { formatDate, formatTime12, todayISO, getMonthCells, isBlocked, escapeHtml, slotStatus } from '../lib/client/format.js';
+    import { dayOfWeek } from '../lib/client/coverage.js';
     import { t } from '../lib/i18n.js';
 
     const ctx = window.__scheduleCtx;
@@ -256,6 +261,37 @@ const lang = getLang(Astro);
     }
     document.getElementById('ed-all-day').addEventListener('change', (e) => applyAllDay(e.target.checked));
 
+    // Quick-fill buttons for whichever shift templates apply to the day
+    // of week currently selected — so submitting availability for a
+    // normal shift never means typing times by hand. Start/End stay
+    // freely editable for a genuinely custom window; this is purely a
+    // shortcut. Re-rendered whenever the Date field changes.
+    function renderEditorTemplatePicker() {
+      const iso = document.getElementById('ed-date').value;
+      const field = document.getElementById('ed-template-field');
+      const picker = document.getElementById('ed-template-picker');
+      const templates = (data.shiftTemplates || []).filter((tpl) => {
+        if (!iso) return true;
+        const dow = String(dayOfWeek(iso));
+        return tpl.days_of_week.split(',').map((d) => d.trim()).includes(dow);
+      });
+      if (templates.length === 0) { field.hidden = true; picker.innerHTML = ''; return; }
+      field.hidden = false;
+      picker.innerHTML = templates.map((tpl) =>
+        `<button type="button" class="template-pick-btn" data-start="${tpl.start_time}" data-end="${tpl.end_time}">${escapeHtml(tpl.name)} · ${formatTime12(tpl.start_time)}–${formatTime12(tpl.end_time)}</button>`
+      ).join('');
+      picker.querySelectorAll('.template-pick-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.getElementById('ed-all-day').checked = false;
+          document.getElementById('ed-start').disabled = false;
+          document.getElementById('ed-end').disabled = false;
+          document.getElementById('ed-start').value = btn.getAttribute('data-start');
+          document.getElementById('ed-end').value = btn.getAttribute('data-end');
+        });
+      });
+    }
+    document.getElementById('ed-date').addEventListener('change', renderEditorTemplatePicker);
+
     function openEditor(iso, shiftId) {
       editingShiftId = shiftId;
       const shift = shiftId ? data.shifts.find((s) => s.id === shiftId) : null;
@@ -277,6 +313,7 @@ const lang = getLang(Astro);
       ).join('');
       if (!ctx.canEdit) userSelect.value = ctx.myUserId;
       document.getElementById('ed-date').value = shift ? shift.date : iso;
+      renderEditorTemplatePicker();
       applyAllDay(false);
       if (shift) {
         document.getElementById('ed-start').value = shift.start_time;

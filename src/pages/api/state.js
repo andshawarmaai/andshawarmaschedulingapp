@@ -12,7 +12,7 @@ export async function GET(context) {
   const me = context.locals.user;
   const isStaffOrAbove = me.role === 'admin' || me.role === 'manager';
 
-  const [users, shifts, timeOff, swapPosts, swapClaims, dayCaps, shiftRequests] = await Promise.all([
+  const [users, shifts, timeOff, swapPosts, swapClaims, dayCaps, shiftRequests, shiftTemplates] = await Promise.all([
     db.listUsers(),
     db.listShifts(),
     db.listTimeOff(),
@@ -20,6 +20,7 @@ export async function GET(context) {
     db.listSwapClaims(),
     db.listDayCaps(),
     db.listShiftRequests(),
+    db.listShiftTemplates(),
   ]);
 
   const body = {
@@ -30,6 +31,12 @@ export async function GET(context) {
     swapClaims,
     dayCaps,
     shiftRequests,
+    // Everyone gets this now, not just staff-or-above (it used to be
+    // bundled in below) — staff need to read template names/times/days to
+    // power the "quick fill" picker on their own availability submission
+    // (schedule.astro), and there's no actual sensitivity here the way
+    // there is for tiers below.
+    shiftTemplates,
     timeOffApproved: timeOff
       .filter((t) => t.status === 'approved')
       .map((t) => ({ user_id: t.user_id, start_date: t.start_date, end_date: t.end_date })),
@@ -44,7 +51,6 @@ export async function GET(context) {
       created_at: k.created_at, last_used_at: k.last_used_at, revoked: k.revoked,
     }));
     body.passwordResetRequests = (await db.listPasswordResetRequests()).filter((r) => !r.resolved_at);
-    body.shiftTemplates = await db.listShiftTemplates();
   }
   if (me.role === 'admin') {
     // Tiers (and who's on which) are admin-only — deliberately kept out of
