@@ -1,0 +1,179 @@
+---
+// The one shell every page uses — staff and admin/manager alike — so
+// moving between, say, the staff Schedule page and the admin Schedule
+// Builder feels like the same app instead of two different ones (this
+// replaced two separate layouts, AppLayout.astro's mobile-first
+// header+bottom-nav and AdminLayout.astro's desktop sidebar, per the
+// owner's explicit ask to stop that split). Nav is one list: Home/
+// Schedule/Swap/Time Off for everyone, with Manage/Schedule Builder
+// appended only for admin/manager (role-gated by middleware.js
+// regardless — this is just about whether the link is shown).
+//
+// The sidebar is collapsible two different ways depending on viewport:
+// desktop keeps it always on screen but toggles between full-width and an
+// icon-only rail (remembered in localStorage); narrow/mobile viewports
+// hide it entirely behind an off-canvas drawer opened from a hamburger in
+// the topbar, closed by its own backdrop or by picking a link — see the
+// script at the bottom and the .app-shell / .sidebar-* rules in
+// global.css for both.
+import '../styles/global.css';
+import Icon from '../components/Icon.astro';
+import LangToggle from '../components/LangToggle.astro';
+import { getLang, t } from '../lib/i18n.js';
+
+interface Props {
+  title?: string;
+  active?: string;
+}
+const { title = '&Shawarma', active = '' } = Astro.props as Props;
+
+// middleware.js already guarantees Astro.locals.user is set for every page
+// that reaches this layout (it redirects to /login otherwise).
+const user = Astro.locals.user;
+const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
+const lang = getLang(Astro);
+
+const navItems = [
+  { href: '/', key: 'home', label: t(lang, 'nav.home'), icon: 'home' },
+  { href: '/schedule', key: 'schedule', label: t(lang, 'nav.schedule'), icon: 'calendar' },
+  { href: '/shift-swap', key: 'swap', label: t(lang, 'nav.swap'), icon: 'swap' },
+  { href: '/time-off', key: 'timeoff', label: t(lang, 'nav.timeoff'), icon: 'timeoff' },
+];
+const adminNavItems = isStaffOrAbove ? [
+  { href: '/admin', key: 'manage', label: t(lang, 'nav.manage'), icon: 'admin' },
+  { href: '/admin/schedule', key: 'schedule-builder', label: 'Schedule Builder', icon: 'calendar' },
+] : [];
+
+const pageHeading = title === '&Shawarma' ? t(lang, 'nav.home') : title.replace('&Shawarma — ', '');
+// The EN/ES toggle is a staff-facing feature by design (owner's explicit
+// ask) — even though the sidebar itself is now shared with admin/manager,
+// don't show it while on the admin-only pages (Manage, Schedule Builder).
+const showLangToggle = active !== 'manage' && active !== 'schedule-builder';
+---
+<!doctype html>
+<html lang={lang} translate="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#dc2626" />
+  <!-- The app has its own EN/ES switch (LangToggle) — Chrome's own
+       "Translate this page?" prompt on top of that is just confusing, so
+       tell it not to offer. Both the meta tag and the html attribute are
+       Chrome's documented signals for this; belt and suspenders. -->
+  <meta name="google" content="notranslate" />
+  <title>{title}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="app-shell" id="app-shell">
+    <div class="sidebar-backdrop no-print" id="sidebar-backdrop"></div>
+    <aside class="app-sidebar no-print" id="app-sidebar">
+      <div class="app-sidebar-brand">
+        <a href="/" class="app-sidebar-brand-link">
+          <img src="/logo.jpg" alt="&Shawarma" />
+        </a>
+        <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" type="button" aria-label="Collapse sidebar">
+          <Icon name="chevron-left" size={16} />
+        </button>
+      </div>
+      <nav>
+        {navItems.map((item) => (
+          <a href={item.href} class={active === item.key ? 'active' : ''}>
+            <Icon name={item.icon} size={18} />
+            <span class="nav-label">{item.label}</span>
+          </a>
+        ))}
+        {adminNavItems.length > 0 && <div class="sidebar-divider"></div>}
+        {adminNavItems.map((item) => (
+          <a href={item.href} class={active === item.key ? 'active' : ''}>
+            <Icon name={item.icon} size={18} />
+            <span class="nav-label">{item.label}</span>
+          </a>
+        ))}
+      </nav>
+      <div class="app-sidebar-footer">
+        {showLangToggle && <div class="nav-label"><LangToggle lang={lang} /></div>}
+        <div class="app-sidebar-user nav-label">
+          <div class="name">{user.display_name}</div>
+          <div class="role">{t(lang, `role.${user.role}`)}</div>
+        </div>
+        <button id="logout-btn" class="btn-secondary" type="button" style="width:100%;justify-content:center;">
+          <Icon name="logout" size={14} /> <span class="nav-label">{t(lang, 'logout')}</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="app-content">
+      <header class="app-topbar no-print">
+        <button class="sidebar-toggle-btn" id="sidebar-toggle-btn" type="button" aria-label="Open menu">
+          <Icon name="menu" size={20} />
+        </button>
+        <h1>{pageHeading}</h1>
+      </header>
+      <main class="app-page">
+        <slot />
+      </main>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script define:vars={{ lang }}>
+    window.__lang = lang;
+  </script>
+  <script>
+    document.getElementById('logout-btn')?.addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    });
+
+    // Desktop: collapse to an icon-only rail, remembered across page loads
+    // (applied inline via a class on <body> read before paint would be
+    // ideal, but doing it here — right after the shell exists — is a
+    // one-frame flash at worst and keeps this simple).
+    const shell = document.getElementById('app-shell');
+    const COLLAPSE_KEY = 'shawarma_sidebar_collapsed';
+    try {
+      if (localStorage.getItem(COLLAPSE_KEY) === '1') shell.classList.add('sidebar-collapsed');
+    } catch { /* localStorage unavailable (private mode, etc.) — just don't persist */ }
+    document.getElementById('sidebar-collapse-btn')?.addEventListener('click', () => {
+      const collapsed = shell.classList.toggle('sidebar-collapsed');
+      try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch { /* ignore */ }
+    });
+
+    // Mobile: an off-canvas drawer instead of collapsing — opened from the
+    // topbar hamburger, closed by tapping its backdrop or picking a link.
+    const openDrawer = () => shell.classList.add('sidebar-open');
+    const closeDrawer = () => shell.classList.remove('sidebar-open');
+    document.getElementById('sidebar-toggle-btn')?.addEventListener('click', openDrawer);
+    document.getElementById('sidebar-backdrop')?.addEventListener('click', closeDrawer);
+    document.querySelectorAll('.app-sidebar nav a').forEach((a) => a.addEventListener('click', closeDrawer));
+
+    // Shared toast + fetch helpers, exposed globally for every page's own script.
+    window.shawarmaToast = function toast(message) {
+      const el = document.getElementById('toast');
+      if (!el) return;
+      el.textContent = message;
+      el.classList.add('show');
+      window.clearTimeout(el._t);
+      el._t = window.setTimeout(() => el.classList.remove('show'), 3000);
+    };
+
+    window.shawarmaApi = async function api(method, url, body) {
+      const res = await fetch(url, {
+        method,
+        headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      let data = null;
+      try { data = await res.json(); } catch { /* no body */ }
+      if (!res.ok) {
+        return { ok: false, status: res.status, ...(data || {}), error: (data && data.error) || `Request failed (${res.status})` };
+      }
+      return { ok: true, status: res.status, ...(data || {}) };
+    };
+  </script>
+</body>
+</html>

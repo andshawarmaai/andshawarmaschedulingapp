@@ -1,12 +1,12 @@
 ---
-import AppLayout from '../layouts/AppLayout.astro';
+import Layout from '../layouts/Layout.astro';
 import Icon from '../components/Icon.astro';
 import { getLang, t } from '../lib/i18n.js';
 const user = Astro.locals.user;
 const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
 const lang = getLang(Astro);
 ---
-<AppLayout title="&Shawarma — Time Off" active="timeoff">
+<Layout title="&Shawarma — Time Off" active="timeoff">
   <div class="card">
     <h2><Icon name="timeoff" size={18} class="icon-inline" /> {t(lang, 'timeoff.requestTimeOff')}</h2>
     <form id="request-form">
@@ -172,4 +172,4 @@ const lang = getLang(Astro);
 
     refreshAndRender();
   </script>
-</AppLayout>
+</Layout>

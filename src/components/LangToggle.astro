@@ -3,7 +3,9 @@
 // works before sign-in too (login.astro renders it standalone). Sets a
 // cookie and reloads so the very next server render picks the new
 // language up immediately (see src/lib/i18n.js's getLang). `variant="dark"`
-// is for use on the red site-header; the default suits a white card.
+// exists for a future dark-background placement; nothing currently in the
+// app uses it — every spot today (login's white card, the sidebar footer)
+// is light background, so the default variant is what's actually in use.
 interface Props {
   lang: 'en' | 'es';
   variant?: 'light' | 'dark';

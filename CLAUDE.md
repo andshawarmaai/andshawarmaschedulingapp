@@ -254,10 +254,27 @@ device to be able to flip it, including before logging in (the login page
 itself renders in the chosen language).
 
 - `src/lib/i18n.js` is the single dictionary (`en`/`es`) and `t(lang, key, vars)` helper — isomorphic, imported both from Astro frontmatter (`getLang(Astro)` reads the cookie) and from page `<script>` modules (each page sets `window.__lang` via a tiny `define:vars` script, then imports `t` directly from `i18n.js`).
-- `src/components/LangToggle.astro` is the switch itself (sets the cookie, reloads) — rendered in `AppLayout.astro`'s header (`variant="dark"`) and standalone on `login.astro` (default light variant, since login has no AppLayout).
+- `src/components/LangToggle.astro` is the switch itself (sets the cookie, reloads) — rendered standalone on `login.astro`, and inside the shared sidebar's footer via `Layout.astro` (see §9) **only when `active` isn't `manage`/`schedule-builder`** (`showLangToggle` in `Layout.astro`) — the sidebar itself is now shared with admin/manager, but the toggle staying staff-only was an explicit, separate decision that the shared sidebar must not accidentally undo.
 - `formatDate()` in `src/lib/client/format.js` takes an optional `{ lang }` to localize month/weekday names via `toLocaleDateString` (e.g. "septiembre" not "September") — pass it through on every call from a translated page; it defaults to English for admin-side callers that don't pass it.
 - **Known, accepted gap**: error messages that come from the *server* (e.g. a failed login's "Incorrect username or password...", or any API route's `error` field) stay in English regardless of the toggle — only client-side/static UI text is translated. Translating server error strings would mean threading `lang` through every API route; out of scope for a "flip of a switch" feature.
 - **Adding a new staff-facing string**: add the key to both `en` and `es` in `i18n.js`, then use `t(lang, 'your.key')` in the `.astro` markup (frontmatter must call `getLang(Astro)` first) and/or in that page's client `<script>` (must import `t` and read `window.__lang`, set by that page's own `define:vars` block — copy the pattern from any of the four pages above, they're all identical).
+
+## 9. One shared layout — `src/layouts/Layout.astro`
+
+Every page (staff and admin/manager alike) renders through this single
+layout — there is no more separate mobile-first "app" shell and desktop
+"admin" shell. This was a deliberate replacement of two earlier layouts
+(`AppLayout.astro`, `AdminLayout.astro`, both deleted) per the owner's
+explicit complaint that the staff Schedule and the admin Schedule Builder
+"felt like two different pages" instead of one continuous app.
+
+- **One nav list, role-gated by content not by layout.** `Layout.astro` always renders Home/Schedule/Swap/Time Off; it appends Manage + Schedule Builder (behind a `<div class="sidebar-divider">`) only when `user.role` is `admin`/`manager`. `middleware.js` still gates the actual routes regardless — this is only about which links show.
+- **`active` prop values**: `home`, `schedule`, `swap`, `timeoff`, `manage`, `schedule-builder`. The staff Schedule page (`schedule.astro`) uses `active="schedule"`; the admin Schedule Builder (`admin/schedule.astro`) uses `active="schedule-builder"` — **not** `"schedule"` — specifically so the two don't collide in one shared nav list (they used to be two different sidebars, so this never mattered before).
+- **Desktop**: the sidebar is always visible and toggles between full-width and an icon-only rail via `.sidebar-collapse-btn`, persisted in `localStorage` (`shawarma_sidebar_collapsed`) so it survives reloads/navigation.
+- **Mobile (≤860px)**: the sidebar becomes an off-canvas drawer instead (the owner's explicit choice over a permanent icon rail) — hidden by default, opened via a hamburger (`.sidebar-toggle-btn`) in the topbar, closed by tapping `.sidebar-backdrop` or by clicking any nav link. Both behaviors' CSS lives in `global.css` under `.app-shell`/`.app-sidebar`/etc.; the `sidebar-collapsed` and `sidebar-open` classes are mutually exclusive in practice (collapse is desktop-only, drawer is mobile-only) but the CSS handles both being present without breaking.
+- **The EN/ES toggle is intentionally excluded from admin-only pages** even though it's in the now-shared sidebar footer — see §8.
+- Client-JS-built markup (e.g. the Schedule Builder's calendar, built via `innerHTML`) still can't use the `<Icon>` Astro component — inline raw SVG string constants instead (see `CHECK_SVG`/`ALERT_SVG` in `schedule.astro`/`admin/schedule.astro` for the pattern).
+- **The staff Schedule calendar (`.calendar-grid`/`.calendar-day` in `global.css`) intentionally mirrors the Schedule Builder's own month-grid styling** (sticky header, bordered cells, red-circle today badge, `min-width: 45.5rem` so tiles have real room for a name + time before scrolling) — the owner explicitly wanted the two calendars to look like the same product, not a plainer staff version next to a nicer admin one. `main.app-page` is shared at `max-width: 90rem` for the same reason; keep any future calendar tweak applied to both, or they'll visibly drift apart again.
 
 ## 9. Verification checklist before calling a change done
 
