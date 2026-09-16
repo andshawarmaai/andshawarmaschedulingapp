@@ -35,29 +35,53 @@ function templatesForDate(templates, dateStr) {
   return templates.filter((t) => t.days_of_week.split(',').map((d) => d.trim()).includes(dow));
 }
 
-// Shifts on `dateStr` whose time range falls within `template`'s window
-// for that date (both wraparound-aware). Deliberately "fully contained",
-// not "any overlap" — a distinctly-shaped shift that merely touches part
-// of a template's hours (e.g. an 11:30-10:30 shift brushing a 9-6
-// template) isn't a request for THAT block and shouldn't count against
-// its staffing, any more than it should against an unrelated template's.
-function shiftsCoveringTemplate(shifts, template, dateStr) {
-  const [tStart, tEnd] = templateRange(template);
-  return shifts.filter((s) => {
-    if (s.date !== dateStr) return false;
-    const [sStart, sEnd] = shiftRange(s);
-    return sStart >= tStart && sEnd <= tEnd;
-  });
+// A restaurant's templates routinely nest — e.g. "1 Opener, 9am-9:30pm" and
+// "3 Mid AM, 9am-6pm" both legitimately run at once, and every Mid AM shift
+// also technically fits inside the wider Opener window too. Attributing a
+// shift to every template it merely fits inside would count those 3 Mid AM
+// people against the Opener's minimum/maximum as well as their own — a
+// shift instead belongs to whichever containing template is the tightest
+// (smallest) fit, the most specific rule actually describing that slot,
+// never more than one. See the identical note in client/coverage.js, which
+// this mirrors for calendar rendering.
+function bestFitTemplate(templatesForThisDate, shift) {
+  let best = null;
+  let bestDuration = Infinity;
+  for (const template of templatesForThisDate) {
+    const [tStart, tEnd] = templateRange(template);
+    const [sStart, sEnd] = shiftRange(shift);
+    if (sStart < tStart || sEnd > tEnd) continue;
+    const duration = tEnd - tStart;
+    if (duration < bestDuration) {
+      bestDuration = duration;
+      best = template;
+    }
+  }
+  return best;
 }
 
 // Returns a warning string (or null) for removing `userId` from `dateStr`
 // entirely — used by a time-off day and by a shift-request delete/update
 // vacating an existing shift.
 function checkDateRemoval(templates, shifts, dateStr, userId) {
+  const dayTemplates = templatesForDate(templates, dateStr);
+  if (dayTemplates.length === 0) return [];
+  const dayShifts = shifts.filter((s) => s.date === dateStr);
+
+  // Assign every shift on this date to its single best-fit template before
+  // checking anyone's minimum.
+  const byTemplate = new Map();
+  for (const s of dayShifts) {
+    const template = bestFitTemplate(dayTemplates, s);
+    if (!template) continue;
+    if (!byTemplate.has(template)) byTemplate.set(template, []);
+    byTemplate.get(template).push(s);
+  }
+
   const warnings = [];
-  for (const template of templatesForDate(templates, dateStr)) {
+  for (const template of dayTemplates) {
     if (template.min_staff == null) continue;
-    const covering = shiftsCoveringTemplate(shifts, template, dateStr);
+    const covering = byTemplate.get(template) || [];
     if (!covering.some((s) => s.user_id === userId)) continue;
     const projected = covering.length - 1;
     if (projected < template.min_staff) {

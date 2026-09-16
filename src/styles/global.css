@@ -560,8 +560,6 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .req-bar.flagged { background:#fee2e2; border-color:#dc2626; border-left-color:#dc2626; }
 .req-bar .who { font-weight:700; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .req-bar .when { color:var(--color-ink-light); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.req-bar .flag-note { color:#991b1b; font-weight:600; display:block; }
-
 .shift-bar {
   position:absolute; border-radius:0.375rem;
   background:#dcfce7; border:1px solid #16a34a; border-left:3px solid #16a34a;
@@ -572,7 +570,52 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .shift-bar.flagged { background:#fee2e2; border-color:#dc2626; border-left-color:#dc2626; }
 .shift-bar .who { font-weight:700; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .shift-bar .when { color:var(--color-ink-light); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.shift-bar .flag-note { color:#991b1b; font-weight:600; display:block; }
+
+/* Hover popup explaining a red conflict flag in plain English (see
+   showConflictTooltip in admin/schedule.astro) — a real, immediate popup
+   instead of the browser's own slow, muted title tooltip. */
+.conflict-tooltip {
+  position:fixed; z-index:500; max-width:18rem;
+  background:#1c1917; color:#fff; padding:0.5rem 0.75rem; border-radius:0.375rem;
+  font-size:0.8125rem; line-height:1.4; box-shadow:0 4px 12px rgba(0,0,0,0.2);
+  display:none; pointer-events:none;
+}
+.conflict-tooltip.show { display:block; }
+
+/* Day view's "coverage" panel — one card per shift template that applies
+   that day, colored by whether it's short-staffed (red), fully covered
+   (green), over its max (amber), or has no min/max rule (neutral) — plus a
+   row of draggable staff names so filling a gap is drag-a-name-onto-the-
+   gap, like completing a puzzle, rather than inferring gaps from a pile of
+   individual chips and opening a modal to fix each one. */
+.coverage-panel { padding:0.75rem; border-bottom:1px solid var(--color-border); background:var(--color-bg-soft); }
+.coverage-blocks { display:flex; flex-wrap:wrap; gap:0.625rem; }
+.coverage-block {
+  min-width:9rem; flex:1 1 9rem; max-width:14rem; border-radius:0.5rem; padding:0.625rem 0.75rem;
+  border:1.5px solid var(--color-border); background:#fff; cursor:pointer; transition:box-shadow 0.1s, border-color 0.1s;
+}
+.coverage-block:hover { box-shadow:var(--shadow-card); }
+.coverage-block.drag-over { border-color:var(--color-primary); box-shadow:0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent); }
+.coverage-name { font-weight:700; font-size:0.875rem; }
+.coverage-time { font-size:0.75rem; color:var(--color-ink-light); margin-top:0.125rem; }
+.coverage-count { font-size:1.5rem; font-weight:800; margin-top:0.375rem; line-height:1; }
+.coverage-status { font-size:0.75rem; font-weight:600; margin-top:0.125rem; }
+.coverage-block.status-under { background:#fee2e2; border-color:#dc2626; }
+.coverage-block.status-under .coverage-status { color:#991b1b; }
+.coverage-block.status-filled { background:#dcfce7; border-color:#16a34a; }
+.coverage-block.status-filled .coverage-status { color:#15803d; }
+.coverage-block.status-over { background:#fef3c7; border-color:#d97706; }
+.coverage-block.status-over .coverage-status { color:#92400e; }
+.coverage-block.status-neutral { background:var(--color-bg-soft); }
+.coverage-block.status-neutral .coverage-status { color:var(--color-muted); }
+.coverage-roster-label { font-size:0.75rem; color:var(--color-muted); margin:0.625rem 0 0.375rem; }
+.coverage-roster { display:flex; flex-wrap:wrap; gap:0.375rem; }
+.roster-chip {
+  background:#fff; border:1px solid var(--color-border); border-radius:9999px;
+  padding:0.25rem 0.75rem; font-size:0.8125rem; font-weight:600; cursor:grab;
+  box-shadow:0 1px 2px rgba(0,0,0,0.06);
+}
+.roster-chip:active { cursor:grabbing; }
 
 /* Week view: a 7-column timeline sharing the Day view's hour rail. */
 .cal-week-head-row { display:grid; grid-template-columns: 3.5rem repeat(7, minmax(6rem, 1fr)); border-bottom:1px solid var(--color-border); position:sticky; top:0; z-index:2; background:#fff; min-width:45.5rem; }
