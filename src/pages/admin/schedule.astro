@@ -45,9 +45,9 @@ import Icon from '../../components/Icon.astro';
       <span><span class="legend-dot" style="background:#6366f1;border:1px solid #4338ca;"></span> Time off (approved)</span>
     </div>
     <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
-      <button class="btn-secondary" id="help-btn" type="button">❓ How to use this</button>
-      <button class="btn-secondary" id="export-btn" type="button">⬇️ Export to spreadsheet</button>
-      <button class="btn-secondary" id="cal-print-btn" type="button">🖨️ Print / Save as PDF</button>
+      <button class="btn-secondary" id="help-btn" type="button"><Icon name="help-circle" size={16} class="icon-inline" /> How to use this</button>
+      <button class="btn-secondary" id="export-btn" type="button"><Icon name="download" size={16} class="icon-inline" /> Export to spreadsheet</button>
+      <button class="btn-secondary" id="cal-print-btn" type="button"><Icon name="print" size={16} class="icon-inline" /> Print / Save as PDF</button>
     </div>
   </div>
 
@@ -162,6 +162,9 @@ import Icon from '../../components/Icon.astro';
     import { computeShiftRequestConflicts } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
+    // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
+    // character for the conflict-flag indicator built here in client JS.
+    const ALERT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
 
     function toMinutes(hhmm) {
       const [h, m] = hhmm.split(':').map(Number);
@@ -276,7 +279,7 @@ import Icon from '../../components/Icon.astro';
       const draggable = kind === 'shift-pending' || kind === 'shift-approved' ? 'true' : 'false';
       const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
       const title = escapeHtml(note || hint || '');
-      return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${title}">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</div>`;
+      return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" title="${title}">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</div>`;
     }
 
     function barHtml(kind, id, label, when, top, height, leftPct, widthPct, flagged, note) {
@@ -286,7 +289,7 @@ import Icon from '../../components/Icon.astro';
         <div class="${cls}${flagged ? ' flagged' : ''}" draggable="true"
              data-kind="${kind}" data-id="${id}" title="${escapeHtml(note || hint || '')}"
              style="top:${top}%;height:${height}%;left:calc(${leftPct}% + 0.125rem);width:calc(${widthPct}% - 0.25rem);">
-          <span class="who">${escapeHtml(label)}${flagged ? ' ⚠' : ''}</span>
+          <span class="who">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</span>
           <span class="when">${escapeHtml(when)}</span>
           ${note ? `<span class="flag-note">${escapeHtml(note)}</span>` : ''}
         </div>

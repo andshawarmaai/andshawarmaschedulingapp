@@ -124,3 +124,18 @@ const { name, size = 20, class: className = '' } = Astro.props as Props;
     <path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
   </svg>
 )}
+{name === 'print' && (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className}>
+    <path d="M6 9V2h12v7" /><rect x="4" y="9" width="16" height="8" rx="1" /><path d="M6 17v5h12v-5" />
+  </svg>
+)}
+{name === 'download' && (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className}>
+    <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
+  </svg>
+)}
+{name === 'help-circle' && (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className}>
+    <circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 2-2.4 3.7" /><path d="M12 17h.01" />
+  </svg>
+)}
