@@ -369,7 +369,18 @@ const lang = getLang(Astro);
         const denialHtml = r.status === 'denied' && r.denial_reason
           ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">${t(lang, 'common.adminSays')} ${escapeHtml(r.denial_reason)}</div>`
           : '';
-        const cancelBtn = r.status === 'pending' ? `<button class="btn-danger" data-cancel-req="${r.id}">${t(lang, 'common.cancel')}</button>` : '';
+        // Pending gets Cancel (withdraws it before anyone's decided);
+        // denied gets an explicit acknowledge instead — the whole point is
+        // making a person actively confirm they've seen why before it's
+        // gone, rather than it just aging out silently, but it's still on
+        // the person to actually click it (see the owner's ask: nothing
+        // here blocks the rest of the page while an unacknowledged denial
+        // sits there).
+        const actionBtn = r.status === 'pending'
+          ? `<button class="btn-danger" data-cancel-req="${r.id}">${t(lang, 'common.cancel')}</button>`
+          : r.status === 'denied'
+            ? `<button class="btn-secondary" data-ack-req="${r.id}">${t(lang, 'schedule.acknowledge')}</button>`
+            : '';
         return `<div class="list-item" style="align-items:flex-start;">
           <div>
             <div class="who">${label}</div>
@@ -378,7 +389,7 @@ const lang = getLang(Astro);
           </div>
           <div style="display:flex;gap:0.375rem;align-items:center;">
             <span class="badge badge-${r.status}">${t(lang, `status.${r.status}`)}</span>
-            ${cancelBtn}
+            ${actionBtn}
           </div>
         </div>`;
       }).join('');
@@ -387,6 +398,13 @@ const lang = getLang(Astro);
           const r = await window.shawarmaApi('DELETE', `/api/shift-requests/${b.getAttribute('data-cancel-req')}`);
           if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'common.failed')); return; }
           window.shawarmaToast(t(lang, 'schedule.toastRequestCancelled'));
+          await refreshAndRender();
+        });
+      });
+      el.querySelectorAll('[data-ack-req]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const r = await window.shawarmaApi('DELETE', `/api/shift-requests/${b.getAttribute('data-ack-req')}`);
+          if (!r.ok) { window.shawarmaToast(r.error || t(lang, 'common.failed')); return; }
           await refreshAndRender();
         });
       });

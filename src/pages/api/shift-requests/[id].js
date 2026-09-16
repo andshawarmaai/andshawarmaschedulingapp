@@ -60,6 +60,12 @@ export async function PATCH(context) {
   return json({ ok: true });
 }
 
+// No status restriction — a pending request is cancelled, but a
+// denied/approved one can also be deleted by its owner (or staff-or-above)
+// once they've seen it: it's just a stale historical row at that point (an
+// approval already lives on as a real `shifts` row, entirely separate from
+// this one), so there's nothing left to protect by keeping it around.
+// Matches /api/timeoff/[id].js's DELETE, which never had this restriction.
 export async function DELETE(context) {
   const { id } = context.params;
   const me = context.locals.user;
@@ -67,9 +73,6 @@ export async function DELETE(context) {
   if (!req) return json({ error: 'Request not found.' }, 404);
   if (req.user_id !== me.id && !isStaffOrAbove(me)) {
     return json({ error: 'You can only cancel your own requests.' }, 403);
-  }
-  if (req.status !== 'pending') {
-    return json({ error: 'Only pending requests can be cancelled.' }, 409);
   }
   await db.deleteShiftRequest(id);
   return json({ ok: true });
