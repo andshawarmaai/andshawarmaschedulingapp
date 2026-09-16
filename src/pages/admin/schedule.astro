@@ -77,6 +77,18 @@ import Icon from '../../components/Icon.astro';
     <p id="cal-print-generated-at" style="margin:0 0 1rem;color:#555;font-size:0.8125rem;"></p>
   </div>
 
+  <!-- Undo — reverses moving, adding, editing, or deleting a shift (in
+       that order, most-recent-first, any number of steps back this
+       session); Cmd/Ctrl+Z does the same. See pushUndo/undoLast. Doesn't
+       cover approve/deny or time off — those are one-way decisions with
+       their own confirmation (a reason prompt on deny), not schedule
+       edits. -->
+  <div class="undo-bar no-print">
+    <button class="btn-secondary" id="undo-btn" type="button" disabled>
+      <Icon name="undo" size={14} class="icon-inline" /> <span id="undo-label">Undo</span>
+    </button>
+  </div>
+
   <div class="card cal-scroll" style="padding:0;">
     <div id="calendar-root"><p class="empty" style="padding:2rem;">Loading...</p></div>
   </div>
@@ -256,6 +268,52 @@ import Icon from '../../components/Icon.astro';
     anchor.setHours(0, 0, 0, 0);
     let editingTemplateId = null;
     let editingShiftId = null;
+
+    // ----- Undo -----
+    // A plain in-memory stack (cleared on reload — no server-side history)
+    // covering the everyday shift edits made from this page: move (drag),
+    // add, edit, and delete. Each is pushed as its own exact-reverse call,
+    // so "Undo" (the button above the calendar, or Cmd/Ctrl+Z) can walk
+    // back any number of steps, most-recent-first. Deliberately does NOT
+    // cover approve/deny or time off — those are one-way decisions with
+    // their own confirmation (deny already prompts for a reason), not
+    // schedule edits, and reversing an approval would mean untangling the
+    // shift it created too.
+    const undoStack = [];
+
+    function pushUndo(label, undo) {
+      undoStack.push({ label, undo });
+      updateUndoButton();
+    }
+
+    function updateUndoButton() {
+      const btn = document.getElementById('undo-btn');
+      const label = document.getElementById('undo-label');
+      const top = undoStack[undoStack.length - 1];
+      btn.disabled = !top;
+      label.textContent = top ? `Undo: ${top.label}` : 'Undo';
+    }
+
+    async function undoLast() {
+      const action = undoStack.pop();
+      if (!action) return;
+      updateUndoButton();
+      const r = await action.undo();
+      if (r && r.ok === false) {
+        window.shawarmaToast(r.error || 'Could not undo that — the schedule may have changed since');
+        return;
+      }
+      window.shawarmaToast(`Undone: ${action.label}`);
+      await refreshAndRender();
+    }
+
+    document.getElementById('undo-btn').addEventListener('click', undoLast);
+    document.addEventListener('keydown', (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+      e.preventDefault();
+      undoLast();
+    });
 
     function isoOf(d) { return d.toISOString().slice(0, 10); }
 
@@ -584,6 +642,7 @@ import Icon from '../../components/Icon.astro';
             end_time: block.getAttribute('data-end'),
           });
           if (!r.ok) { window.shawarmaToast(r.error || 'Could not add shift'); return; }
+          if (r.shift) pushUndo(`add ${userName(userId)}'s shift`, () => window.shawarmaApi('DELETE', `/api/shifts/${r.shift.id}`));
           window.shawarmaToast('Shift added');
           await refreshAndRender();
         });
@@ -649,8 +708,12 @@ import Icon from '../../components/Icon.astro';
           if (kind === 'shift-approved') {
             const shift = (data.shifts || []).find((s) => s.id === id);
             if (!shift || shift.date === targetDate) return;
+            const name = userName(shift.user_id);
+            if (!confirm(`Move ${name}'s shift to ${targetDate}?`)) return;
+            const originalDate = shift.date;
             const r = await window.shawarmaApi('PATCH', `/api/shifts/${id}`, { date: targetDate });
             if (!r.ok) { window.shawarmaToast(r.error || 'Could not move shift'); return; }
+            pushUndo(`move ${name}'s shift`, () => window.shawarmaApi('PATCH', `/api/shifts/${id}`, { date: originalDate }));
             window.shawarmaToast(`Moved to ${targetDate}`);
             await refreshAndRender();
             return;
@@ -658,8 +721,12 @@ import Icon from '../../components/Icon.astro';
 
           const req = (data.shiftRequests || []).find((r) => r.id === id);
           if (!req || req.date === targetDate) return;
+          const reqName = userName(req.user_id);
+          if (!confirm(`Move ${reqName}'s pending request to ${targetDate}?`)) return;
+          const originalReqDate = req.date;
           const r = await window.shawarmaApi('PATCH', `/api/shift-requests/${id}`, { date: targetDate });
           if (!r.ok) { window.shawarmaToast(r.error || 'Could not move request'); return; }
+          pushUndo(`move ${reqName}'s pending request`, () => window.shawarmaApi('PATCH', `/api/shift-requests/${id}`, { date: originalReqDate }));
           window.shawarmaToast(`Moved to ${targetDate} — still pending`);
           await refreshAndRender();
         });
@@ -739,8 +806,14 @@ import Icon from '../../components/Icon.astro';
       if (action === 'delete') {
         const isTimeOff = kind === 'timeoff-approved';
         if (!confirm(isTimeOff ? 'Remove this time off from the schedule?' : 'Remove this shift from the schedule?')) return;
+        const original = !isTimeOff ? (data.shifts || []).find((s) => s.id === id) : null;
         const url = isTimeOff ? `/api/timeoff/${id}` : `/api/shifts/${id}`;
         const r = await window.shawarmaApi('DELETE', url);
+        if (r.ok && original) {
+          pushUndo(`delete ${userName(original.user_id)}'s shift`, () => window.shawarmaApi('POST', '/api/shifts', {
+            user_id: original.user_id, date: original.date, start_time: original.start_time, end_time: original.end_time, department: original.department, notes: original.notes,
+          }));
+        }
         window.shawarmaToast(r.ok ? 'Removed from schedule' : (r.error || 'Failed'));
         await refreshAndRender();
         return;
@@ -925,20 +998,35 @@ import Icon from '../../components/Icon.astro';
         window.shawarmaToast('Date, start time, and end time are required');
         return;
       }
-      const r = editingShiftId
-        ? await window.shawarmaApi('PATCH', `/api/shifts/${editingShiftId}`, payload)
+      const wasEditing = editingShiftId;
+      const original = wasEditing ? (data.shifts || []).find((s) => s.id === wasEditing) : null;
+      const r = wasEditing
+        ? await window.shawarmaApi('PATCH', `/api/shifts/${wasEditing}`, payload)
         : await window.shawarmaApi('POST', '/api/shifts', payload);
-      if (!r.ok) { window.shawarmaToast(r.error || (editingShiftId ? 'Could not update shift' : 'Could not add shift')); return; }
+      if (!r.ok) { window.shawarmaToast(r.error || (wasEditing ? 'Could not update shift' : 'Could not add shift')); return; }
+      if (wasEditing && original) {
+        pushUndo(`edit ${userName(original.user_id)}'s shift`, () => window.shawarmaApi('PATCH', `/api/shifts/${wasEditing}`, {
+          user_id: original.user_id, date: original.date, start_time: original.start_time, end_time: original.end_time, notes: original.notes,
+        }));
+      } else if (r.shift) {
+        pushUndo(`add ${userName(payload.user_id)}'s shift`, () => window.shawarmaApi('DELETE', `/api/shifts/${r.shift.id}`));
+      }
       document.getElementById('add-shift-modal').classList.remove('show');
-      window.shawarmaToast(editingShiftId ? 'Shift updated' : 'Shift added');
+      window.shawarmaToast(wasEditing ? 'Shift updated' : 'Shift added');
       editingShiftId = null;
       await refreshAndRender();
     });
     document.getElementById('as-delete').addEventListener('click', async () => {
       if (!editingShiftId) return;
       if (!confirm('Remove this shift from the schedule?')) return;
+      const original = (data.shifts || []).find((s) => s.id === editingShiftId);
       const r = await window.shawarmaApi('DELETE', `/api/shifts/${editingShiftId}`);
       if (!r.ok) { window.shawarmaToast(r.error || 'Failed'); return; }
+      if (original) {
+        pushUndo(`delete ${userName(original.user_id)}'s shift`, () => window.shawarmaApi('POST', '/api/shifts', {
+          user_id: original.user_id, date: original.date, start_time: original.start_time, end_time: original.end_time, department: original.department, notes: original.notes,
+        }));
+      }
       document.getElementById('add-shift-modal').classList.remove('show');
       window.shawarmaToast('Removed from schedule');
       editingShiftId = null;
