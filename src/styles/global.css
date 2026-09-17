@@ -624,7 +624,17 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
    Day-view-only (Week uses .cal-week-body/.cal-week-days instead, at its
    own taller REM_PER_HOUR scale that doesn't need this floor), so this
    doesn't touch Week's layout. */
-.cal-day-body .req-bar, .cal-day-body .shift-bar, .cal-day-body .coverage-gap { min-height: 1.125rem; }
+/* This floor must actually fit its content at 0.6875rem font + normal
+   line-height (~1.5, i.e. ~16.5px per line) or overflow:hidden silently
+   clips the BOTTOM of the text instead of leaving room for it — which
+   reads as garbled/strikethrough-looking text, not a missing box, and
+   was a real regression the first time this rule was added (1.125rem
+   wasn't tall enough for even one line once padding was accounted for).
+   .coverage-gap has one line of text + 0.25rem×2 padding; .req-bar/
+   .shift-bar have TWO stacked lines (who/when) + 0.1875rem×2 padding —
+   different minimums because they need different amounts of room. */
+.cal-day-body .coverage-gap { min-height: 1.75rem; }
+.cal-day-body .req-bar, .cal-day-body .shift-bar { min-height: 2.5rem; }
 
 /* Hover popup explaining a red conflict flag in plain English (see
    showConflictTooltip in admin/schedule.astro) — a real, immediate popup
