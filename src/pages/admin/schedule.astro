@@ -539,13 +539,21 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // one line of text; two separate block-level lines had no room and
     // visibly overlapped into an illegible mess instead of just truncating
     // cleanly the way a single ellipsis-clipped line does.
+    // The gap's OWN time range goes FIRST, template name second — a
+    // template is very often named after its full nominal window (e.g.
+    // "9am to 9:30pm — Closer"), which reads exactly like a position claim
+    // and, at these narrow columns, used to get cut off entirely before
+    // reaching the actual range, leaving only that misleading name-as-time
+    // visible ("a column that says 9 AM to 9:30 PM... doesn't show that
+    // it starts at [the time it's actually positioned at]"). Putting the
+    // real range first means it's the part that survives truncation.
     function coverageGapBarHtml(template, gapStart, gapEnd, gapDate, top, height, leftCss, widthCss) {
       const rangeLabel = `${formatTime12(gapStart)}–${formatTime12(gapEnd)}`;
       return `
         <div class="coverage-gap" data-template-id="${template.id}" data-start="${gapStart}" data-end="${gapEnd}" data-date="${gapDate}"
              style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);"
              title="${escapeHtml(template.name)} still needs someone ${rangeLabel} — click to schedule">
-          <span class="coverage-gap-label">${escapeHtml(template.name)} · ${rangeLabel}</span>
+          <span class="coverage-gap-label">${rangeLabel} · ${escapeHtml(template.name)}</span>
         </div>
       `;
     }
@@ -706,7 +714,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * DAY_REM_PER_HOUR}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
         </div>
       `;
-      wireDayInteractions(iso);
+      wireDayInteractions(iso, startMin, windowMin);
     }
 
     // ----- Coverage panel (Day view only) -----
@@ -1001,7 +1009,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       wireDragDrop(root, '.cal-week-days .cal-day-col');
     }
 
-    function wireDayInteractions(iso) {
+    function wireDayInteractions(iso, startMin, windowMin) {
       const root = document.getElementById('calendar-root');
       wireContextMenus(root);
       wireAddButtons(root);
@@ -1009,6 +1017,42 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       wireConflictTooltips(root);
       wireDragDrop(root, '.cal-day-col');
       wireCoverageInteractions(root, iso);
+      wireDayTimeDrag(root, iso, startMin, windowMin);
+    }
+
+    // Dragging an approved shift onto BLANK timeline space (as opposed to
+    // onto a coverage-block/gap, which wireCoverageInteractions already
+    // owns and stops propagation on) computes a new time from the drop's
+    // vertical position, snapped to the nearest 15 minutes, and opens the
+    // Edit modal with it — keeps the shift's original DURATION, just
+    // moves when it starts. This is the "un-snap him and put him
+    // somewhere else, as his own column again" path the roster-drag/
+    // coverage-drop flow doesn't cover on its own, since those only ever
+    // target a pre-existing open-slot block, not an arbitrary time.
+    // Nothing is written until the admin hits Save in that modal.
+    function wireDayTimeDrag(root, iso, startMin, windowMin) {
+      const col = root.querySelector('.cal-day-body .cal-day-col');
+      if (!col) return;
+      col.addEventListener('dragover', (e) => {
+        if (![...e.dataTransfer.types].includes('application/x-kind')) return;
+        e.preventDefault();
+      });
+      col.addEventListener('drop', (e) => {
+        if (e.dataTransfer.getData('application/x-kind') !== 'shift-approved') return;
+        e.preventDefault();
+        const id = e.dataTransfer.getData('text/plain');
+        const shift = (data.shifts || []).find((s) => s.id === id);
+        if (!shift) return;
+        const rect = col.getBoundingClientRect();
+        const fraction = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+        const rawStart = Math.round((startMin + fraction * windowMin) / 15) * 15;
+        let sMin = toMinutes(shift.start_time);
+        let eMin = toMinutes(shift.end_time);
+        if (eMin <= sMin) eMin += 24 * 60;
+        const duration = eMin - sMin;
+        const targetDate = rawStart >= 24 * 60 ? addDays(iso, 1) : iso;
+        openEditShiftModal(id, targetDate, minutesToHHMM(rawStart), minutesToHHMM(rawStart + duration));
+      });
     }
 
     document.getElementById('context-menu').addEventListener('click', async (e) => {
