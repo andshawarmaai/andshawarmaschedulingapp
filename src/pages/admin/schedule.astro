@@ -487,22 +487,29 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // packOverlaps, so a lane that's needed across several segments stays
     // one stable column instead of several disjoint ones the packer is
     // free to scatter.
-    // Every lane's box is LOCKED to the template's own full declared
-    // window (start_time-end_time) — it never resizes to some shorter
-    // sub-range just because a shift elsewhere happens to cover part of
-    // it right now. Earlier this rendered only the exact still-uncovered
-    // sub-segment (an accurate but constantly-resizing box as OTHER
-    // shifts moved around), which the owner explicitly rejected after
-    // watching a template's block change size/shape every time an
-    // unrelated shift was dragged elsewhere on the same day: "you need to
-    // lock in the size of the shift templates... they just keep
-    // resizing" (2026-09-16). A lane still only appears at all when it's
-    // short SOMEWHERE in the window (`segments.some(s => s.needed >
-    // lane)`) — moving a shift can make a lane appear/disappear, and the
-    // coverage panel's own "X of Y" count still reflects the real worst-
-    // moment shortfall — but the BOX ITSELF, once shown, is always the
-    // template's full span, so its position/size is predictable and
-    // never a function of what else is scheduled that day.
+    // Each lane's box spans exactly the sub-range still actually short —
+    // NOT the template's full declared window. This went back and forth
+    // twice on 2026-09-16: locking every box to the template's full
+    // window (so it never resizes when an unrelated shift moves
+    // elsewhere) sounds appealing, but it's WRONG whenever a template's
+    // shortfall genuinely varies across its own window — e.g. "9am-6pm,
+    // needs 3" short 3 from 9-11:30am but only short 2 after 11:30am
+    // (someone else's shift covers one slot from then on): locking every
+    // "needs 3" box to the full 9am-6pm span makes the THIRD lane's box
+    // cover the 11:30am-6pm portion too, falsely implying a 3rd person is
+    // still needed there when only 2 are — "it appears like there's an
+    // extra person and there isn't." Precision was explicitly chosen over
+    // visual stability after seeing that trade-off (confirmed via
+    // computeDayCoverage/computeTemplateTimeGaps output, not just the
+    // screenshot — the sub-ranges were correct all along; a box changing
+    // size when something ELSE on the day changes is a true fact about
+    // coverage, not a rendering bug).
+    //
+    // For lane `i`, walk the template's segments (in order) and merge
+    // every run of CONSECUTIVE segments where `needed > i` into one
+    // continuous bar — so a lane needed across several adjoining segments
+    // still gets one stable box for its whole span, and only actually
+    // splits/ends where the real coverage genuinely changes.
     function computeGhostItems(timeGaps, startMin, windowMin, iso) {
       const byTemplate = new Map();
       for (const gap of timeGaps) {
@@ -513,19 +520,30 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       const ghosts = [];
       for (const [template, segments] of byTemplate) {
         const maxNeeded = Math.max(...segments.map((s) => s.needed));
-        let tStart = toMinutes(template.start_time);
-        let tEnd = toMinutes(template.end_time);
-        if (tEnd <= tStart) tEnd += 24 * 60;
-        const dispStart = Math.max(0, toDisplayMinutes(tStart, startMin));
-        const dispEnd = Math.min(toDisplayMinutes(tEnd, startMin), windowMin);
-        if (dispEnd <= dispStart) continue;
         for (let lane = 0; lane < maxNeeded; lane++) {
-          if (!segments.some((seg) => seg.needed > lane)) continue;
-          ghosts.push({
-            kind: 'coverage-gap', start: dispStart, end: dispEnd, template,
-            gapStart: minutesToHHMM(tStart), gapEnd: minutesToHHMM(tEnd),
-            gapDate: tStart >= 24 * 60 ? addDays(iso, 1) : iso,
-          });
+          let runStart = null;
+          let runEnd = null;
+          const flushRun = () => {
+            if (runStart == null) return;
+            const dispStart = Math.max(0, toDisplayMinutes(runStart, startMin));
+            const dispEnd = Math.min(toDisplayMinutes(runEnd, startMin), windowMin);
+            if (dispEnd > dispStart) {
+              ghosts.push({
+                kind: 'coverage-gap', start: dispStart, end: dispEnd, template,
+                gapStart: minutesToHHMM(runStart), gapEnd: minutesToHHMM(runEnd),
+                gapDate: runStart >= 24 * 60 ? addDays(iso, 1) : iso,
+              });
+            }
+            runStart = null;
+            runEnd = null;
+          };
+          for (const seg of segments) {
+            if (seg.needed <= lane) { flushRun(); continue; }
+            if (runStart == null) { runStart = seg.start; runEnd = seg.end; }
+            else if (seg.start === runEnd) { runEnd = seg.end; }
+            else { flushRun(); runStart = seg.start; runEnd = seg.end; }
+          }
+          flushRun();
         }
       }
       return ghosts;
