@@ -709,6 +709,10 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           <div class="cal-timeoff-label">Time off</div>
           <div class="cal-timeoff-cell" data-date="${iso}">${toChips}</div>
         </div>
+        <div class="cal-timeoff-row" style="grid-template-columns:3.5rem 1fr;">
+          <div class="cal-timeoff-label">Shift times</div>
+          <div class="cal-timeoff-cell"></div>
+        </div>
         <div class="cal-day-body">
           <div class="cal-hours">${hourLabels.join('')}</div>
           <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * DAY_REM_PER_HOUR}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
@@ -788,6 +792,36 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           if (!wasSelected) chip.classList.add('selected');
         });
       });
+      // The reverse of dragging a name IN to fill a slot: drag an
+      // ALREADY-APPROVED shift bar back OUT onto this same roster row to
+      // un-commit it — deletes the shift and creates a fresh pending
+      // request with the same person/date/time, so it goes back to being
+      // a white/outlined item waiting on a decision instead of staying
+      // locked into whichever block it currently occupies.
+      const rosterRow = root.querySelector('.coverage-roster');
+      if (rosterRow) {
+        rosterRow.addEventListener('dragover', (e) => {
+          if (![...e.dataTransfer.types].includes('application/x-kind')) return;
+          e.preventDefault();
+          rosterRow.classList.add('drag-over');
+        });
+        rosterRow.addEventListener('dragleave', () => rosterRow.classList.remove('drag-over'));
+        rosterRow.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          rosterRow.classList.remove('drag-over');
+          if (e.dataTransfer.getData('application/x-kind') !== 'shift-approved') return;
+          const id = e.dataTransfer.getData('text/plain');
+          const shift = (data.shifts || []).find((s) => s.id === id);
+          if (!shift) return;
+          const name = userName(shift.user_id);
+          if (!confirm(`Move ${name}'s shift back to pending?`)) return;
+          const r = await window.shawarmaApi('POST', `/api/shifts/${id}/revert-to-pending`);
+          if (!r.ok) { window.shawarmaToast(r.error || 'Could not revert to pending'); return; }
+          window.shawarmaToast(`${name}'s shift is pending again`);
+          await refreshAndRender();
+        });
+      }
       root.querySelectorAll('.coverage-block, .coverage-gap').forEach((block) => {
         // A .coverage-gap for a segment entirely past midnight carries its
         // own data-date (tomorrow, not `iso`) — see computeGhostItems.

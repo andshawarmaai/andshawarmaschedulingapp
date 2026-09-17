@@ -129,6 +129,26 @@ export async function deleteShift(shiftId) {
   return true;
 }
 
+// "Un-commit" an already-scheduled shift back to a pending request — see
+// local.js's matching function for the full reasoning (dragging onto the
+// Day view's roster row, works uniformly regardless of the shift's
+// origin, deliberately bypasses tier limits since nothing new is being
+// requested). Mirrors local.js's behavior: insert the new pending
+// shift_requests row, then delete the shifts row and any swap post that
+// referenced it.
+export async function revertShiftToPending(shiftId) {
+  const shift = await getShiftById(shiftId);
+  if (!shift) return null;
+  const request = row0(await sql`
+    INSERT INTO shift_requests (user_id, action, shift_id, date, start_time, end_time, department, notes, status, denial_reason, staffing_warning)
+    VALUES (${shift.user_id}, 'create', NULL, ${shift.date}, ${shift.start_time}, ${shift.end_time}, ${shift.department}, ${shift.notes}, 'pending', NULL, NULL)
+    RETURNING *
+  `);
+  await sql`DELETE FROM swap_posts WHERE shift_id = ${shiftId}`;
+  await sql`DELETE FROM shifts WHERE id = ${shiftId}`;
+  return request;
+}
+
 // ----- shift requests (staff request -> admin/manager approval) -----
 
 export async function listShiftRequests() {

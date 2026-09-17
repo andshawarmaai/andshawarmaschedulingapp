@@ -189,6 +189,43 @@ export async function deleteShift(shiftId) {
   return true;
 }
 
+// "Un-commit" an already-scheduled shift back to a pending request —
+// dragging it onto the Day view's roster row (admin/schedule.astro's
+// wireCoverageInteractions), the reverse of dragging a name IN to fill a
+// slot. Deletes the shifts row and creates a brand-new shift_requests row
+// with the SAME user/date/time/notes, status 'pending' — this works
+// uniformly whether the shift came from an approved request (which stays
+// in shift_requests with status 'approved', now just orphaned/stale
+// history — nothing reads it) or was added directly by an admin (no
+// originating request at all). Bypasses tier-limit checks on purpose:
+// this isn't a new commitment being requested, it's an existing one being
+// un-done, so it should never be blocked the way a fresh request could be.
+export async function revertShiftToPending(shiftId) {
+  const d = load();
+  const shift = d.shifts.find((s) => s.id === shiftId);
+  if (!shift) return null;
+  const request = {
+    id: id(),
+    user_id: shift.user_id,
+    action: 'create',
+    shift_id: null,
+    date: shift.date,
+    start_time: shift.start_time,
+    end_time: shift.end_time,
+    department: shift.department,
+    notes: shift.notes,
+    status: 'pending',
+    denial_reason: null,
+    staffing_warning: null,
+    created_at: new Date().toISOString(),
+  };
+  d.shift_requests.push(request);
+  d.shifts = d.shifts.filter((s) => s.id !== shiftId);
+  d.swap_posts = d.swap_posts.filter((p) => p.shift_id !== shiftId);
+  save(d);
+  return request;
+}
+
 // ----- shift requests (staff request -> admin/manager approval) -----
 
 export async function listShiftRequests() {

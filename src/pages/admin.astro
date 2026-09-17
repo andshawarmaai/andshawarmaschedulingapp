@@ -6,8 +6,8 @@ const user = Astro.locals.user;
 ---
 <Layout title="&Shawarma — Manage" active="manage">
   <div class="card">
-    <h2><Icon name="bell" size={18} class="icon-inline" /> Pending Approvals <span id="pending-count" class="badge badge-pending">0</span></h2>
-    <p class="card-sub">Shift requests, time-off requests, and shift-swap volunteers waiting on a decision.</p>
+    <h2><Icon name="bell" size={18} class="icon-inline" /> <a href="/admin/schedule" style="color:inherit;text-decoration:underline;">Pending Approvals</a> <span id="pending-count" class="badge badge-pending">0</span></h2>
+    <p class="card-sub">Shift requests, time-off requests, and shift-swap volunteers waiting on a decision — approve or deny them here, or open <a href="/admin/schedule">Schedule Builder</a> to see them on the calendar.</p>
     <div id="approvals-list"><p class="empty">Loading...</p></div>
   </div>
 
