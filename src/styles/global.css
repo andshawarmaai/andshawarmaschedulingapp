@@ -664,7 +664,11 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .coverage-block.status-neutral { background:var(--color-bg-soft); }
 .coverage-block.status-neutral .coverage-status { color:var(--color-muted); }
 .coverage-roster-label { font-size:0.75rem; color:var(--color-muted); margin:0.625rem 0 0.375rem; }
-.coverage-roster { display:flex; flex-wrap:wrap; gap:0.375rem; }
+.coverage-roster { display:flex; flex-wrap:wrap; gap:0.375rem; border-radius:0.5rem; transition:background 0.1s; }
+/* Dragging an approved shift back onto this row un-commits it to pending
+   (see wireCoverageInteractions) — same drag-over affordance as a
+   coverage-block/gap accepting a drop. */
+.coverage-roster.drag-over { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
 .roster-chip {
   background:#fff; border:1px solid var(--color-border); border-radius:9999px;
   padding:0.25rem 0.75rem; font-size:0.8125rem; font-weight:600; cursor:grab;
