@@ -156,6 +156,16 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // see packNoReuse below for why Day can't share Week's space-efficient
     // reuse behavior.
     const DAY_COL_WIDTH_REM = 7.5;
+    // Day view (only) also uses a much shorter vertical scale than Week —
+    // the owner explicitly wants a whole day's ~18-27hr window (business
+    // hours can run well past midnight) to fit in one screen with no
+    // vertical scrolling at all, "even if the [hour] numbers are stacked
+    // on top of each other" — readability of the hour rail is a lower
+    // priority than seeing the entire day at once. At 1rem/hour, even a
+    // 27-hour window is 27rem (~430px) tall. Week keeps REM_PER_HOUR since
+    // it wasn't part of this complaint and has more vertical room to work
+    // with (only one row of days, no per-day coverage panel above it).
+    const DAY_REM_PER_HOUR = 1;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
     // character for the conflict-flag indicator built here in client JS.
     const ALERT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
@@ -516,12 +526,22 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       return ghosts;
     }
 
+    // The label always states the gap's OWN start-end, not the template's
+    // full window — a template can be fully covered for most of its span
+    // (an approved shift overlapping most of it) and short only a small
+    // remainder, which then renders as a genuinely short block. Without
+    // this the short block just looked like a rendering glitch ("should
+    // stretch the span of where it goes up to") — showing the real
+    // sub-range makes clear it's accurately representing only what's
+    // still actually uncovered.
     function coverageGapBarHtml(template, gapStart, gapEnd, gapDate, top, height, leftCss, widthCss) {
+      const rangeLabel = `${formatTime12(gapStart)}–${formatTime12(gapEnd)}`;
       return `
         <div class="coverage-gap" data-template-id="${template.id}" data-start="${gapStart}" data-end="${gapEnd}" data-date="${gapDate}"
              style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);"
-             title="Click to schedule this open slot">
-          <span class="coverage-gap-label">${escapeHtml(template.name)} — open slot</span>
+             title="${escapeHtml(template.name)} still needs someone ${rangeLabel} — click to schedule">
+          <span class="coverage-gap-label">${escapeHtml(template.name)}</span>
+          <span class="coverage-gap-time">${rangeLabel}</span>
         </div>
       `;
     }
@@ -679,7 +699,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         </div>
         <div class="cal-day-body">
           <div class="cal-hours">${hourLabels.join('')}</div>
-          <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * REM_PER_HOUR}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
+          <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * DAY_REM_PER_HOUR}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
         </div>
       `;
       wireDayInteractions(iso);

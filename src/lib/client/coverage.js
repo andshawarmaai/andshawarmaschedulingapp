@@ -58,16 +58,23 @@ function addDaysISO(dateStr, n) {
 // tomorrow, not today. But that means the shift meant to cover today's
 // overnight tail is dated tomorrow, so it has to be pulled back in here,
 // shifted +24h, or filling that gap would never make the red block clear.
+//
+// Deliberately APPROVED SHIFTS ONLY — a pending request must never count
+// toward closing a gap on its own (a real, reported bug fixed 2026-09-16:
+// submitting an availability request made its own open slot shrink/vanish
+// with no admin action at all, reading as if the app had silently
+// auto-assigned it). Multiple people can be pending for the same slot at
+// once and the admin needs to see the gap stay fully open until they
+// actually pick one and approve it — the pending bar itself still renders
+// on the timeline (dayBarsHtml includes it separately), it just doesn't
+// feed this sweep. `computeShiftRequestConflicts` below is unrelated and
+// keeps combining pending+approved on purpose — that one flags "too many
+// people, decided or not," which is a different question from "is this
+// window actually staffed yet."
 function rowsForSweep(shifts, shiftRequests, dateStr) {
   const tomorrow = addDaysISO(dateStr, 1);
-  const sameDay = [
-    ...shifts.filter((s) => s.date === dateStr),
-    ...shiftRequests.filter((r) => r.status === 'pending' && r.action === 'create' && r.date === dateStr),
-  ];
-  const nextDay = [
-    ...shifts.filter((s) => s.date === tomorrow),
-    ...shiftRequests.filter((r) => r.status === 'pending' && r.action === 'create' && r.date === tomorrow),
-  ];
+  const sameDay = shifts.filter((s) => s.date === dateStr);
+  const nextDay = shifts.filter((s) => s.date === tomorrow);
   return [
     ...sameDay.map((row) => rowRange(row)),
     ...nextDay.map((row) => { const [s, e] = rowRange(row); return [s + 24 * 60, e + 24 * 60]; }),
