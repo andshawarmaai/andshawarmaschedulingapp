@@ -534,14 +534,18 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // stretch the span of where it goes up to") — showing the real
     // sub-range makes clear it's accurately representing only what's
     // still actually uncovered.
+    // ONE line, not two stacked spans — at Day view's tighter vertical
+    // scale a short gap (see DAY_REM_PER_HOUR) can be barely taller than
+    // one line of text; two separate block-level lines had no room and
+    // visibly overlapped into an illegible mess instead of just truncating
+    // cleanly the way a single ellipsis-clipped line does.
     function coverageGapBarHtml(template, gapStart, gapEnd, gapDate, top, height, leftCss, widthCss) {
       const rangeLabel = `${formatTime12(gapStart)}–${formatTime12(gapEnd)}`;
       return `
         <div class="coverage-gap" data-template-id="${template.id}" data-start="${gapStart}" data-end="${gapEnd}" data-date="${gapDate}"
              style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);"
              title="${escapeHtml(template.name)} still needs someone ${rangeLabel} — click to schedule">
-          <span class="coverage-gap-label">${escapeHtml(template.name)}</span>
-          <span class="coverage-gap-time">${rangeLabel}</span>
+          <span class="coverage-gap-label">${escapeHtml(template.name)} · ${rangeLabel}</span>
         </div>
       `;
     }
@@ -803,12 +807,37 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         // chance to check/adjust the time before it's actually scheduled.
         block.addEventListener('drop', async (e) => {
           e.preventDefault();
+          // Without this, a drop here also bubbles up to the day-column's
+          // own drag/drop listener (wireDragDrop, which moves a shift to a
+          // DIFFERENT date) — in Day view that's always the same date, so
+          // it silently no-ops, which is exactly what looked like "it
+          // would not let me [drag it]" for an approved shift before this
+          // branch existed below.
+          e.stopPropagation();
           block.classList.remove('drag-over');
           const kind = e.dataTransfer.getData('application/x-kind');
 
           if (kind === 'roster-user') {
             const userId = e.dataTransfer.getData('text/plain');
             openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
+            return;
+          }
+
+          // Dragging an ALREADY-APPROVED shift onto an open slot/coverage
+          // card — e.g. pulling someone out to reposition them onto a
+          // different block — opens the Edit modal prefilled with the
+          // BLOCK's date/time instead of instantly moving them, same
+          // reviewable-before-committing reasoning as every other drop
+          // here. Saving does the actual PATCH; cancel and nothing
+          // changes. If the block's time doesn't cover the shift's full
+          // old span or the shift doesn't cover the whole block, that's
+          // exactly the same partial-coverage math as any other shift —
+          // no special-casing needed, the sweep just recomputes once saved.
+          if (kind === 'shift-approved') {
+            const id = e.dataTransfer.getData('text/plain');
+            const shift = (data.shifts || []).find((s) => s.id === id);
+            if (!shift) return;
+            openEditShiftModal(id, blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'));
             return;
           }
 
@@ -1098,7 +1127,12 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       document.getElementById('add-shift-modal').classList.add('show');
     }
 
-    function openEditShiftModal(shiftId) {
+    // overrideDate/Start/End let a drag-onto-a-coverage-block (see
+    // wireCoverageInteractions) prefill the modal with the TARGET slot's
+    // time instead of the shift's current one — the admin is repositioning
+    // the shift onto that block, not just re-opening it as-is. Saving
+    // still PATCHes this same shift id; nothing changes until they do.
+    function openEditShiftModal(shiftId, overrideDate, overrideStart, overrideEnd) {
       const shift = (data.shifts || []).find((s) => s.id === shiftId);
       if (!shift) return;
       editingShiftId = shiftId;
@@ -1108,10 +1142,10 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       userSelect.innerHTML = (data.users || []).filter((u) => !u.disabled).map((u) =>
         `<option value="${u.id}" ${u.id === shift.user_id ? 'selected' : ''}>${escapeHtml(u.display_name)}</option>`
       ).join('');
-      document.getElementById('as-date').value = shift.date;
+      document.getElementById('as-date').value = overrideDate || shift.date;
       renderTemplatePicker();
-      document.getElementById('as-start').value = shift.start_time;
-      document.getElementById('as-end').value = shift.end_time;
+      document.getElementById('as-start').value = overrideStart || shift.start_time;
+      document.getElementById('as-end').value = overrideEnd || shift.end_time;
       document.getElementById('as-notes').value = shift.notes || '';
       document.getElementById('add-shift-modal').classList.add('show');
     }
