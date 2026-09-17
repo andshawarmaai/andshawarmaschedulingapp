@@ -611,6 +611,15 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .shift-bar .who { font-weight:700; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .shift-bar .when { color:var(--color-ink-light); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
+/* Day view's much shorter vertical scale (DAY_REM_PER_HOUR) means a
+   genuinely brief item — a 30-60min real shift, or a short leftover
+   coverage gap after most of a template's window is already covered —
+   would otherwise shrink to an unreadable sliver. .cal-day-body is
+   Day-view-only (Week uses .cal-week-body/.cal-week-days instead, at its
+   own taller REM_PER_HOUR scale that doesn't need this floor), so this
+   doesn't touch Week's layout. */
+.cal-day-body .req-bar, .cal-day-body .shift-bar, .cal-day-body .coverage-gap { min-height: 1.125rem; }
+
 /* Hover popup explaining a red conflict flag in plain English (see
    showConflictTooltip in admin/schedule.astro) — a real, immediate popup
    instead of the browser's own slow, muted title tooltip. */
@@ -673,6 +682,7 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .coverage-gap:hover { background:rgba(220,38,38,0.16); }
 .coverage-gap.drag-over { background:rgba(220,38,38,0.28); border-color:#991b1b; }
 .coverage-gap-label { font-size:0.6875rem; font-weight:700; color:#991b1b; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.coverage-gap-time { font-size:0.625rem; color:#991b1b; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Week view: a 7-column timeline sharing the Day view's hour rail. */
 .cal-week-head-row { display:grid; grid-template-columns: 3.5rem repeat(7, minmax(6rem, 1fr)); border-bottom:1px solid var(--color-border); position:sticky; top:0; z-index:2; background:#fff; min-width:45.5rem; }
