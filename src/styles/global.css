@@ -618,20 +618,58 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .shift-bar .when { color:var(--color-ink-light); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Day view's much shorter vertical scale (DAY_REM_PER_HOUR) means a
-   genuinely brief floating bar (a UN-matched 30-60min shift — see
-   computeTemplateSlots, most shifts now render inside a .template-col
-   slot instead) would otherwise shrink to an unreadable sliver. This
-   floor must actually fit its content — TWO stacked lines (who/when) at
-   0.6875rem font + normal line-height + 0.1875rem×2 padding — or
-   overflow:hidden silently clips the BOTTOM of the text instead of
-   leaving room for it, which reads as garbled/strikethrough-looking
-   text, not a missing box (a real regression once already). .cal-day-body
-   is Day-view-only (Week uses .cal-week-body/.cal-week-days instead, at
-   its own taller REM_PER_HOUR scale that doesn't need this), so this
-   doesn't touch Week's layout. MIN_SLOT_REM in admin/schedule.astro is
-   the equivalent floor for a .template-slot, kept in sync with this by
-   eye since one is JS and the other CSS — check both if either changes. */
+   genuinely brief item — a 30-60min real shift, or a short leftover
+   coverage gap after most of a template's window is already covered —
+   would otherwise shrink to an unreadable sliver. .cal-day-body is
+   Day-view-only (Week uses .cal-week-body/.cal-week-days instead, at its
+   own taller REM_PER_HOUR scale that doesn't need this floor), so this
+   doesn't touch Week's layout. */
+/* This floor must actually fit its content at 0.6875rem font + normal
+   line-height (~1.5, i.e. ~16.5px per line) or overflow:hidden silently
+   clips the BOTTOM of the text instead of leaving room for it — which
+   reads as garbled/strikethrough-looking text, not a missing box, and
+   was a real regression the first time this rule was added (1.125rem
+   wasn't tall enough for even one line once padding was accounted for).
+   .coverage-gap has one line of text + 0.25rem×2 padding; .req-bar/
+   .shift-bar have TWO stacked lines (who/when) + 0.1875rem×2 padding —
+   different minimums because they need different amounts of room. */
+.cal-day-body .coverage-gap { min-height: 1.75rem; }
 .cal-day-body .req-bar, .cal-day-body .shift-bar { min-height: 2.5rem; }
+
+/* One column per shift template (not one per person) in the Day view
+   timeline — see groupDayItemsByTemplate/templateColumnHtml. Positioned
+   and sized to the template's own declared time window, same as any
+   other item this packer places; a min-height (set inline, scaled by how
+   many slots it holds) keeps a short-duration, multi-person block
+   legible without fragmenting into separate columns or sub-range ghosts. */
+.template-col {
+  position:absolute; display:flex; flex-direction:column; overflow:hidden;
+  border-radius:0.375rem; border:1px solid var(--color-border); background:var(--color-bg-soft);
+}
+.template-col-label {
+  flex-shrink:0; font-size:0.6875rem; font-weight:700; color:var(--color-ink-light);
+  padding:0.1875rem 0.375rem; border-bottom:1px solid var(--color-border);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:#fff;
+}
+.template-col-slots { flex:1; display:flex; flex-direction:column; gap:0.1875rem; padding:0.1875rem; overflow-y:auto; }
+/* Same visual language as a normal .shift-bar/.req-bar (color, border,
+   who/when text) but laid out in-flow inside .template-col-slots instead
+   of absolutely positioned against the whole timeline — one row per
+   person instead of one column per person. */
+.slot-inline { position:static !important; flex-shrink:0; min-height:2.25rem; width:100%; }
+.slot-pending { display:flex; flex-direction:column; gap:0.125rem; }
+.slot-approve-btn {
+  align-self:flex-start; margin-top:0.0625rem; border:none; background:var(--color-primary); color:#fff;
+  font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.02em;
+  padding:0.0625rem 0.375rem; border-radius:9999px; cursor:pointer;
+}
+.slot-approve-btn:hover { background:var(--color-primary-dark, #b91c1c); }
+.template-slot-empty {
+  flex-shrink:0; min-height:2.25rem; border-radius:0.3125rem; border:1.5px dashed var(--color-border);
+  color:var(--color-muted); font-size:0.6875rem; font-weight:600;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.1s, border-color 0.1s;
+}
+.template-slot-empty:hover, .template-slot-empty.drag-over { background:color-mix(in srgb, var(--color-primary) 10%, transparent); border-color:var(--color-primary); color:var(--color-primary); }
 
 /* Hover popup explaining a red conflict flag in plain English (see
    showConflictTooltip in admin/schedule.astro) — a real, immediate popup
@@ -684,43 +722,21 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
 .roster-chip:active { cursor:grabbing; }
 .roster-chip.selected { background:var(--color-primary); border-color:var(--color-primary); color:#fff; }
 
-/* One column per shift template, drawn directly in the Day view timeline
-   at its own fixed time-of-day (see computeTemplateSlots in coverage.js
-   for the full history of why this replaced the old per-segment "ghost"
-   boxes) — a small header naming the template, then a vertical stack of
-   slots, one per person the template calls for. Position/size come from
-   admin/schedule.astro (top/height/left/width inline, height computed to
-   fit the header + every slot at MIN_SLOT_REM even if that's taller than
-   the template's own time-proportional span). */
-.template-col {
+/* Understaffed template windows drawn directly in the Day view timeline,
+   at their real time-of-day position (see renderCoverageGaps) — the same
+   drag/click-to-fill target as a .coverage-block card, but visible right
+   where the gap actually is instead of only summarized above the
+   calendar. Drawn before the real shift bars in the DOM so a bar for that
+   same window paints on top, leaving whatever's still uncovered visibly
+   red underneath. */
+.coverage-gap {
   position:absolute; border-radius:0.375rem; overflow:hidden;
-  border:1.5px solid var(--color-border); background:#fff;
-  display:flex; flex-direction:column; box-shadow:0 1px 2px rgba(0,0,0,0.06);
+  border:2px dashed #dc2626; background:rgba(220,38,38,0.08);
+  padding:0.25rem 0.5rem; cursor:pointer; transition:background 0.1s;
 }
-.template-col-header {
-  flex:0 0 auto; font-size:0.625rem; font-weight:700; color:var(--color-ink-light);
-  padding:0.1875rem 0.375rem; background:var(--color-bg-soft); border-bottom:1px solid var(--color-border);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.template-col-slots { flex:1 1 auto; display:flex; flex-direction:column; }
-/* Shared sizing for both kinds of slot — an open one (its own div) and a
-   filled one (the real .shift-bar/.req-bar chip, which also gets this
-   class — see the position:static override below). Keep this min-height
-   in sync with MIN_SLOT_REM in admin/schedule.astro. */
-.template-slot { flex:1 1 0; min-height:1.75rem; margin:0.0625rem; border-radius:0.25rem; }
-.template-slot.open {
-  display:flex; align-items:center; justify-content:center;
-  border:1.5px dashed #dc2626; background:rgba(220,38,38,0.08); color:#991b1b;
-  font-size:0.6875rem; font-weight:700; cursor:pointer; transition:background 0.1s;
-}
-.template-slot.open:hover, .template-slot.open.drag-over { background:rgba(220,38,38,0.2); }
-/* A filled slot is a normal .shift-bar/.req-bar chip (same classes, same
-   contextmenu/click/drag wiring) laid out by the flex column above
-   instead of being absolutely positioned on its own — this is the ONLY
-   override needed, everything else (background, border, padding, font)
-   still comes from the base .shift-bar/.req-bar rules since this is
-   declared after them. */
-.template-slot.filled { position:static; }
+.coverage-gap:hover { background:rgba(220,38,38,0.16); }
+.coverage-gap.drag-over { background:rgba(220,38,38,0.28); border-color:#991b1b; }
+.coverage-gap-label { font-size:0.6875rem; font-weight:700; color:#991b1b; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Week view: a 7-column timeline sharing the Day view's hour rail. */
 .cal-week-head-row { display:grid; grid-template-columns: 3.5rem repeat(7, minmax(6rem, 1fr)); border-bottom:1px solid var(--color-border); position:sticky; top:0; z-index:2; background:#fff; min-width:45.5rem; }

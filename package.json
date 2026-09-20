@@ -7,7 +7,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "test": "node --test test/"
   },
   "dependencies": {
     "astro": "^5.0.0",

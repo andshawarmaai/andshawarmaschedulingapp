@@ -17,10 +17,23 @@ export async function POST(context) {
   if (post.status !== 'open') return json({ error: 'This shift is no longer available.' }, 409);
   if (post.user_id === me.id) return json({ error: 'You cannot claim your own posted shift.' }, 400);
 
+  const shift = await db.getShiftById(post.shift_id);
+
+  // Sprint 5 (PRD EPIC 8): a job-specific shift (job_id set — currently
+  // only ever true for an auto-generated shift, see Sprint 3) can only be
+  // claimed by someone qualified for that job. A job-agnostic shift
+  // (job_id null — every manually-scheduled shift today) is unaffected —
+  // this never restricts existing behavior, only the new job-aware path.
+  if (shift && shift.job_id) {
+    const myJobs = await db.listEmployeeJobs({ user_id: me.id, job_id: shift.job_id });
+    if (!myJobs[0] || myJobs[0].qualification_state !== 'qualified') {
+      return json({ error: 'You are not qualified for the job this shift requires.' }, 403);
+    }
+  }
+
   // Slot caps block the staff self-service swap path. Admins/managers can
   // still schedule past a cap directly from the schedule editor — this only
   // stops someone volunteering their way into an already-full slot.
-  const shift = await db.getShiftById(post.shift_id);
   if (shift) {
     const [dayCaps, shifts] = await Promise.all([db.listDayCaps(), db.listShifts()]);
     const status = slotStatus(dayCaps, shifts, shift.date, shift.start_time);

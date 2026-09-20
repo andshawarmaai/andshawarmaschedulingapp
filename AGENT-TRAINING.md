@@ -1,8 +1,8 @@
 <!--
 GENERATED from src/lib/agentGuide/registry.js (see that file's header comment for why).
 Do not hand-edit the sections below — regenerate instead. Prefer fetching this live:
-GET /api/agent-guide/markdown from the specific deployment you're talking to
-(see CLAUDE.md §2 for which URL that is for this app's two deployments).
+GET /api/agent-guide/markdown from the deployment itself (see CLAUDE.md §2
+for the URL) rather than trusting a stale local copy.
 -->
 
 # &Shawarma Scheduling — Agent Integration Guide
@@ -22,6 +22,8 @@ This document tells an AI agent (or any other system authenticating with an API 
 **Idempotency is mostly your responsibility.** Almost nothing below has a database-enforced dedup key (day_caps upserts by date+window are the one exception). A retried or resent instruction WILL create a second shift, a second availability entry, or a second swap post if you call the same write twice — track what you've already submitted for a given conversation/message yourself, the API will not catch a duplicate for you. Within /api/public/shift-imports, `cap` rows upsert by (date, window_start, window_end) and `template` rows upsert by exact name, so both are safe to resubmit — `shift` and `swap` rows have no dedup key at all and WILL duplicate on a resubmit.
 
 **Authentication.** Every call below uses an API key created via POST /api/admin/api-keys (admin session) or the Manage → API Keys card in the UI: header Authorization: Bearer shwrm_xxxxx. The key resolves to the real user who created it and acts with that user's exact role and identity — there is no separate "service account" concept, and a write is attributed to that real person just as if they'd clicked it themselves. A 403 means the key's owner does not hold the role a given action requires — create the key from an account with sufficient role rather than trying to escalate.
+
+**There is no per-vendor POS/timeclock adapter — you are the adapter.** This platform serves many different businesses, each potentially on a different POS or timeclock system (Toast, Square, Clover, SpotOn, a paper log someone photographs...). Rather than one API endpoint per vendor maintained in this codebase, actual_shift_import (below) accepts one canonical shape, and translating whatever a specific business's system actually produces — a CSV export, a screenshot of a report, that system's own API response if you have access to it — into that shape is your job, the same "a dropped-in file is yours to convert" principle already applies to bulk shift imports. Always pass a real, honest `source` value naming where the data actually came from (e.g. "toast", "square", "manual") — never invent a generic label that hides what you don't actually know.
 
 ## Authentication
 
@@ -255,7 +257,203 @@ Blocked (409) if the slot is already at a day_caps max, or if the same key-owner
 
 `PATCH /api/swap/claims/{id}  { "status": "approved" | "denied" }` — minimum role: **manager** — **human-only step, documented for context — do not call automatically**
 
-Human-only — finalizing a swap reassigns the shift between two real people; documented for context, not meant to be called automatically.
+Human-only — finalizing a swap reassigns the shift between two real people; documented for context, not meant to be called automatically. As of the peak-staffing-mix work below, approval also re-checks the claimant's job qualification if the shift has a job_id — a claim can now be rejected (409) at approval time even if it was valid when claimed.
+
+### List jobs/roles
+
+`GET /api/admin/jobs` — minimum role: **manager** — agent may call this
+
+Operational positions (e.g. "Shawarma Station", "Cashier") — distinct from a user's app role (staff/manager/admin). Resolve a job_id against this before calling any of the job-qualification/proficiency/requirement actions below; also returned in GET /api/state's `jobs` array for every role, not just manager-and-up.
+
+### Create a job/role
+
+`POST /api/admin/jobs` — minimum role: **manager** — agent may call this
+
+Same "never invent" caution as shift_template_create — a job is standing operational structure everyone's qualification/scheduling gets checked against; only create one on an explicit, specific instruction, never a guess.
+
+**Request body:**
+
+| field | type | required | notes |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `department` | string | no |  |
+
+**Response:** 201 with the created job.
+
+### Edit or disable a job
+
+`PATCH /api/admin/jobs/{id}` — minimum role: **manager** — agent may call this
+
+Same fields as job_create, plus disabled (boolean) to retire a job without deleting its history.
+
+### Delete a job
+
+`DELETE /api/admin/jobs/{id}` — minimum role: **manager** — agent may call this
+
+Cascades: removes everyone's qualification and proficiency for this job too. Prefer job_update with disabled: true unless a human specifically asks to delete it outright.
+
+### Set an employee's qualification for a job
+
+`POST /api/admin/employee-jobs` — minimum role: **manager** — agent may call this
+
+Gates whether this person can be scheduled into the job at all — only 'qualified' satisfies a hard requirement (see template_requirement_set). Relay an explicit human decision verbatim ("mark Jorge qualified for Shawarma Station") — never infer or guess someone's qualification yourself. Demoting below 'qualified' automatically clears any proficiency tier already set for that job+person (see employee_role_profile_set) — mention this side effect if a human asks you to demote someone who currently has one.
+
+**Idempotency:** Upserts by (user_id, job_id) — safe to resubmit the same state.
+
+**Request body:**
+
+| field | type | required | notes |
+|---|---|---|---|
+| `user_id` | string | yes | Resolve via GET /api/state → users. |
+| `job_id` | string | yes |  |
+| `qualification_state` | "not_qualified" | "training" | "qualified" | yes |  |
+| `effective_date` | date (YYYY-MM-DD) | no | Defaults to today. |
+
+**Response:** 201 with the employee_jobs row.
+
+### Remove an employee's qualification record for a job entirely
+
+`DELETE /api/admin/employee-jobs  { user_id, job_id }` — minimum role: **manager** — agent may call this
+
+Different from setting qualification_state to 'not_qualified' — this removes the record (and any proficiency profile) entirely, as if the job/person link never existed. Prefer employee_job_set with 'not_qualified' unless a human specifically wants the record gone.
+
+### Set an employee's role-specific proficiency tier
+
+`POST /api/admin/employee-role-profiles` — minimum role: **manager** — agent may call this
+
+Deliberately NOT a single global "good/bad employee" score — tracked per job. Requires the employee already be 'qualified' for that job (400 otherwise: resolve with employee_job_set first). This is a performance judgment about a real person's scheduling opportunity — relay an explicit human assessment verbatim ("Sanaa is Advanced at Shawarma Station now"), never infer or estimate a proficiency tier yourself from indirect signals.
+
+**Idempotency:** Upserts by (user_id, job_id) — safe to resubmit the same state.
+
+**Request body:**
+
+| field | type | required | notes |
+|---|---|---|---|
+| `user_id` | string | yes |  |
+| `job_id` | string | yes |  |
+| `proficiency` | "developing" | "proficient" | "advanced" | yes |  |
+| `effective_date` | date (YYYY-MM-DD) | no |  |
+| `source` | string | no | Free text provenance, e.g. "Manager review 2026-09". |
+
+**Response:** 201 with the profile row. 400 if the employee isn't 'qualified' for that job yet.
+
+### Clear an employee's proficiency tier for a job
+
+`DELETE /api/admin/employee-role-profiles  { user_id, job_id }` — minimum role: **manager** — agent may call this
+
+Removes the tier without touching the underlying qualification (employee_jobs) — they remain qualified, just with no proficiency recorded.
+
+### Submit a recurring weekly availability window
+
+`POST /api/availability` — minimum role: **staff** — agent may call this
+
+NOT the same thing as availability_create above — that endpoint (/api/shift-requests) is a date-specific "I'm free this one day" ask that becomes a real shift once approved. This is a standing weekly pattern ("never available Tuesdays," "free 9-5 every Wednesday") with no approval step and no direct scheduling effect by itself — it's read by GET /api/state's `availabilityMine` for the caller, and by the auto-generation optimizer in a future integration. Always submitted as the API key owner.
+
+**Idempotency:** None — resubmitting creates an additional row, it does not replace one. Track what you've already submitted.
+
+**Request body:**
+
+| field | type | required | notes |
+|---|---|---|---|
+| `day_of_week` | integer 0 (Sunday) - 6 (Saturday) | yes |  |
+| `start_time` | time (HH:MM) | yes |  |
+| `end_time` | time (HH:MM) | yes |  |
+| `effective_from` | date (YYYY-MM-DD) | no | Omit for "no start bound". |
+| `effective_to` | date (YYYY-MM-DD) | no | Omit for "ongoing". |
+
+**Response:** 201 with the created rule.
+
+### Delete a recurring availability rule
+
+`DELETE /api/availability/{id}` — minimum role: **staff (own) or manager (any)** — agent may call this
+
+Removes one weekly-pattern row (not a whole day's worth — a person can have several overlapping-day rules).
+
+### Set a peak-staffing-mix requirement for a shift template + job
+
+`POST /api/admin/shift-templates/{id}/requirements` — minimum role: **manager** — agent may call this
+
+E.g. "Friday dinner needs at least one Advanced Shawarma Station person and three Proficient-or-better." min_count is the plain headcount for that job on that template; the other two are layered minimums within that headcount (advanced counts toward proficient-or-better too, not as a separate bucket). Changes standing weekly policy, like shift_template_create — only on an explicit, specific instruction.
+
+**Idempotency:** Upserts by (shift_template_id, job_id) — safe to resubmit the same state.
+
+**Request body:**
+
+| field | type | required | notes |
+|---|---|---|---|
+| `job_id` | string | yes |  |
+| `min_count` | integer >= 0 | no | Defaults to 0. |
+| `min_advanced_count` | integer >= 0 | no | Defaults to 0. |
+| `min_proficient_or_better_count` | integer >= 0 | no | Defaults to 0. |
+
+**Response:** 201 with the requirement row.
+
+### Remove a peak-staffing-mix requirement
+
+`DELETE /api/admin/shift-templates/{id}/requirements  { job_id }` — minimum role: **manager** — agent may call this
+
+That job goes back to having no mix requirement on this template (but any min_staff/max_staff on the template itself is untouched).
+
+### Check whether a template's peak-staffing-mix is satisfied on a given date
+
+`GET /api/admin/shift-templates/{id}/coverage-check?date=YYYY-MM-DD` — minimum role: **manager** — agent may call this
+
+Read-only. Returns, per job requirement, actual vs. required headcount/advanced/proficient-plus counts and any gaps (REQUIRED_COVERAGE_GAP, MIN_PROFICIENCY_MIX_GAP) — useful context before telling a human a Friday is fully covered, or isn't.
+
+### Generate a candidate schedule for a date
+
+`POST /api/admin/schedule/generate` — minimum role: **manager** — agent may call this
+
+Read-only in effect — writes only an audit snapshot of the proposal (schedule_generations), never a real shift. Derives ShiftSlots from that date's shift_templates × their peak-staffing-mix requirements (falling back to a job-agnostic slot sized to min_staff for a template with none configured), then runs the optimizer: hard eligibility/availability/no-double-booking first, then mandatory proficiency mix, then generic fill favoring whoever has fewer hours already this week. Present the result (assignments + any unfilled gaps) to a manager — do not describe it as already scheduled, nothing is live yet.
+
+**Request body:**
+
+| field | type | required | notes |
+|---|---|---|---|
+| `date` | date (YYYY-MM-DD) | yes |  |
+
+**Response:** 200 with { generation_id, slots, assignments, unfilled }. Each assignment includes reason_codes explaining why that person was picked.
+
+### Apply an accepted candidate-schedule proposal
+
+`POST /api/admin/schedule/apply` — minimum role: **manager** — **human-only step, documented for context — do not call automatically**
+
+Human-only — this is the actual publish step that turns a proposal into real, live shifts (potentially many at once). The PRD this feature implements is explicit that the optimizer/AI never publishes autonomously; a manager reviews the schedule_generate proposal and applies it themselves from the app, or gives you an unambiguous, specific instruction to do so for a proposal they've already seen and named ("apply generation X exactly as shown") — never apply a proposal on your own initiative or from a vague "go ahead and schedule Friday."
+
+### List past schedule-generation proposals (audit trail)
+
+`GET /api/admin/schedule/generations?date=YYYY-MM-DD` — minimum role: **manager** — agent may call this
+
+Read-only history of what the optimizer has proposed and what was actually applied, by whom, and when — useful context, not itself a write.
+
+### Submit actual worked time (clock-in/out) from a POS or timeclock
+
+`POST /api/public/actual-shifts` — minimum role: **staff (any valid API key)** — agent may call this
+
+See the "you are the adapter" principle above — translate whatever the business's actual POS/timeclock report contains into this shape yourself. Kept separate from the `shifts` table on purpose: this records what actually happened, `shifts` records what was scheduled, and reliability_read (below) compares the two. shift_id is optional — omit it rather than guessing if you're not confident which scheduled shift a punch corresponds to; the reliability calculation falls back to same-date matching on its own.
+
+**Idempotency:** Pass external_ref (the source system's own id for that punch) when it has one — the pair (source, external_ref) is deduplicated at the database level, so resubmitting the same batch is safe. A source with no stable per-punch id has no dedup protection; note that to whoever asked you to submit it.
+
+**Request body:**
+
+| field | type | required | notes |
+|---|---|---|---|
+| `source` | string | yes | e.g. "toast", "square", "clover", "manual" — name what it actually is. |
+| `rows` | array (max 1000) | yes | Each: { user_id, date, clock_in, clock_out?, shift_id?, external_ref? }. |
+
+**Response:** 201 with { created, skippedDuplicate, import_id }. 400 with rowErrors (all-or-nothing — nothing is written if any row fails validation) if a user_id/date/time is missing or malformed.
+
+### GPS-verified self check-in / check-out
+
+`POST /api/checkin  { "action": "in" | "out", "lat", "lng", "date", "time" }` — minimum role: **staff (own session only — not reachable with an API key at all; not under /api/public or /api/admin)** — **human-only step, documented for context — do not call automatically**
+
+Human-only, deliberately excluded from API-key access entirely — this proves a real person's phone was physically at the restaurant at this exact moment (server-side haversine distance check against the location's stored geofence, src/lib/geo.js). An agent calling this on someone's behalf, even with honestly-relayed coordinates, defeats the entire point of the feature — there is no legitimate agent use case here, unlike availability_review above (which at least has a real human decision behind it an agent could theoretically relay). Writes to actual_worked_shifts with source='self_checkin', alongside the raw lat/lng/distance for audit. Documented here only so an agent understands why "just check me in" from a person in conversation must be declined and redirected to the app.
+
+### Read one employee's factual reliability record over a date range
+
+`GET /api/admin/reliability?user_id=&date_from=&date_to=` — minimum role: **manager** — agent may call this
+
+Read-only. Returns named counts (on_time_count, late_count, no_show_count, on_time_pct) computed from scheduled shifts vs. actual_shift_import data — deliberately not a single score (PRD section 4.2). Useful context before answering a question like "has Jorge been reliable lately," but relay the actual numbers, don't summarize them into your own good/bad verdict.
 
 ## Bulk schedule import
 
@@ -275,3 +473,4 @@ For loading a whole schedule at once (a spreadsheet, a photo of a handwritten sc
 | `template` | name, days_of_week, start_time, end_time, min_staff, max_staff | Creates or updates a recurring weekly shift_template. days_of_week is 0(Sun)-6(Sat), separated by comma, space, or "|" (e.g. "1 2 3 4 5"). Matched and upserted by exact `name` — importing the same name again UPDATES it in place, safe to resubmit. |
 
 Name matching (the `username` column on `shift`/`swap` rows) is fuzzy on purpose: it accepts the exact system username, a full display name, or a first name — a first name shared by two people is treated as ambiguous and errors rather than guessing.
+

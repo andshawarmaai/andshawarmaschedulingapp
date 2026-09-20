@@ -35,6 +35,7 @@ export async function PATCH(context) {
     if (!parsed.ok) return json({ error: `${field} must be a whole number ≥ 0, or blank for no limit.` }, 400);
     updates[field] = parsed.value;
   }
+  if (body.auto_approve_time_off !== undefined) updates.auto_approve_time_off = !!body.auto_approve_time_off;
 
   const tier = await db.updateTier(id, updates);
   if (!tier) return json({ error: 'Tier not found.' }, 404);

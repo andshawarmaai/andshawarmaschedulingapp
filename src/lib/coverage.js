@@ -4,7 +4,7 @@
 // it only attaches a human-readable heads-up to a request that still goes
 // to Pending Approvals as normal, so whoever decides can see the tradeoff.
 
-function toMinutes(hhmm) {
+export function toMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
 }
@@ -12,25 +12,25 @@ function toMinutes(hhmm) {
 // End-exclusive minute range for `template` as it applies to the specific
 // calendar date it *starts* on. end can exceed 1440 when the block
 // crosses midnight (e.g. 16:30-02:30 => [990, 1590)).
-function templateRange(template) {
+export function templateRange(template) {
   const start = toMinutes(template.start_time);
   let end = toMinutes(template.end_time);
   if (end <= start) end += 24 * 60;
   return [start, end];
 }
 
-function shiftRange(shift) {
+export function shiftRange(shift) {
   const start = toMinutes(shift.start_time);
   let end = toMinutes(shift.end_time);
   if (end <= start) end += 24 * 60;
   return [start, end];
 }
 
-function dayOfWeek(dateStr) {
+export function dayOfWeek(dateStr) {
   return new Date(`${dateStr}T00:00:00`).getDay(); // 0=Sun..6=Sat
 }
 
-function templatesForDate(templates, dateStr) {
+export function templatesForDate(templates, dateStr) {
   const dow = String(dayOfWeek(dateStr));
   return templates.filter((t) => t.days_of_week.split(',').map((d) => d.trim()).includes(dow));
 }
@@ -44,7 +44,7 @@ function templatesForDate(templates, dateStr) {
 // (smallest) fit, the most specific rule actually describing that slot,
 // never more than one. See the identical note in client/coverage.js, which
 // this mirrors for calendar rendering.
-function bestFitTemplate(templatesForThisDate, shift) {
+export function bestFitTemplate(templatesForThisDate, shift) {
   let best = null;
   let bestDuration = Infinity;
   for (const template of templatesForThisDate) {

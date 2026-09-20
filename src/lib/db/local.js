@@ -43,6 +43,14 @@ function seedData() {
     day_caps: [],
     tiers: [],
     shift_templates: [],
+    locations: [],
+    jobs: [],
+    employee_jobs: [],
+    employee_role_profiles: [],
+    availability_rules: [],
+    template_job_requirements: [],
+    schedule_generations: [],
+    actual_worked_shifts: [],
   };
 }
 
@@ -62,6 +70,14 @@ function load() {
   if (!data.password_reset_requests) data.password_reset_requests = [];
   if (!data.tiers) data.tiers = [];
   if (!data.shift_templates) data.shift_templates = [];
+  if (!data.locations) data.locations = [];
+  if (!data.jobs) data.jobs = [];
+  if (!data.employee_jobs) data.employee_jobs = [];
+  if (!data.employee_role_profiles) data.employee_role_profiles = [];
+  if (!data.availability_rules) data.availability_rules = [];
+  if (!data.template_job_requirements) data.template_job_requirements = [];
+  if (!data.schedule_generations) data.schedule_generations = [];
+  if (!data.actual_worked_shifts) data.actual_worked_shifts = [];
   return data;
 }
 
@@ -144,7 +160,7 @@ export async function getShiftById(shiftId) {
   return load().shifts.find((s) => s.id === shiftId) || null;
 }
 
-export async function createShift({ user_id, date, start_time, end_time, department, notes, import_id }) {
+export async function createShift({ user_id, date, start_time, end_time, department, notes, import_id, job_id }) {
   const d = load();
   const shift = {
     id: id(),
@@ -155,6 +171,7 @@ export async function createShift({ user_id, date, start_time, end_time, departm
     department: department || null,
     notes: notes || null,
     import_id: import_id || null,
+    job_id: job_id || null,
     created_at: new Date().toISOString(),
   };
   d.shifts.push(shift);
@@ -176,6 +193,7 @@ export async function updateShift(shiftId, updates) {
   if (updates.end_time !== undefined) s.end_time = updates.end_time;
   if (updates.department !== undefined) s.department = updates.department;
   if (updates.notes !== undefined) s.notes = updates.notes;
+  if (updates.job_id !== undefined) s.job_id = updates.job_id;
   save(d);
   return s;
 }
@@ -601,7 +619,7 @@ export async function getTierById(tierId) {
   return load().tiers.find((t) => t.id === tierId) || null;
 }
 
-export async function createTier({ name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month }) {
+export async function createTier({ name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month, auto_approve_time_off }) {
   const d = load();
   const row = {
     id: id(),
@@ -610,6 +628,7 @@ export async function createTier({ name, max_shifts_per_month, max_weekend_shift
     max_weekend_shifts_per_month: max_weekend_shifts_per_month ?? null,
     max_days_off_per_month: max_days_off_per_month ?? null,
     max_weekend_days_off_per_month: max_weekend_days_off_per_month ?? null,
+    auto_approve_time_off: !!auto_approve_time_off,
     created_at: new Date().toISOString(),
   };
   d.tiers.push(row);
@@ -626,6 +645,7 @@ export async function updateTier(tierId, updates) {
   if (updates.max_weekend_shifts_per_month !== undefined) row.max_weekend_shifts_per_month = updates.max_weekend_shifts_per_month;
   if (updates.max_days_off_per_month !== undefined) row.max_days_off_per_month = updates.max_days_off_per_month;
   if (updates.max_weekend_days_off_per_month !== undefined) row.max_weekend_days_off_per_month = updates.max_weekend_days_off_per_month;
+  if (updates.auto_approve_time_off !== undefined) row.auto_approve_time_off = !!updates.auto_approve_time_off;
   save(d);
   return row;
 }
@@ -690,4 +710,324 @@ export async function deleteShiftTemplate(templateId) {
   d.shift_templates = d.shift_templates.filter((t) => t.id !== templateId);
   save(d);
   return true;
+}
+
+// ----- locations (Sprint 1 — multi-location foundation) -----
+
+export async function listLocations() {
+  return load()
+    .locations.slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getLocationById(locationId) {
+  if (!locationId) return null;
+  return load().locations.find((l) => l.id === locationId) || null;
+}
+
+export async function createLocation({ name, timezone, lat, lng, geofence_radius_meters }) {
+  const d = load();
+  const row = {
+    id: id(),
+    name,
+    timezone: timezone || 'America/New_York',
+    disabled: false,
+    lat: lat != null ? Number(lat) : null,
+    lng: lng != null ? Number(lng) : null,
+    geofence_radius_meters: geofence_radius_meters != null ? Number(geofence_radius_meters) : null,
+    created_at: new Date().toISOString(),
+  };
+  d.locations.push(row);
+  save(d);
+  return row;
+}
+
+export async function updateLocation(locationId, updates) {
+  const d = load();
+  const row = d.locations.find((l) => l.id === locationId);
+  if (!row) return null;
+  if (updates.name !== undefined) row.name = updates.name;
+  if (updates.timezone !== undefined) row.timezone = updates.timezone;
+  if (updates.disabled !== undefined) row.disabled = !!updates.disabled;
+  if (updates.lat !== undefined) row.lat = updates.lat != null ? Number(updates.lat) : null;
+  if (updates.lng !== undefined) row.lng = updates.lng != null ? Number(updates.lng) : null;
+  if (updates.geofence_radius_meters !== undefined) row.geofence_radius_meters = updates.geofence_radius_meters != null ? Number(updates.geofence_radius_meters) : null;
+  save(d);
+  return row;
+}
+
+// The single-restaurant default — "a NULL location means the single
+// default location until an admin actually splits locations apart" (see
+// schema.sql's comment on this table). Used by /api/checkin so a
+// check-in doesn't need users.location_id populated, which it usually
+// isn't in a single-location deployment.
+export async function getPrimaryLocation() {
+  const locations = load().locations.filter((l) => !l.disabled);
+  if (locations.length === 0) return null;
+  return locations.slice().sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+}
+
+// ----- jobs / roles (Sprint 1 — EPIC 2) -----
+
+export async function listJobs() {
+  return load()
+    .jobs.slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getJobById(jobId) {
+  if (!jobId) return null;
+  return load().jobs.find((j) => j.id === jobId) || null;
+}
+
+export async function createJob({ name, department }) {
+  const d = load();
+  const row = { id: id(), name, department: department || null, disabled: false, created_at: new Date().toISOString() };
+  d.jobs.push(row);
+  save(d);
+  return row;
+}
+
+export async function updateJob(jobId, updates) {
+  const d = load();
+  const row = d.jobs.find((j) => j.id === jobId);
+  if (!row) return null;
+  if (updates.name !== undefined) row.name = updates.name;
+  if (updates.department !== undefined) row.department = updates.department;
+  if (updates.disabled !== undefined) row.disabled = !!updates.disabled;
+  save(d);
+  return row;
+}
+
+export async function deleteJob(jobId) {
+  const d = load();
+  d.jobs = d.jobs.filter((j) => j.id !== jobId);
+  d.employee_jobs = d.employee_jobs.filter((ej) => ej.job_id !== jobId);
+  d.employee_role_profiles = d.employee_role_profiles.filter((p) => p.job_id !== jobId);
+  save(d);
+  return true;
+}
+
+// ----- employee job qualification (Sprint 1 — EPIC 2) -----
+// One row per user+job; re-setting it updates in place (see schema.sql's
+// comment on employee_jobs for why this isn't versioned history yet).
+
+export async function listEmployeeJobs({ user_id, job_id } = {}) {
+  let rows = load().employee_jobs.slice();
+  if (user_id) rows = rows.filter((r) => r.user_id === user_id);
+  if (job_id) rows = rows.filter((r) => r.job_id === job_id);
+  return rows;
+}
+
+export async function setEmployeeJob({ user_id, job_id, qualification_state, effective_date, created_by }) {
+  const d = load();
+  let row = d.employee_jobs.find((r) => r.user_id === user_id && r.job_id === job_id);
+  if (row) {
+    row.qualification_state = qualification_state;
+    row.effective_date = effective_date;
+    row.created_by = created_by ?? row.created_by;
+  } else {
+    row = {
+      id: id(), user_id, job_id, qualification_state, effective_date,
+      created_by: created_by || null, created_at: new Date().toISOString(),
+    };
+    d.employee_jobs.push(row);
+  }
+  save(d);
+  return row;
+}
+
+export async function deleteEmployeeJob(user_id, job_id) {
+  const d = load();
+  d.employee_jobs = d.employee_jobs.filter((r) => !(r.user_id === user_id && r.job_id === job_id));
+  d.employee_role_profiles = d.employee_role_profiles.filter((r) => !(r.user_id === user_id && r.job_id === job_id));
+  save(d);
+  return true;
+}
+
+// Removes only the proficiency profile, keeping the employee_jobs
+// qualification row intact — used when demoting below 'qualified' rather
+// than fully removing the job assignment (see deleteEmployeeJob above).
+export async function deleteEmployeeRoleProfile(user_id, job_id) {
+  const d = load();
+  d.employee_role_profiles = d.employee_role_profiles.filter((r) => !(r.user_id === user_id && r.job_id === job_id));
+  save(d);
+  return true;
+}
+
+// ----- role-specific proficiency (Sprint 1 — EPIC 3) -----
+
+export async function listEmployeeRoleProfiles({ user_id, job_id } = {}) {
+  let rows = load().employee_role_profiles.slice();
+  if (user_id) rows = rows.filter((r) => r.user_id === user_id);
+  if (job_id) rows = rows.filter((r) => r.job_id === job_id);
+  return rows;
+}
+
+// Only settable for an employee already 'qualified' on this job — enforced
+// by the API route, not here, so the enforcement stays in one visible place.
+export async function setEmployeeRoleProfile({ user_id, job_id, proficiency, effective_date, source, created_by }) {
+  const d = load();
+  let row = d.employee_role_profiles.find((r) => r.user_id === user_id && r.job_id === job_id);
+  if (row) {
+    row.proficiency = proficiency;
+    row.effective_date = effective_date;
+    row.source = source ?? row.source;
+    row.created_by = created_by ?? row.created_by;
+  } else {
+    row = {
+      id: id(), user_id, job_id, proficiency, effective_date,
+      source: source || null, created_by: created_by || null, created_at: new Date().toISOString(),
+    };
+    d.employee_role_profiles.push(row);
+  }
+  save(d);
+  return row;
+}
+
+// ----- recurring availability (Sprint 1 — EPIC 4) -----
+
+export async function listAvailabilityRules(userId) {
+  const rows = load().availability_rules.slice();
+  return userId ? rows.filter((r) => r.user_id === userId) : rows;
+}
+
+export async function createAvailabilityRule({ user_id, day_of_week, start_time, end_time, effective_from, effective_to }) {
+  const d = load();
+  const row = {
+    id: id(), user_id, day_of_week, start_time, end_time,
+    effective_from: effective_from || null, effective_to: effective_to || null,
+    created_at: new Date().toISOString(),
+  };
+  d.availability_rules.push(row);
+  save(d);
+  return row;
+}
+
+export async function deleteAvailabilityRule(ruleId, userId) {
+  const d = load();
+  const before = d.availability_rules.length;
+  // userId, when given, scopes deletion to that user's own rules — mirrors
+  // the ownership check every other self-service delete route already does.
+  d.availability_rules = d.availability_rules.filter((r) => !(r.id === ruleId && (!userId || r.user_id === userId)));
+  save(d);
+  return d.availability_rules.length < before;
+}
+
+// ----- peak staffing mix (Sprint 2 — EPIC 3/5, WB-SCH-253) -----
+
+export async function listTemplateJobRequirements(templateId) {
+  const rows = load().template_job_requirements || [];
+  return templateId ? rows.filter((r) => r.shift_template_id === templateId) : rows.slice();
+}
+
+export async function setTemplateJobRequirement({ shift_template_id, job_id, min_count, min_advanced_count, min_proficient_or_better_count }) {
+  const d = load();
+  if (!d.template_job_requirements) d.template_job_requirements = [];
+  let row = d.template_job_requirements.find((r) => r.shift_template_id === shift_template_id && r.job_id === job_id);
+  if (row) {
+    row.min_count = min_count;
+    row.min_advanced_count = min_advanced_count;
+    row.min_proficient_or_better_count = min_proficient_or_better_count;
+  } else {
+    row = {
+      id: id(), shift_template_id, job_id, min_count, min_advanced_count, min_proficient_or_better_count,
+      created_at: new Date().toISOString(),
+    };
+    d.template_job_requirements.push(row);
+  }
+  save(d);
+  return row;
+}
+
+export async function deleteTemplateJobRequirement(shift_template_id, job_id) {
+  const d = load();
+  if (!d.template_job_requirements) return true;
+  d.template_job_requirements = d.template_job_requirements.filter((r) => !(r.shift_template_id === shift_template_id && r.job_id === job_id));
+  save(d);
+  return true;
+}
+
+// ----- schedule generation snapshots (Sprint 4 — EPIC 7) -----
+
+export async function createScheduleGeneration({ date, generated_by, proposal }) {
+  const d = load();
+  if (!d.schedule_generations) d.schedule_generations = [];
+  const row = {
+    id: id(), date, generated_by: generated_by || null, proposal,
+    applied_shift_ids: null, applied_by: null, applied_at: null,
+    created_at: new Date().toISOString(),
+  };
+  d.schedule_generations.push(row);
+  save(d);
+  return row;
+}
+
+export async function markScheduleGenerationApplied(generationId, { applied_shift_ids, applied_by }) {
+  const d = load();
+  const row = (d.schedule_generations || []).find((g) => g.id === generationId);
+  if (!row) return null;
+  row.applied_shift_ids = applied_shift_ids;
+  row.applied_by = applied_by || null;
+  row.applied_at = new Date().toISOString();
+  save(d);
+  return row;
+}
+
+export async function listScheduleGenerations({ date } = {}) {
+  const rows = (load().schedule_generations || []).slice();
+  const filtered = date ? rows.filter((r) => r.date === date) : rows;
+  return filtered.sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+// ----- actual worked shifts (Sprint 7 — EPIC 11 subset, POS/timeclock-agnostic) -----
+
+export async function findActualWorkedShiftBySourceRef(source, externalRef) {
+  if (!externalRef) return null;
+  return load().actual_worked_shifts.find((r) => r.source === source && r.external_ref === externalRef) || null;
+}
+
+export async function createActualWorkedShift({
+  user_id, shift_id, date, clock_in, clock_out, source, external_ref, import_id,
+  clock_in_lat, clock_in_lng, clock_in_distance_meters,
+}) {
+  const d = load();
+  const row = {
+    id: id(), user_id, shift_id: shift_id || null, date, clock_in, clock_out: clock_out || null,
+    source, external_ref: external_ref || null, import_id: import_id || null, created_at: new Date().toISOString(),
+    clock_in_lat: clock_in_lat != null ? Number(clock_in_lat) : null,
+    clock_in_lng: clock_in_lng != null ? Number(clock_in_lng) : null,
+    clock_in_distance_meters: clock_in_distance_meters != null ? Number(clock_in_distance_meters) : null,
+    clock_out_lat: null, clock_out_lng: null, clock_out_distance_meters: null,
+  };
+  d.actual_worked_shifts.push(row);
+  save(d);
+  return row;
+}
+
+// The still-open punch (no clock_out yet) for this user today, if any —
+// what /api/checkin's "out" action needs to close, and what the client
+// uses to know whether to show "Check In" or "Check Out".
+export async function findOpenActualWorkedShift(userId, date) {
+  return load().actual_worked_shifts.find((r) => r.user_id === userId && r.date === date && !r.clock_out) || null;
+}
+
+export async function closeActualWorkedShift(recordId, { clock_out, clock_out_lat, clock_out_lng, clock_out_distance_meters }) {
+  const d = load();
+  const row = d.actual_worked_shifts.find((r) => r.id === recordId);
+  if (!row) return null;
+  row.clock_out = clock_out;
+  row.clock_out_lat = clock_out_lat != null ? Number(clock_out_lat) : null;
+  row.clock_out_lng = clock_out_lng != null ? Number(clock_out_lng) : null;
+  row.clock_out_distance_meters = clock_out_distance_meters != null ? Number(clock_out_distance_meters) : null;
+  save(d);
+  return row;
+}
+
+export async function listActualWorkedShifts({ user_id, date_from, date_to } = {}) {
+  let rows = load().actual_worked_shifts.slice();
+  if (user_id) rows = rows.filter((r) => r.user_id === user_id);
+  if (date_from) rows = rows.filter((r) => r.date >= date_from);
+  if (date_to) rows = rows.filter((r) => r.date <= date_to);
+  return rows;
 }

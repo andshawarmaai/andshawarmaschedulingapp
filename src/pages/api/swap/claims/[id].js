@@ -28,6 +28,22 @@ export async function PATCH(context) {
     return json({ ok: true, claim: updated });
   }
 
+  // Sprint 5 (PRD EPIC 8 engineering requirement: "eligibility must be
+  // rechecked at approval time, not only at claim time"). The claimant's
+  // qualification could have changed (or never been checked at all, for a
+  // claim made before this check existed) between claiming and approval.
+  const claimForCheck = await db.getSwapClaim(id);
+  if (claimForCheck && claimForCheck.status === 'pending') {
+    const post = await db.getSwapPost(claimForCheck.post_id);
+    const shift = post ? await db.getShiftById(post.shift_id) : null;
+    if (shift && shift.job_id) {
+      const claimantJobs = await db.listEmployeeJobs({ user_id: claimForCheck.claimant_id, job_id: shift.job_id });
+      if (!claimantJobs[0] || claimantJobs[0].qualification_state !== 'qualified') {
+        return json({ error: 'This claimant is no longer qualified for the job this shift requires — deny it instead.' }, 409);
+      }
+    }
+  }
+
   const result = await db.approveSwapClaimTx(id);
   if (result.error === 'not_found') return json({ error: 'Claim not found.' }, 404);
   if (result.error === 'already_resolved') return json({ error: `Already ${result.status}.`, status: result.status }, 409);
