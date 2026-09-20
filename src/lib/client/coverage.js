@@ -209,24 +209,55 @@ export function computeDayCoverage(shiftTemplates, shifts, shiftRequests, dateSt
   });
 }
 
-// The actual sub-intervals of each date-applicable template's window that
-// aren't covered by enough people at that exact moment — not just "the
-// daily headcount is short," but "which specific hours are short" (see
-// sweepTemplateCoverage). Each returned gap is one contiguous segment plus
-// how many more people it's short by; a segment needing 2 more should
-// become two separate fillable slots, not one, hence `needed` rather than
-// a single flat "understaffed" flag. Powers the Day view timeline's open-
-// slot blocks (see computeGhostItems in admin/schedule.astro).
-export function computeTemplateTimeGaps(shiftTemplates, shifts, shiftRequests, dateStr) {
+// The Day view timeline used to draw one ghost box per still-short
+// sub-range (see admin/schedule.astro git history for computeGhostItems),
+// which was accurate but kept resizing/reshaping as ANY-OVERLAP coverage
+// from unrelated shifts changed a template's exact shortfall throughout
+// the day — after several rounds of owner feedback landing on genuinely
+// contradictory asks ("lock the size" vs. "don't show a phantom person"),
+// the fix was to stop trying to visualize time-sliced coverage at all and
+// switch to a discrete SLOT model instead: "wherever there's a shift
+// template just have one column for that shift template and if there's
+// three people that should be filling that shift create three slots for
+// the names that can be dragged in there" (2026-09-20).
+//
+// Each template gets exactly `max_staff ?? min_staff` slots (skipped
+// entirely if BOTH are null — no defined headcount to track). A slot is
+// FILLED by whichever real shift/pending-request best-fits this template
+// (bestFitTemplate — the same strict-containment, narrowest-match
+// attribution `computeShiftRequestConflicts` uses, deliberately NOT the
+// any-overlap sweep the old gap boxes used — a slot represents "is a
+// specific person assigned to this specific role," not "is this window
+// physically covered by anyone at all"). Approved shifts fill slots
+// before pending requests do (an approved shift is a firmer claim on the
+// slot); if there are more matched rows than slots, the extras still get
+// their own slot beyond the base count rather than being silently
+// dropped — that's an over-capacity situation for a human to notice and
+// resolve, not something to hide.
+export function computeTemplateSlots(shiftTemplates, shifts, shiftRequests, dateStr) {
   const templates = templatesForDate(shiftTemplates, dateStr);
-  const ranges = rowsForSweep(shifts, shiftRequests, dateStr);
+  const pendingCreates = shiftRequests.filter((r) => r.status === 'pending' && r.action === 'create' && r.date === dateStr);
+  const todaysShifts = shifts.filter((s) => s.date === dateStr);
 
-  const gaps = [];
-  for (const template of templates) {
-    if (template.min_staff == null) continue;
-    for (const { start, end, count } of sweepTemplateCoverage(template, ranges)) {
-      if (count < template.min_staff) gaps.push({ template, start, end, needed: template.min_staff - count });
-    }
+  const byTemplate = new Map(templates.map((t) => [t, []]));
+  for (const row of todaysShifts) {
+    const t = bestFitTemplate(templates, row);
+    if (t) byTemplate.get(t).push({ kind: 'shift-approved', row });
   }
-  return gaps;
+  for (const row of pendingCreates) {
+    const t = bestFitTemplate(templates, row);
+    if (t) byTemplate.get(t).push({ kind: 'shift-pending', row });
+  }
+
+  return templates
+    .filter((t) => t.max_staff != null || t.min_staff != null)
+    .map((template) => {
+      const slotCount = template.max_staff ?? template.min_staff;
+      const matched = byTemplate.get(template);
+      const totalSlots = Math.max(slotCount, matched.length);
+      const slots = Array.from({ length: totalSlots }, (_, i) =>
+        matched[i] ? { filled: true, kind: matched[i].kind, row: matched[i].row } : { filled: false }
+      );
+      return { template, slotCount, slots };
+    });
 }
