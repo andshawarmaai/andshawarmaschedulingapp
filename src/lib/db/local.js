@@ -51,6 +51,8 @@ function seedData() {
     template_job_requirements: [],
     schedule_generations: [],
     actual_worked_shifts: [],
+    agent_chat_messages: [],
+    agent_chat_actions: [],
   };
 }
 
@@ -78,6 +80,8 @@ function load() {
   if (!data.template_job_requirements) data.template_job_requirements = [];
   if (!data.schedule_generations) data.schedule_generations = [];
   if (!data.actual_worked_shifts) data.actual_worked_shifts = [];
+  if (!data.agent_chat_messages) data.agent_chat_messages = [];
+  if (!data.agent_chat_actions) data.agent_chat_actions = [];
   return data;
 }
 
@@ -1030,4 +1034,76 @@ export async function listActualWorkedShifts({ user_id, date_from, date_to } = {
   if (date_from) rows = rows.filter((r) => r.date >= date_from);
   if (date_to) rows = rows.filter((r) => r.date <= date_to);
   return rows;
+}
+
+// ─── Hermes chat ───────────────────────────────────────────────────────────
+
+export async function createChatMessage({ user_id, role, content, parent_id = null }) {
+  const d = load();
+  const row = {
+    id: id(),
+    user_id,
+    role,
+    content,
+    status: 'pending',
+    parent_id: parent_id || null,
+    created_at: new Date().toISOString(),
+    completed_at: null,
+  };
+  d.agent_chat_messages.push(row);
+  save(d);
+  return row;
+}
+
+export async function getChatHistory(user_id, limit = 50) {
+  const rows = load().agent_chat_messages
+    .filter((m) => m.user_id === user_id)
+    .sort((a, b) => a.created_at < b.created_at ? -1 : 1)
+    .slice(-limit);
+  return rows;
+}
+
+export async function getPendingChatMessages(limit = 10) {
+  return load().agent_chat_messages
+    .filter((m) => m.status === 'pending' && m.role === 'user')
+    .sort((a, b) => a.created_at < b.created_at ? -1 : 1)
+    .slice(0, limit);
+}
+
+export async function updateChatMessageStatus(id, status, content = null) {
+  const d = load();
+  const row = d.agent_chat_messages.find((m) => m.id === id);
+  if (!row) return null;
+  row.status = status;
+  if (content !== null) row.content = content;
+  if (status === 'complete' || status === 'error') row.completed_at = new Date().toISOString();
+  save(d);
+  return row;
+}
+
+export async function getChatMessage(id) {
+  return load().agent_chat_messages.find((m) => m.id === id) || null;
+}
+
+export async function recordChatAction({ message_id, user_id, method, endpoint, request_body, response_status, response_body, summary }) {
+  const d = load();
+  const row = {
+    id: id(),
+    message_id,
+    user_id,
+    method,
+    endpoint,
+    request_body: request_body || null,
+    response_status: response_status ?? null,
+    response_body: response_body || null,
+    summary,
+    created_at: new Date().toISOString(),
+  };
+  d.agent_chat_actions.push(row);
+  save(d);
+  return row;
+}
+
+export async function getChatActionsForMessage(message_id) {
+  return load().agent_chat_actions.filter((a) => a.message_id === message_id);
 }

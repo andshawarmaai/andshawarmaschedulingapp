@@ -390,3 +390,43 @@ ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_in_distance_mete
 ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_out_lat DOUBLE PRECISION;
 ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_out_lng DOUBLE PRECISION;
 ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_out_distance_meters DOUBLE PRECISION;
+
+-- ─── Hermes agent chat ───────────────────────────────────────────────
+-- Bidirectional chat between managers in the app and the Hermes agent
+-- running externally. Messages are written by the app's chat UI, picked
+-- up by the agent, the agent acts (via the same /api/* routes any
+-- agent would use), then writes its reply + a structured action log
+-- back here. The chat UI streams the reply via SSE on
+-- /api/agent/chat/stream. Every action the agent takes is recorded as
+-- a separate row in agent_chat_actions so the manager can audit what
+-- actually happened ("scheduled Jorge Friday 11-7 via chat" linking
+-- to the shift_id that was created).
+
+CREATE TABLE IF NOT EXISTS agent_chat_messages (
+  id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content         TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'streaming', 'complete', 'error')),
+  parent_id       TEXT REFERENCES agent_chat_messages(id) ON DELETE CASCADE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS agent_chat_messages_user_created_idx ON agent_chat_messages (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS agent_chat_messages_pending_idx ON agent_chat_messages (status, created_at) WHERE status = 'pending';
+
+CREATE TABLE IF NOT EXISTS agent_chat_actions (
+  id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  message_id      TEXT NOT NULL REFERENCES agent_chat_messages(id) ON DELETE CASCADE,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  method          TEXT NOT NULL,
+  endpoint        TEXT NOT NULL,
+  request_body    JSONB,
+  response_status INTEGER,
+  response_body   JSONB,
+  summary         TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS agent_chat_actions_message_idx ON agent_chat_actions (message_id);
+CREATE INDEX IF NOT EXISTS agent_chat_actions_user_created_idx ON agent_chat_actions (user_id, created_at DESC);
+
