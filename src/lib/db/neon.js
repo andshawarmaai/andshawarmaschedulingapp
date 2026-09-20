@@ -773,3 +773,65 @@ export async function listActualWorkedShifts({ user_id, date_from, date_to } = {
   if (date_from && date_to) return sql`SELECT * FROM actual_worked_shifts WHERE date >= ${date_from} AND date <= ${date_to}`;
   return sql`SELECT * FROM actual_worked_shifts`;
 }
+
+// ─── Hermes chat ───────────────────────────────────────────────────────────
+
+export async function createChatMessage({ user_id, role, content, parent_id = null }) {
+  return row0(await sql`
+    INSERT INTO agent_chat_messages (user_id, role, content, parent_id)
+    VALUES (${user_id}, ${role}, ${content}, ${parent_id})
+    RETURNING *
+  `);
+}
+
+export async function getChatHistory(user_id, limit = 50) {
+  const rows = await sql`
+    SELECT * FROM agent_chat_messages
+    WHERE user_id = ${user_id}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+  return rows.reverse();
+}
+
+export async function getPendingChatMessages(limit = 10) {
+  return sql`
+    SELECT m.*, u.username, u.role AS user_role, u.display_name
+    FROM agent_chat_messages m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.status = 'pending' AND m.role = 'user'
+    ORDER BY m.created_at ASC
+    LIMIT ${limit}
+  `;
+}
+
+export async function updateChatMessageStatus(id, status, content = null) {
+  if (content !== null) {
+    return row0(await sql`
+      UPDATE agent_chat_messages
+      SET status = ${status}, content = ${content}, completed_at = CASE WHEN ${status} IN ('complete','error') THEN now() ELSE completed_at END
+      WHERE id = ${id} RETURNING *
+    `);
+  }
+  return row0(await sql`
+    UPDATE agent_chat_messages
+    SET status = ${status}, completed_at = CASE WHEN ${status} IN ('complete','error') THEN now() ELSE completed_at END
+    WHERE id = ${id} RETURNING *
+  `);
+}
+
+export async function getChatMessage(id) {
+  return row0(await sql`SELECT * FROM agent_chat_messages WHERE id = ${id}`);
+}
+
+export async function recordChatAction({ message_id, user_id, method, endpoint, request_body, response_status, response_body, summary }) {
+  return row0(await sql`
+    INSERT INTO agent_chat_actions (message_id, user_id, method, endpoint, request_body, response_status, response_body, summary)
+    VALUES (${message_id}, ${user_id}, ${method}, ${endpoint}, ${JSON.stringify(request_body || null)}::jsonb, ${response_status ?? null}, ${JSON.stringify(response_body || null)}::jsonb, ${summary})
+    RETURNING *
+  `);
+}
+
+export async function getChatActionsForMessage(message_id) {
+  return sql`SELECT * FROM agent_chat_actions WHERE message_id = ${message_id} ORDER BY created_at ASC`;
+}
