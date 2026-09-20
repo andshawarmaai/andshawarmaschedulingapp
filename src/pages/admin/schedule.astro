@@ -149,7 +149,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
 
   <script>
     import { escapeHtml, formatTime12, getMonthCells, formatDate } from '../../lib/client/format.js';
-    import { computeShiftRequestConflicts, computeDayCoverage, computeTemplateTimeGaps, dayOfWeek } from '../../lib/client/coverage.js';
+    import { computeShiftRequestConflicts, computeDayCoverage, computeTemplateSlots, dayOfWeek } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
     // Day view (only) gives every item a fixed-width lane of this size —
@@ -166,6 +166,13 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // it wasn't part of this complaint and has more vertical room to work
     // with (only one row of days, no per-day coverage panel above it).
     const DAY_REM_PER_HOUR = 1;
+    // A template column's fixed header row + each of its slots' minimum
+    // height, in rem — see computeTemplateSlots (coverage.js) for why the
+    // timeline moved to a discrete slot model. A column's actual height is
+    // whichever is taller: its natural time-proportional height, or enough
+    // to fit its header + every slot at this minimum — see dayBarsHtml.
+    const TEMPLATE_HEADER_REM = 1.1;
+    const MIN_SLOT_REM = 1.75;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
     // character for the conflict-flag indicator built here in client JS.
     const ALERT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
@@ -375,6 +382,69 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       `;
     }
 
+    // A FILLED template slot (see computeTemplateSlots) — same classes and
+    // data-kind/data-id as barHtml's floating chip, so the existing
+    // generic wiring (wireContextMenus' `[data-kind]` right-click,
+    // wireShiftEditClicks' click-to-edit, wireDragDrop's dragstart on
+    // `.shift-bar[draggable]`/`.req-bar[draggable]`) all pick it up with
+    // zero changes — it's just laid out by the flex column in
+    // .template-col-slots (position:static override, see global.css)
+    // instead of being absolutely positioned on its own.
+    function slotChipHtml(kind, id, label, when, flagged, note) {
+      const cls = kind === 'shift-approved' ? 'shift-bar' : 'req-bar';
+      const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
+      const titleAttr = flagged ? '' : `title="${escapeHtml(hint)}"`;
+      const noteAttr = flagged ? `data-conflict-note="${escapeHtml(note)}"` : '';
+      return `
+        <div class="${cls} template-slot filled${flagged ? ' flagged' : ''}" draggable="true"
+             data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}>
+          <span class="who">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</span>
+          <span class="when">${escapeHtml(when)}</span>
+        </div>
+      `;
+    }
+
+    // An OPEN template slot — a drag target (roster name / pending
+    // request / approved shift, same three kinds wireCoverageInteractions
+    // already handles for a coverage-block), a click target (opens Add
+    // Shift prefilled), and now also a right-click target for the same
+    // action ("the admin can right-click on that column and add names").
+    function openSlotHtml(templateId, dateStr, startHHMM, endHHMM) {
+      return `
+        <div class="template-slot open" data-template-id="${templateId}" data-date="${dateStr}" data-start="${startHHMM}" data-end="${endHHMM}"
+             title="Drag a name here, click, or right-click to fill this slot">+ Open</div>
+      `;
+    }
+
+    // One column per shift template, fixed at its own declared time-of-day
+    // (never resized by unrelated coverage elsewhere — see the long note
+    // on computeTemplateSlots in coverage.js for why the old time-sliced
+    // ghost boxes were replaced with this). Height is whichever is taller:
+    // the template's natural time-proportional height, or enough to fit
+    // the header plus every slot at MIN_SLOT_REM — a template with many
+    // slots but a short window intentionally grows taller than its time
+    // span would otherwise suggest, rather than squeezing slots illegible.
+    function templateColumnHtml(ts, topRem, heightRem, leftCss, widthCss, conflicts, dateStr) {
+      const { template, slots } = ts;
+      let tStart = toMinutes(template.start_time);
+      let tEnd = toMinutes(template.end_time);
+      if (tEnd <= tStart) tEnd += 24 * 60;
+      const startHHMM = minutesToHHMM(tStart);
+      const endHHMM = minutesToHHMM(tEnd);
+      const slotsHtml = slots.map((slot) => {
+        if (!slot.filled) return openSlotHtml(template.id, dateStr, startHHMM, endHHMM);
+        const conflictNote = conflicts.get(slot.row.id);
+        return slotChipHtml(slot.kind, slot.row.id, userName(slot.row.user_id), timeLabel(slot.row), !!conflictNote, conflictNote);
+      }).join('');
+      return `
+        <div class="template-col" data-template-id="${template.id}"
+             style="top:${topRem}rem;height:${heightRem}rem;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);">
+          <div class="template-col-header" title="${escapeHtml(template.name)} · ${formatTime12(startHHMM)}–${formatTime12(endHHMM)}">${escapeHtml(template.name)}</div>
+          <div class="template-col-slots">${slotsHtml}</div>
+        </div>
+      `;
+    }
+
     // ----- Conflict explanation popup -----
     // A hover tooltip you can actually see immediately, in plain English,
     // instead of the browser's own slow/muted title tooltip — the whole
@@ -398,30 +468,54 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       });
     }
 
-    // Packs a single day's approved shifts + pending requests into
-    // side-by-side columns and renders them as absolutely-positioned bars
-    // against a timeline `windowMin` minutes tall starting at `startMin`.
-    // Shared by Day and Week views so their bars behave identically.
-    // `ghostItems` (Day view only — see computeGhostItems) are still-open
-    // template slots, packed into the SAME overlap-column layout as real
-    // shifts rather than drawn as a separate background layer — that way
-    // an open slot always gets its own visible column and can never be
-    // silently hidden behind real bars that happen to fill the width.
+    // Packs a single day's UNMATCHED approved shifts + pending requests
+    // (anything that doesn't best-fit any shift template — see
+    // computeTemplateSlots in coverage.js) into side-by-side columns and
+    // renders them as absolutely-positioned bars against a timeline
+    // `windowMin` minutes tall starting at `startMin`. Shared by Day and
+    // Week views so their bars behave identically — Week never passes
+    // `templateSlots` (that's Day-view-only, see renderDay), so every
+    // shift/request there still goes through this same floating-bar path.
+    // `templateSlots` (Day view only) are rendered as ONE pseudo-item per
+    // template (a fixed-time-window column containing its own slots — see
+    // templateColumnHtml), packed into the SAME overlap-column layout as
+    // the floating bars so a template's column always gets its own
+    // visible lane and can't be hidden behind something else.
     // `noReuse` (Day view only — see packNoReuse) returns fixed-width,
     // never-shared columns instead of Week view's compact percentage-split
     // ones; the caller needs the resulting column count back to size the
     // scrollable container, so this always returns { html, cols }.
-    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems, noReuse) {
+    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, templateSlots, noReuse) {
+      // Anything that best-fits a template renders INSIDE that template's
+      // column instead — pulling those ids out here so they don't also
+      // get a redundant floating bar of their own.
+      const matchedIds = new Set();
+      for (const ts of (templateSlots || [])) {
+        for (const slot of ts.slots) if (slot.filled) matchedIds.add(slot.row.id);
+      }
+
       const items = [
-        ...shifts.filter((s) => s.date === iso).map((row) => ({ kind: 'shift-approved', row })),
-        ...pendingShiftReqs.filter((r) => r.date === iso).map((row) => ({ kind: 'shift-pending', row })),
+        ...shifts.filter((s) => s.date === iso && !matchedIds.has(s.id)).map((row) => ({ kind: 'shift-approved', row })),
+        ...pendingShiftReqs.filter((r) => r.date === iso && !matchedIds.has(r.id)).map((row) => ({ kind: 'shift-pending', row })),
       ].map(({ kind, row }) => {
         const [dispStart, dispEnd] = displayRange(row.start_time, row.end_time, startMin);
         return { start: dispStart, end: Math.min(dispEnd, windowMin), kind, row };
       });
-      items.push(...(ghostItems || []));
+
+      const containerHeightRem = (windowMin / 60) * DAY_REM_PER_HOUR;
+      const templateItems = (templateSlots || []).map((ts) => {
+        let tStart = toMinutes(ts.template.start_time);
+        let tEnd = toMinutes(ts.template.end_time);
+        if (tEnd <= tStart) tEnd += 24 * 60;
+        const dispStart = Math.max(0, toDisplayMinutes(tStart, startMin));
+        const dispEnd = Math.min(toDisplayMinutes(tEnd, startMin), windowMin);
+        return { kind: 'template-col', start: dispStart, end: dispEnd, ts };
+      }).filter((ti) => ti.end > ti.start);
+      items.push(...templateItems);
+
       const packed = (noReuse ? packNoReuse : packOverlaps)(items);
       const totalCols = packed.reduce((max, item) => Math.max(max, item.cols), 1);
+      let maxBottomRem = containerHeightRem;
       const html = packed.map((item) => {
         const { start, end, col, cols, kind } = item;
         const top = Math.max(0, (start / windowMin) * 100);
@@ -435,12 +529,19 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           leftCss = `${col * widthPct}%`;
           widthCss = `${widthPct}%`;
         }
-        if (kind === 'coverage-gap') return coverageGapBarHtml(item.template, item.gapStart, item.gapEnd, item.gapDate, top, height, leftCss, widthCss);
+        if (kind === 'template-col') {
+          const topRem = (start / windowMin) * containerHeightRem;
+          const naturalHeightRem = ((end - start) / windowMin) * containerHeightRem;
+          const neededHeightRem = TEMPLATE_HEADER_REM + item.ts.slots.length * MIN_SLOT_REM;
+          const heightRem = Math.max(naturalHeightRem, neededHeightRem);
+          maxBottomRem = Math.max(maxBottomRem, topRem + heightRem);
+          return templateColumnHtml(item.ts, topRem, heightRem, leftCss, widthCss, conflicts, iso);
+        }
         const row = item.row;
         const conflictNote = conflicts.get(row.id);
         return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftCss, widthCss, !!conflictNote, conflictNote);
       }).join('');
-      return { html, cols: totalCols };
+      return { html, cols: totalCols, heightRem: maxBottomRem };
     }
 
     function minutesToHHMM(raw) {
@@ -454,132 +555,11 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       return isoOf(d);
     }
 
-    // One "ghost" item per still-needed head on an actual gap SEGMENT (see
-    // computeTemplateTimeGaps) — a segment needing 2 more produces two
-    // separate open-slot blocks, each competing for its own column in the
-    // packing above, not one band that can be fully hidden if real bars
-    // already fill the width. Each ghost carries the segment's own precise
-    // start/end (not the whole template's) so filling it schedules exactly
-    // the hours that are actually missing.
-    //
-    // A segment can land entirely past midnight (e.g. the tail of an
-    // overnight closer block, raw minutes >= 1440) — its plain HH:MM looks
-    // like an ordinary same-day range (e.g. "01:30-02:30"), so filling it
-    // must record the shift against TOMORROW's date, not `iso`, or it'd
-    // silently land on the wrong calendar day. A segment straddling
-    // midnight itself doesn't need this: its own start_time > end_time
-    // already encodes the wraparound the way every other shift in this
-    // app does, dated `iso` as normal.
-    // A template short by, say, 3 people used to get 3 independent ghost
-    // items PER SEGMENT — and a real request overlapping just part of the
-    // window (e.g. David 11am-7pm inside a 9am-6pm block) splits that
-    // block into segments with a DIFFERENT needed-count each side of
-    // 11am. Handing packOverlaps three separate short ghosts per segment
-    // let it column-assign each segment independently, so the same
-    // logical "slot 1" could land in a different column before and after
-    // 11am — visually, open slots fragmenting and stacking instead of
-    // staying in clean vertical lanes.
-    //
-    // Fix: assign each template a fixed set of lane INDEXES (0..maxNeeded-1)
-    // up front, independent of segmentation. Lane i is "open" for exactly
-    // the segments where needed > i; adjoining open segments for the same
-    // lane are merged into one continuous bar before they ever reach
-    // packOverlaps, so a lane that's needed across several segments stays
-    // one stable column instead of several disjoint ones the packer is
-    // free to scatter.
-    // Each lane's box spans exactly the sub-range still actually short —
-    // NOT the template's full declared window. This went back and forth
-    // twice on 2026-09-16: locking every box to the template's full
-    // window (so it never resizes when an unrelated shift moves
-    // elsewhere) sounds appealing, but it's WRONG whenever a template's
-    // shortfall genuinely varies across its own window — e.g. "9am-6pm,
-    // needs 3" short 3 from 9-11:30am but only short 2 after 11:30am
-    // (someone else's shift covers one slot from then on): locking every
-    // "needs 3" box to the full 9am-6pm span makes the THIRD lane's box
-    // cover the 11:30am-6pm portion too, falsely implying a 3rd person is
-    // still needed there when only 2 are — "it appears like there's an
-    // extra person and there isn't." Precision was explicitly chosen over
-    // visual stability after seeing that trade-off (confirmed via
-    // computeDayCoverage/computeTemplateTimeGaps output, not just the
-    // screenshot — the sub-ranges were correct all along; a box changing
-    // size when something ELSE on the day changes is a true fact about
-    // coverage, not a rendering bug).
-    //
-    // For lane `i`, walk the template's segments (in order) and merge
-    // every run of CONSECUTIVE segments where `needed > i` into one
-    // continuous bar — so a lane needed across several adjoining segments
-    // still gets one stable box for its whole span, and only actually
-    // splits/ends where the real coverage genuinely changes.
-    function computeGhostItems(timeGaps, startMin, windowMin, iso) {
-      const byTemplate = new Map();
-      for (const gap of timeGaps) {
-        if (!byTemplate.has(gap.template)) byTemplate.set(gap.template, []);
-        byTemplate.get(gap.template).push(gap);
-      }
-
-      const ghosts = [];
-      for (const [template, segments] of byTemplate) {
-        const maxNeeded = Math.max(...segments.map((s) => s.needed));
-        for (let lane = 0; lane < maxNeeded; lane++) {
-          let runStart = null;
-          let runEnd = null;
-          const flushRun = () => {
-            if (runStart == null) return;
-            const dispStart = Math.max(0, toDisplayMinutes(runStart, startMin));
-            const dispEnd = Math.min(toDisplayMinutes(runEnd, startMin), windowMin);
-            if (dispEnd > dispStart) {
-              ghosts.push({
-                kind: 'coverage-gap', start: dispStart, end: dispEnd, template,
-                gapStart: minutesToHHMM(runStart), gapEnd: minutesToHHMM(runEnd),
-                gapDate: runStart >= 24 * 60 ? addDays(iso, 1) : iso,
-              });
-            }
-            runStart = null;
-            runEnd = null;
-          };
-          for (const seg of segments) {
-            if (seg.needed <= lane) { flushRun(); continue; }
-            if (runStart == null) { runStart = seg.start; runEnd = seg.end; }
-            else if (seg.start === runEnd) { runEnd = seg.end; }
-            else { flushRun(); runStart = seg.start; runEnd = seg.end; }
-          }
-          flushRun();
-        }
-      }
-      return ghosts;
-    }
-
-    // The label always states the gap's OWN start-end, not the template's
-    // full window — a template can be fully covered for most of its span
-    // (an approved shift overlapping most of it) and short only a small
-    // remainder, which then renders as a genuinely short block. Without
-    // this the short block just looked like a rendering glitch ("should
-    // stretch the span of where it goes up to") — showing the real
-    // sub-range makes clear it's accurately representing only what's
-    // still actually uncovered.
-    // ONE line, not two stacked spans — at Day view's tighter vertical
-    // scale a short gap (see DAY_REM_PER_HOUR) can be barely taller than
-    // one line of text; two separate block-level lines had no room and
-    // visibly overlapped into an illegible mess instead of just truncating
-    // cleanly the way a single ellipsis-clipped line does.
-    // The gap's OWN time range goes FIRST, template name second — a
-    // template is very often named after its full nominal window (e.g.
-    // "9am to 9:30pm — Closer"), which reads exactly like a position claim
-    // and, at these narrow columns, used to get cut off entirely before
-    // reaching the actual range, leaving only that misleading name-as-time
-    // visible ("a column that says 9 AM to 9:30 PM... doesn't show that
-    // it starts at [the time it's actually positioned at]"). Putting the
-    // real range first means it's the part that survives truncation.
-    function coverageGapBarHtml(template, gapStart, gapEnd, gapDate, top, height, leftCss, widthCss) {
-      const rangeLabel = `${formatTime12(gapStart)}–${formatTime12(gapEnd)}`;
-      return `
-        <div class="coverage-gap" data-template-id="${template.id}" data-start="${gapStart}" data-end="${gapEnd}" data-date="${gapDate}"
-             style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);"
-             title="${escapeHtml(template.name)} still needs someone ${rangeLabel} — click to schedule">
-          <span class="coverage-gap-label">${rangeLabel} · ${escapeHtml(template.name)}</span>
-        </div>
-      `;
-    }
+    // The Day view timeline used to draw time-sliced "ghost" open-slot
+    // boxes here (computeGhostItems/coverageGapBarHtml — several rounds of
+    // real, documented back-and-forth in git history and CLAUDE.md §4).
+    // Replaced 2026-09-20 with the discrete slot model: see
+    // computeTemplateSlots (coverage.js) and templateColumnHtml above.
 
     function renderMonth() {
       const year = anchor.getFullYear();
@@ -717,9 +697,8 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       }
 
       const coverage = computeDayCoverage(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
-      const timeGaps = computeTemplateTimeGaps(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
-      const ghostItems = computeGhostItems(timeGaps, startMin, windowMin, iso);
-      const { html: bars, cols } = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, ghostItems, true);
+      const templateSlots = computeTemplateSlots(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
+      const { html: bars, cols, heightRem } = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, templateSlots, true);
       const coverageHtml = renderCoveragePanel(coverage);
       const colWidth = `${cols * DAY_COL_WIDTH_REM}rem`;
 
@@ -738,7 +717,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         </div>
         <div class="cal-day-body">
           <div class="cal-hours">${hourLabels.join('')}</div>
-          <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * DAY_REM_PER_HOUR}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
+          <div class="cal-day-col" data-date="${iso}" style="height:${heightRem}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
         </div>
       `;
       wireDayInteractions(iso, startMin, windowMin);
@@ -845,18 +824,32 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           await refreshAndRender();
         });
       }
-      root.querySelectorAll('.coverage-block, .coverage-gap').forEach((block) => {
-        // A .coverage-gap for a segment entirely past midnight carries its
-        // own data-date (tomorrow, not `iso`) — see computeGhostItems.
-        // .coverage-block (the whole-template card) never needs this: its
-        // start/end are always the template's own declared HH:MM, and the
-        // usual end<=start wraparound convention already covers it dated `iso`.
+      // .coverage-block is the whole-template summary card above the
+      // timeline; .template-slot.open is an individual OPEN slot inside a
+      // template's column IN the timeline (see computeTemplateSlots,
+      // coverage.js) — both accept the exact same three kinds of drop and
+      // both open the same reviewable Add Shift modal on click, so they
+      // share one wiring pass.
+      root.querySelectorAll('.coverage-block, .template-slot.open').forEach((block) => {
+        // A .template-slot's own data-date is always `iso` here (a
+        // template's date-of-day slots don't need a next-day bump the way
+        // the old time-sliced ghost boxes sometimes did) — kept as a
+        // fallback for forward-compatibility, not currently exercised.
         const blockDate = block.getAttribute('data-date') || iso;
-        block.addEventListener('click', () => {
+        const openAddModal = () => {
           const userId = selectedRosterUserId;
           selectedRosterUserId = null;
           root.querySelectorAll('.roster-chip.selected').forEach((c) => c.classList.remove('selected'));
           openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
+        };
+        block.addEventListener('click', openAddModal);
+        // "the admin can right-click on that column and add names" — an
+        // explicit second way in, alongside drag and click-to-select,
+        // requested alongside the slot model itself.
+        block.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openAddModal();
         });
         block.addEventListener('dragover', (e) => {
           if (![...e.dataTransfer.types].includes('application/x-kind')) return;
@@ -911,10 +904,10 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           // stretched to the block's full time — since the whole point is
           // an admin visually confirming "yes, use this person for this
           // slot," not silently rewriting what they said they're available
-          // for. If their hours don't cover the whole block, the remainder
-          // correctly stays a red open slot on its own (computeGhostItems'
-          // instant-by-instant sweep already handles a partially-covered
-          // window; no special-casing needed here for that).
+          // for. Once approved it just becomes a real shift, which
+          // computeTemplateSlots re-matches to its own slot on next
+          // render like any other approved shift — no special-casing
+          // needed here for that.
           if (kind === 'shift-pending') {
             const id = e.dataTransfer.getData('text/plain');
             const req = (data.shiftRequests || []).find((r) => r.id === id);
