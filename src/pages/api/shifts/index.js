@@ -28,6 +28,7 @@ export async function POST(context) {
     end_time: body.end_time,
     department: body.department || null,
     notes: body.notes || null,
+    job_id: body.job_id || null,
   });
   return json({ ok: true, shift }, 201);
 }

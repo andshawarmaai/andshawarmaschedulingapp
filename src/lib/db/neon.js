@@ -92,10 +92,10 @@ export async function getShiftById(shiftId) {
   return row0(await sql`SELECT * FROM shifts WHERE id = ${shiftId}`);
 }
 
-export async function createShift({ user_id, date, start_time, end_time, department, notes, import_id }) {
+export async function createShift({ user_id, date, start_time, end_time, department, notes, import_id, job_id }) {
   return row0(await sql`
-    INSERT INTO shifts (user_id, date, start_time, end_time, department, notes, import_id)
-    VALUES (${user_id || null}, ${date}, ${start_time}, ${end_time}, ${department || null}, ${notes || null}, ${import_id || null})
+    INSERT INTO shifts (user_id, date, start_time, end_time, department, notes, import_id, job_id)
+    VALUES (${user_id || null}, ${date}, ${start_time}, ${end_time}, ${department || null}, ${notes || null}, ${import_id || null}, ${job_id || null})
     RETURNING *
   `);
 }
@@ -110,6 +110,7 @@ export async function updateShift(shiftId, updates) {
     end_time: updates.end_time ?? s.end_time,
     department: updates.department !== undefined ? updates.department : s.department,
     notes: updates.notes !== undefined ? updates.notes : s.notes,
+    job_id: updates.job_id !== undefined ? updates.job_id : s.job_id,
   };
   return row0(await sql`
     UPDATE shifts SET
@@ -118,7 +119,8 @@ export async function updateShift(shiftId, updates) {
       start_time = ${merged.start_time},
       end_time = ${merged.end_time},
       department = ${merged.department},
-      notes = ${merged.notes}
+      notes = ${merged.notes},
+      job_id = ${merged.job_id}
     WHERE id = ${shiftId}
     RETURNING *
   `);
@@ -437,10 +439,10 @@ export async function getTierById(tierId) {
   return row0(await sql`SELECT * FROM tiers WHERE id = ${tierId}`);
 }
 
-export async function createTier({ name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month }) {
+export async function createTier({ name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month, auto_approve_time_off }) {
   return row0(await sql`
-    INSERT INTO tiers (name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month)
-    VALUES (${name}, ${max_shifts_per_month ?? null}, ${max_weekend_shifts_per_month ?? null}, ${max_days_off_per_month ?? null}, ${max_weekend_days_off_per_month ?? null})
+    INSERT INTO tiers (name, max_shifts_per_month, max_weekend_shifts_per_month, max_days_off_per_month, max_weekend_days_off_per_month, auto_approve_time_off)
+    VALUES (${name}, ${max_shifts_per_month ?? null}, ${max_weekend_shifts_per_month ?? null}, ${max_days_off_per_month ?? null}, ${max_weekend_days_off_per_month ?? null}, ${!!auto_approve_time_off})
     RETURNING *
   `);
 }
@@ -454,6 +456,7 @@ export async function updateTier(tierId, updates) {
     max_weekend_shifts_per_month: updates.max_weekend_shifts_per_month !== undefined ? updates.max_weekend_shifts_per_month : t.max_weekend_shifts_per_month,
     max_days_off_per_month: updates.max_days_off_per_month !== undefined ? updates.max_days_off_per_month : t.max_days_off_per_month,
     max_weekend_days_off_per_month: updates.max_weekend_days_off_per_month !== undefined ? updates.max_weekend_days_off_per_month : t.max_weekend_days_off_per_month,
+    auto_approve_time_off: updates.auto_approve_time_off !== undefined ? !!updates.auto_approve_time_off : t.auto_approve_time_off,
   };
   return row0(await sql`
     UPDATE tiers SET
@@ -461,7 +464,8 @@ export async function updateTier(tierId, updates) {
       max_shifts_per_month = ${merged.max_shifts_per_month},
       max_weekend_shifts_per_month = ${merged.max_weekend_shifts_per_month},
       max_days_off_per_month = ${merged.max_days_off_per_month},
-      max_weekend_days_off_per_month = ${merged.max_weekend_days_off_per_month}
+      max_weekend_days_off_per_month = ${merged.max_weekend_days_off_per_month},
+      auto_approve_time_off = ${merged.auto_approve_time_off}
     WHERE id = ${tierId}
     RETURNING *
   `);
@@ -518,4 +522,254 @@ export async function updateShiftTemplate(templateId, updates) {
 export async function deleteShiftTemplate(templateId) {
   await sql`DELETE FROM shift_templates WHERE id = ${templateId}`;
   return true;
+}
+
+// ----- locations (Sprint 1 — multi-location foundation) -----
+
+export async function listLocations() {
+  return sql`SELECT * FROM locations ORDER BY name ASC`;
+}
+
+export async function getLocationById(locationId) {
+  if (!locationId) return null;
+  return row0(await sql`SELECT * FROM locations WHERE id = ${locationId}`);
+}
+
+export async function createLocation({ name, timezone, lat, lng, geofence_radius_meters }) {
+  return row0(await sql`
+    INSERT INTO locations (name, timezone, lat, lng, geofence_radius_meters)
+    VALUES (${name}, ${timezone || 'America/New_York'}, ${lat ?? null}, ${lng ?? null}, ${geofence_radius_meters ?? null})
+    RETURNING *
+  `);
+}
+
+export async function updateLocation(locationId, updates) {
+  const l = await getLocationById(locationId);
+  if (!l) return null;
+  // lat/lng/geofence_radius_meters use `!== undefined` (not `??`) so an
+  // explicit null actually clears a previously-set geofence instead of
+  // being silently treated as "no change" — the same class of bug
+  // CLAUDE.md §4 already documents being fixed for updateUser's
+  // phone/email; name/timezone below keep the older `??` pattern since
+  // clearing those was never a real case worth handling.
+  const merged = {
+    name: updates.name ?? l.name,
+    timezone: updates.timezone ?? l.timezone,
+    disabled: updates.disabled !== undefined ? !!updates.disabled : l.disabled,
+    lat: updates.lat !== undefined ? updates.lat : l.lat,
+    lng: updates.lng !== undefined ? updates.lng : l.lng,
+    geofence_radius_meters: updates.geofence_radius_meters !== undefined ? updates.geofence_radius_meters : l.geofence_radius_meters,
+  };
+  return row0(await sql`
+    UPDATE locations SET name = ${merged.name}, timezone = ${merged.timezone}, disabled = ${merged.disabled},
+      lat = ${merged.lat}, lng = ${merged.lng}, geofence_radius_meters = ${merged.geofence_radius_meters}
+    WHERE id = ${locationId} RETURNING *
+  `);
+}
+
+// The single-restaurant default — see the matching comment in local.js.
+export async function getPrimaryLocation() {
+  return row0(await sql`SELECT * FROM locations WHERE disabled = FALSE ORDER BY created_at ASC LIMIT 1`);
+}
+
+// ----- jobs / roles (Sprint 1 — EPIC 2) -----
+
+export async function listJobs() {
+  return sql`SELECT * FROM jobs ORDER BY name ASC`;
+}
+
+export async function getJobById(jobId) {
+  if (!jobId) return null;
+  return row0(await sql`SELECT * FROM jobs WHERE id = ${jobId}`);
+}
+
+export async function createJob({ name, department }) {
+  return row0(await sql`INSERT INTO jobs (name, department) VALUES (${name}, ${department || null}) RETURNING *`);
+}
+
+export async function updateJob(jobId, updates) {
+  const j = await getJobById(jobId);
+  if (!j) return null;
+  const merged = {
+    name: updates.name ?? j.name,
+    department: updates.department !== undefined ? updates.department : j.department,
+    disabled: updates.disabled !== undefined ? !!updates.disabled : j.disabled,
+  };
+  return row0(await sql`
+    UPDATE jobs SET name = ${merged.name}, department = ${merged.department}, disabled = ${merged.disabled}
+    WHERE id = ${jobId} RETURNING *
+  `);
+}
+
+export async function deleteJob(jobId) {
+  // ON DELETE CASCADE on employee_jobs/employee_role_profiles handles cleanup.
+  await sql`DELETE FROM jobs WHERE id = ${jobId}`;
+  return true;
+}
+
+// ----- employee job qualification (Sprint 1 — EPIC 2) -----
+
+export async function listEmployeeJobs({ user_id, job_id } = {}) {
+  if (user_id && job_id) return sql`SELECT * FROM employee_jobs WHERE user_id = ${user_id} AND job_id = ${job_id}`;
+  if (user_id) return sql`SELECT * FROM employee_jobs WHERE user_id = ${user_id}`;
+  if (job_id) return sql`SELECT * FROM employee_jobs WHERE job_id = ${job_id}`;
+  return sql`SELECT * FROM employee_jobs`;
+}
+
+export async function setEmployeeJob({ user_id, job_id, qualification_state, effective_date, created_by }) {
+  return row0(await sql`
+    INSERT INTO employee_jobs (user_id, job_id, qualification_state, effective_date, created_by)
+    VALUES (${user_id}, ${job_id}, ${qualification_state}, ${effective_date}, ${created_by || null})
+    ON CONFLICT (user_id, job_id) DO UPDATE SET
+      qualification_state = EXCLUDED.qualification_state,
+      effective_date = EXCLUDED.effective_date,
+      created_by = EXCLUDED.created_by
+    RETURNING *
+  `);
+}
+
+export async function deleteEmployeeJob(user_id, job_id) {
+  await sql`DELETE FROM employee_jobs WHERE user_id = ${user_id} AND job_id = ${job_id}`;
+  await sql`DELETE FROM employee_role_profiles WHERE user_id = ${user_id} AND job_id = ${job_id}`;
+  return true;
+}
+
+// Removes only the proficiency profile, keeping the employee_jobs
+// qualification row intact — used when demoting below 'qualified' rather
+// than fully removing the job assignment (see deleteEmployeeJob above).
+export async function deleteEmployeeRoleProfile(user_id, job_id) {
+  await sql`DELETE FROM employee_role_profiles WHERE user_id = ${user_id} AND job_id = ${job_id}`;
+  return true;
+}
+
+// ----- role-specific proficiency (Sprint 1 — EPIC 3) -----
+
+export async function listEmployeeRoleProfiles({ user_id, job_id } = {}) {
+  if (user_id && job_id) return sql`SELECT * FROM employee_role_profiles WHERE user_id = ${user_id} AND job_id = ${job_id}`;
+  if (user_id) return sql`SELECT * FROM employee_role_profiles WHERE user_id = ${user_id}`;
+  if (job_id) return sql`SELECT * FROM employee_role_profiles WHERE job_id = ${job_id}`;
+  return sql`SELECT * FROM employee_role_profiles`;
+}
+
+export async function setEmployeeRoleProfile({ user_id, job_id, proficiency, effective_date, source, created_by }) {
+  return row0(await sql`
+    INSERT INTO employee_role_profiles (user_id, job_id, proficiency, effective_date, source, created_by)
+    VALUES (${user_id}, ${job_id}, ${proficiency}, ${effective_date}, ${source || null}, ${created_by || null})
+    ON CONFLICT (user_id, job_id) DO UPDATE SET
+      proficiency = EXCLUDED.proficiency,
+      effective_date = EXCLUDED.effective_date,
+      source = EXCLUDED.source,
+      created_by = EXCLUDED.created_by
+    RETURNING *
+  `);
+}
+
+// ----- recurring availability (Sprint 1 — EPIC 4) -----
+
+export async function listAvailabilityRules(userId) {
+  if (userId) return sql`SELECT * FROM availability_rules WHERE user_id = ${userId} ORDER BY day_of_week ASC, start_time ASC`;
+  return sql`SELECT * FROM availability_rules ORDER BY day_of_week ASC, start_time ASC`;
+}
+
+export async function createAvailabilityRule({ user_id, day_of_week, start_time, end_time, effective_from, effective_to }) {
+  return row0(await sql`
+    INSERT INTO availability_rules (user_id, day_of_week, start_time, end_time, effective_from, effective_to)
+    VALUES (${user_id}, ${day_of_week}, ${start_time}, ${end_time}, ${effective_from || null}, ${effective_to || null})
+    RETURNING *
+  `);
+}
+
+export async function deleteAvailabilityRule(ruleId, userId) {
+  if (userId) {
+    const result = await sql`DELETE FROM availability_rules WHERE id = ${ruleId} AND user_id = ${userId} RETURNING id`;
+    return result.length > 0;
+  }
+  await sql`DELETE FROM availability_rules WHERE id = ${ruleId}`;
+  return true;
+}
+
+// ----- peak staffing mix (Sprint 2 — EPIC 3/5, WB-SCH-253) -----
+
+export async function listTemplateJobRequirements(templateId) {
+  if (templateId) return sql`SELECT * FROM template_job_requirements WHERE shift_template_id = ${templateId}`;
+  return sql`SELECT * FROM template_job_requirements`;
+}
+
+export async function setTemplateJobRequirement({ shift_template_id, job_id, min_count, min_advanced_count, min_proficient_or_better_count }) {
+  return row0(await sql`
+    INSERT INTO template_job_requirements (shift_template_id, job_id, min_count, min_advanced_count, min_proficient_or_better_count)
+    VALUES (${shift_template_id}, ${job_id}, ${min_count}, ${min_advanced_count}, ${min_proficient_or_better_count})
+    ON CONFLICT (shift_template_id, job_id) DO UPDATE SET
+      min_count = EXCLUDED.min_count,
+      min_advanced_count = EXCLUDED.min_advanced_count,
+      min_proficient_or_better_count = EXCLUDED.min_proficient_or_better_count
+    RETURNING *
+  `);
+}
+
+export async function deleteTemplateJobRequirement(shift_template_id, job_id) {
+  await sql`DELETE FROM template_job_requirements WHERE shift_template_id = ${shift_template_id} AND job_id = ${job_id}`;
+  return true;
+}
+
+// ----- schedule generation snapshots (Sprint 4 — EPIC 7) -----
+
+export async function createScheduleGeneration({ date, generated_by, proposal }) {
+  return row0(await sql`
+    INSERT INTO schedule_generations (date, generated_by, proposal)
+    VALUES (${date}, ${generated_by || null}, ${JSON.stringify(proposal)}::jsonb)
+    RETURNING *
+  `);
+}
+
+export async function markScheduleGenerationApplied(generationId, { applied_shift_ids, applied_by }) {
+  return row0(await sql`
+    UPDATE schedule_generations SET applied_shift_ids = ${applied_shift_ids}, applied_by = ${applied_by || null}, applied_at = now()
+    WHERE id = ${generationId}
+    RETURNING *
+  `);
+}
+
+export async function listScheduleGenerations({ date } = {}) {
+  if (date) return sql`SELECT * FROM schedule_generations WHERE date = ${date} ORDER BY created_at DESC`;
+  return sql`SELECT * FROM schedule_generations ORDER BY created_at DESC`;
+}
+
+// ----- actual worked shifts (Sprint 7 — EPIC 11 subset, POS/timeclock-agnostic) -----
+
+export async function findActualWorkedShiftBySourceRef(source, externalRef) {
+  if (!externalRef) return null;
+  return row0(await sql`SELECT * FROM actual_worked_shifts WHERE source = ${source} AND external_ref = ${externalRef}`);
+}
+
+export async function createActualWorkedShift({
+  user_id, shift_id, date, clock_in, clock_out, source, external_ref, import_id,
+  clock_in_lat, clock_in_lng, clock_in_distance_meters,
+}) {
+  return row0(await sql`
+    INSERT INTO actual_worked_shifts (user_id, shift_id, date, clock_in, clock_out, source, external_ref, import_id, clock_in_lat, clock_in_lng, clock_in_distance_meters)
+    VALUES (${user_id}, ${shift_id || null}, ${date}, ${clock_in}, ${clock_out || null}, ${source}, ${external_ref || null}, ${import_id || null}, ${clock_in_lat ?? null}, ${clock_in_lng ?? null}, ${clock_in_distance_meters ?? null})
+    RETURNING *
+  `);
+}
+
+// The still-open punch (no clock_out yet) for this user today, if any —
+// see the matching comment in local.js.
+export async function findOpenActualWorkedShift(userId, date) {
+  return row0(await sql`SELECT * FROM actual_worked_shifts WHERE user_id = ${userId} AND date = ${date} AND clock_out IS NULL`);
+}
+
+export async function closeActualWorkedShift(recordId, { clock_out, clock_out_lat, clock_out_lng, clock_out_distance_meters }) {
+  return row0(await sql`
+    UPDATE actual_worked_shifts
+    SET clock_out = ${clock_out}, clock_out_lat = ${clock_out_lat ?? null}, clock_out_lng = ${clock_out_lng ?? null}, clock_out_distance_meters = ${clock_out_distance_meters ?? null}
+    WHERE id = ${recordId} RETURNING *
+  `);
+}
+
+export async function listActualWorkedShifts({ user_id, date_from, date_to } = {}) {
+  if (user_id && date_from && date_to) return sql`SELECT * FROM actual_worked_shifts WHERE user_id = ${user_id} AND date >= ${date_from} AND date <= ${date_to}`;
+  if (user_id) return sql`SELECT * FROM actual_worked_shifts WHERE user_id = ${user_id}`;
+  if (date_from && date_to) return sql`SELECT * FROM actual_worked_shifts WHERE date >= ${date_from} AND date <= ${date_to}`;
+  return sql`SELECT * FROM actual_worked_shifts`;
 }

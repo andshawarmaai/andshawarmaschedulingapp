@@ -36,6 +36,6 @@ export async function POST(context) {
     limits[field] = parsed.value;
   }
 
-  const tier = await db.createTier({ name, ...limits });
+  const tier = await db.createTier({ name, ...limits, auto_approve_time_off: !!(body && body.auto_approve_time_off) });
   return json({ ok: true, tier }, 201);
 }

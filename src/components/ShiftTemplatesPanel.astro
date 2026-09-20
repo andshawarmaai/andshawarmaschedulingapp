@@ -49,6 +49,15 @@ import Icon from './Icon.astro';
       </div>
       <div class="field"><label>Minimum staff</label><input type="number" id="stp-min-staff" class="input" min="0" step="1" placeholder="No minimum" /></div>
       <div class="field"><label>Maximum staff</label><input type="number" id="stp-max-staff" class="input" min="0" step="1" placeholder="No maximum" /></div>
+      <div id="stp-mix-section" class="field" hidden>
+        <hr class="divider" />
+        <label>Peak staffing mix (optional)</label>
+        <p class="card-sub" style="margin:0 0 0.5rem;">
+          Per job, how many people this shift needs and how many of them must be at a given proficiency
+          tier — e.g. "3 Shawarma Station, at least 1 Advanced." Each row saves as you change it.
+        </p>
+        <div id="stp-mix-list"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-danger" id="stp-delete" style="margin-right:auto;" type="button" hidden>Delete template</button>
@@ -62,13 +71,57 @@ import Icon from './Icon.astro';
 
   const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   let templates = [];
+  let jobs = [];
   let editingId = null;
 
   async function loadTemplates() {
     const res = await fetch('/api/state');
     const data = await res.json();
     templates = data.shiftTemplates || [];
+    jobs = data.jobs || [];
     render();
+  }
+
+  async function renderMixSection(templateId) {
+    const section = document.getElementById('stp-mix-section');
+    const list = document.getElementById('stp-mix-list');
+    // Requirements attach to an existing template id — nothing to show
+    // until the template itself has been saved once.
+    if (!templateId || jobs.length === 0) { section.hidden = true; return; }
+    section.hidden = false;
+    const res = await fetch(`/api/admin/shift-templates/${templateId}/requirements`);
+    const data = await res.json();
+    const reqByJob = new Map((data.requirements || []).map((r) => [r.job_id, r]));
+    list.innerHTML = jobs.map((j) => {
+      const r = reqByJob.get(j.id);
+      return `
+        <div class="list-item" style="align-items:center;flex-wrap:wrap;gap:0.5rem;">
+          <div style="flex:1 1 auto;min-width:8rem;"><div class="who">${escapeHtml(j.name)}</div></div>
+          <label style="font-weight:400;font-size:0.8125rem;">Needed
+            <input type="number" class="input" style="width:4rem;display:inline-block;" min="0" step="1"
+              data-mix-job="${j.id}" data-mix-field="min_count" value="${r ? r.min_count : 0}" />
+          </label>
+          <label style="font-weight:400;font-size:0.8125rem;">Min Advanced
+            <input type="number" class="input" style="width:4rem;display:inline-block;" min="0" step="1"
+              data-mix-job="${j.id}" data-mix-field="min_advanced_count" value="${r ? r.min_advanced_count : 0}" />
+          </label>
+          <label style="font-weight:400;font-size:0.8125rem;">Min Proficient+
+            <input type="number" class="input" style="width:4rem;display:inline-block;" min="0" step="1"
+              data-mix-job="${j.id}" data-mix-field="min_proficient_or_better_count" value="${r ? r.min_proficient_or_better_count : 0}" />
+          </label>
+        </div>
+      `;
+    }).join('');
+    list.querySelectorAll('input[data-mix-job]').forEach((input) => {
+      input.addEventListener('change', async () => {
+        const jobId = input.getAttribute('data-mix-job');
+        const row = list.querySelectorAll(`[data-mix-job="${jobId}"]`);
+        const payload = { job_id: jobId };
+        row.forEach((el) => { payload[el.getAttribute('data-mix-field')] = el.value.trim() || 0; });
+        const r = await window.shawarmaApi('POST', `/api/admin/shift-templates/${templateId}/requirements`, payload);
+        if (!r.ok) window.shawarmaToast(r.error || 'Could not save peak staffing mix');
+      });
+    });
   }
 
   function render() {
@@ -113,6 +166,7 @@ import Icon from './Icon.astro';
     document.getElementById('stp-max-staff').value = template && template.max_staff != null ? template.max_staff : '';
     document.getElementById('stp-delete').hidden = !template;
     document.getElementById('stp-modal').classList.add('show');
+    renderMixSection(templateId);
   }
 
   function notifyChanged() {

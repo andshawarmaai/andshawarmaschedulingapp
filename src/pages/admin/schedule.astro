@@ -149,7 +149,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
 
   <script>
     import { escapeHtml, formatTime12, getMonthCells, formatDate } from '../../lib/client/format.js';
-    import { computeShiftRequestConflicts, computeDayCoverage, computeTemplateSlots, dayOfWeek } from '../../lib/client/coverage.js';
+    import { computeShiftRequestConflicts, computeDayCoverage, groupDayItemsByTemplate, dayOfWeek } from '../../lib/client/coverage.js';
 
     const REM_PER_HOUR = 2.5;
     // Day view (only) gives every item a fixed-width lane of this size —
@@ -166,13 +166,6 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
     // it wasn't part of this complaint and has more vertical room to work
     // with (only one row of days, no per-day coverage panel above it).
     const DAY_REM_PER_HOUR = 1;
-    // A template column's fixed header row + each of its slots' minimum
-    // height, in rem — see computeTemplateSlots (coverage.js) for why the
-    // timeline moved to a discrete slot model. A column's actual height is
-    // whichever is taller: its natural time-proportional height, or enough
-    // to fit its header + every slot at this minimum — see dayBarsHtml.
-    const TEMPLATE_HEADER_REM = 1.1;
-    const MIN_SLOT_REM = 1.75;
     // A real SVG (matching Icon.astro's "alert") instead of a Unicode ⚠
     // character for the conflict-flag indicator built here in client JS.
     const ALERT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
@@ -382,69 +375,6 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       `;
     }
 
-    // A FILLED template slot (see computeTemplateSlots) — same classes and
-    // data-kind/data-id as barHtml's floating chip, so the existing
-    // generic wiring (wireContextMenus' `[data-kind]` right-click,
-    // wireShiftEditClicks' click-to-edit, wireDragDrop's dragstart on
-    // `.shift-bar[draggable]`/`.req-bar[draggable]`) all pick it up with
-    // zero changes — it's just laid out by the flex column in
-    // .template-col-slots (position:static override, see global.css)
-    // instead of being absolutely positioned on its own.
-    function slotChipHtml(kind, id, label, when, flagged, note) {
-      const cls = kind === 'shift-approved' ? 'shift-bar' : 'req-bar';
-      const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
-      const titleAttr = flagged ? '' : `title="${escapeHtml(hint)}"`;
-      const noteAttr = flagged ? `data-conflict-note="${escapeHtml(note)}"` : '';
-      return `
-        <div class="${cls} template-slot filled${flagged ? ' flagged' : ''}" draggable="true"
-             data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}>
-          <span class="who">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</span>
-          <span class="when">${escapeHtml(when)}</span>
-        </div>
-      `;
-    }
-
-    // An OPEN template slot — a drag target (roster name / pending
-    // request / approved shift, same three kinds wireCoverageInteractions
-    // already handles for a coverage-block), a click target (opens Add
-    // Shift prefilled), and now also a right-click target for the same
-    // action ("the admin can right-click on that column and add names").
-    function openSlotHtml(templateId, dateStr, startHHMM, endHHMM) {
-      return `
-        <div class="template-slot open" data-template-id="${templateId}" data-date="${dateStr}" data-start="${startHHMM}" data-end="${endHHMM}"
-             title="Drag a name here, click, or right-click to fill this slot">+ Open</div>
-      `;
-    }
-
-    // One column per shift template, fixed at its own declared time-of-day
-    // (never resized by unrelated coverage elsewhere — see the long note
-    // on computeTemplateSlots in coverage.js for why the old time-sliced
-    // ghost boxes were replaced with this). Height is whichever is taller:
-    // the template's natural time-proportional height, or enough to fit
-    // the header plus every slot at MIN_SLOT_REM — a template with many
-    // slots but a short window intentionally grows taller than its time
-    // span would otherwise suggest, rather than squeezing slots illegible.
-    function templateColumnHtml(ts, topRem, heightRem, leftCss, widthCss, conflicts, dateStr) {
-      const { template, slots } = ts;
-      let tStart = toMinutes(template.start_time);
-      let tEnd = toMinutes(template.end_time);
-      if (tEnd <= tStart) tEnd += 24 * 60;
-      const startHHMM = minutesToHHMM(tStart);
-      const endHHMM = minutesToHHMM(tEnd);
-      const slotsHtml = slots.map((slot) => {
-        if (!slot.filled) return openSlotHtml(template.id, dateStr, startHHMM, endHHMM);
-        const conflictNote = conflicts.get(slot.row.id);
-        return slotChipHtml(slot.kind, slot.row.id, userName(slot.row.user_id), timeLabel(slot.row), !!conflictNote, conflictNote);
-      }).join('');
-      return `
-        <div class="template-col" data-template-id="${template.id}"
-             style="top:${topRem}rem;height:${heightRem}rem;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);">
-          <div class="template-col-header" title="${escapeHtml(template.name)} · ${formatTime12(startHHMM)}–${formatTime12(endHHMM)}">${escapeHtml(template.name)}</div>
-          <div class="template-col-slots">${slotsHtml}</div>
-        </div>
-      `;
-    }
-
     // ----- Conflict explanation popup -----
     // A hover tooltip you can actually see immediately, in plain English,
     // instead of the browser's own slow/muted title tooltip — the whole
@@ -468,80 +398,33 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       });
     }
 
-    // Packs a single day's UNMATCHED approved shifts + pending requests
-    // (anything that doesn't best-fit any shift template — see
-    // computeTemplateSlots in coverage.js) into side-by-side columns and
-    // renders them as absolutely-positioned bars against a timeline
-    // `windowMin` minutes tall starting at `startMin`. Shared by Day and
-    // Week views so their bars behave identically — Week never passes
-    // `templateSlots` (that's Day-view-only, see renderDay), so every
-    // shift/request there still goes through this same floating-bar path.
-    // `templateSlots` (Day view only) are rendered as ONE pseudo-item per
-    // template (a fixed-time-window column containing its own slots — see
-    // templateColumnHtml), packed into the SAME overlap-column layout as
-    // the floating bars so a template's column always gets its own
-    // visible lane and can't be hidden behind something else.
-    // `noReuse` (Day view only — see packNoReuse) returns fixed-width,
-    // never-shared columns instead of Week view's compact percentage-split
-    // ones; the caller needs the resulting column count back to size the
-    // scrollable container, so this always returns { html, cols }.
-    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, templateSlots, noReuse) {
-      // Anything that best-fits a template renders INSIDE that template's
-      // column instead — pulling those ids out here so they don't also
-      // get a redundant floating bar of their own.
-      const matchedIds = new Set();
-      for (const ts of (templateSlots || [])) {
-        for (const slot of ts.slots) if (slot.filled) matchedIds.add(slot.row.id);
-      }
-
+    // Packs a single day's approved shifts + pending requests into
+    // side-by-side columns and renders them as absolutely-positioned bars
+    // against a timeline `windowMin` minutes tall starting at `startMin`.
+    // Week-view-only now — Day view uses dayTemplateBarsHtml instead (one
+    // column per template, not one per person; see
+    // groupDayItemsByTemplate). Uses packOverlaps' compact, column-
+    // reusing layout, appropriate for Week's 7 already-narrow day columns.
+    function dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin) {
       const items = [
-        ...shifts.filter((s) => s.date === iso && !matchedIds.has(s.id)).map((row) => ({ kind: 'shift-approved', row })),
-        ...pendingShiftReqs.filter((r) => r.date === iso && !matchedIds.has(r.id)).map((row) => ({ kind: 'shift-pending', row })),
+        ...shifts.filter((s) => s.date === iso).map((row) => ({ kind: 'shift-approved', row })),
+        ...pendingShiftReqs.filter((r) => r.date === iso).map((row) => ({ kind: 'shift-pending', row })),
       ].map(({ kind, row }) => {
         const [dispStart, dispEnd] = displayRange(row.start_time, row.end_time, startMin);
         return { start: dispStart, end: Math.min(dispEnd, windowMin), kind, row };
       });
-
-      const containerHeightRem = (windowMin / 60) * DAY_REM_PER_HOUR;
-      const templateItems = (templateSlots || []).map((ts) => {
-        let tStart = toMinutes(ts.template.start_time);
-        let tEnd = toMinutes(ts.template.end_time);
-        if (tEnd <= tStart) tEnd += 24 * 60;
-        const dispStart = Math.max(0, toDisplayMinutes(tStart, startMin));
-        const dispEnd = Math.min(toDisplayMinutes(tEnd, startMin), windowMin);
-        return { kind: 'template-col', start: dispStart, end: dispEnd, ts };
-      }).filter((ti) => ti.end > ti.start);
-      items.push(...templateItems);
-
-      const packed = (noReuse ? packNoReuse : packOverlaps)(items);
-      const totalCols = packed.reduce((max, item) => Math.max(max, item.cols), 1);
-      let maxBottomRem = containerHeightRem;
+      const packed = packOverlaps(items);
       const html = packed.map((item) => {
-        const { start, end, col, cols, kind } = item;
+        const { start, end, col, cols, kind, row } = item;
         const top = Math.max(0, (start / windowMin) * 100);
         const height = Math.max(3, ((end - start) / windowMin) * 100);
-        let leftCss, widthCss;
-        if (noReuse) {
-          widthCss = `${DAY_COL_WIDTH_REM}rem`;
-          leftCss = `${col * DAY_COL_WIDTH_REM}rem`;
-        } else {
-          const widthPct = 100 / cols;
-          leftCss = `${col * widthPct}%`;
-          widthCss = `${widthPct}%`;
-        }
-        if (kind === 'template-col') {
-          const topRem = (start / windowMin) * containerHeightRem;
-          const naturalHeightRem = ((end - start) / windowMin) * containerHeightRem;
-          const neededHeightRem = TEMPLATE_HEADER_REM + item.ts.slots.length * MIN_SLOT_REM;
-          const heightRem = Math.max(naturalHeightRem, neededHeightRem);
-          maxBottomRem = Math.max(maxBottomRem, topRem + heightRem);
-          return templateColumnHtml(item.ts, topRem, heightRem, leftCss, widthCss, conflicts, iso);
-        }
-        const row = item.row;
+        const widthPct = 100 / cols;
+        const leftCss = `${col * widthPct}%`;
+        const widthCss = `${widthPct}%`;
         const conflictNote = conflicts.get(row.id);
         return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftCss, widthCss, !!conflictNote, conflictNote);
       }).join('');
-      return { html, cols: totalCols, heightRem: maxBottomRem };
+      return { html };
     }
 
     function minutesToHHMM(raw) {
@@ -555,11 +438,86 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       return isoOf(d);
     }
 
-    // The Day view timeline used to draw time-sliced "ghost" open-slot
-    // boxes here (computeGhostItems/coverageGapBarHtml — several rounds of
-    // real, documented back-and-forth in git history and CLAUDE.md §4).
-    // Replaced 2026-09-20 with the discrete slot model: see
-    // computeTemplateSlots (coverage.js) and templateColumnHtml above.
+    // One column per template (not one per person) — see
+    // groupDayItemsByTemplate's header comment for why this replaced the
+    // old per-lane ghost-item model. Sized to the template's own declared
+    // start/end, same as any other item this packer positions; clipped to
+    // the visible window like everything else in dayTemplateBarsHtml.
+    // Inside it: one row per person, approved first, then pending
+    // ("Unapproved"), then empty placeholders up to whichever is larger of
+    // max_staff/min_staff/actual-headcount — so a slot never disappears
+    // just because nobody's filled it, and never implies more people are
+    // wanted than the template actually calls for.
+    function templateColumnHtml(group, conflicts, top, height, leftCss, widthCss) {
+      const { template, approved, pending } = group;
+      const slotCount = Math.max(template.max_staff || 0, template.min_staff || 0, approved.length + pending.length);
+      const emptyCount = Math.max(0, slotCount - approved.length - pending.length);
+
+      const approvedHtml = approved.map((s) => {
+        const note = conflicts.get(s.id);
+        const titleAttr = note ? '' : 'title="Click to edit, drag to move"';
+        const noteAttr = note ? `data-conflict-note="${escapeHtml(note)}"` : '';
+        return `<div class="shift-bar slot-inline${note ? ' flagged' : ''}" draggable="true" data-kind="shift-approved" data-id="${s.id}" ${titleAttr} ${noteAttr}>
+          <span class="who">${escapeHtml(userName(s.user_id))}${note ? ' ' + ALERT_SVG : ''}</span>
+          <span class="when">${escapeHtml(timeLabel(s))}</span>
+        </div>`;
+      }).join('');
+
+      const pendingHtml = pending.map((r) => {
+        const note = conflicts.get(r.id);
+        const titleAttr = note ? '' : 'title="Right-click to approve or deny"';
+        const noteAttr = note ? `data-conflict-note="${escapeHtml(note)}"` : '';
+        return `<div class="req-bar slot-inline slot-pending${note ? ' flagged' : ''}" draggable="true" data-kind="shift-pending" data-id="${r.id}" ${titleAttr} ${noteAttr}>
+          <span class="who">${escapeHtml(userName(r.user_id))}${note ? ' ' + ALERT_SVG : ''}</span>
+          <span class="when">${escapeHtml(timeLabel(r))} · Unapproved</span>
+          <button type="button" class="slot-approve-btn" data-approve-id="${r.id}">Approve</button>
+        </div>`;
+      }).join('');
+
+      const emptyHtml = Array.from({ length: emptyCount }, () => `
+        <div class="template-slot-empty" data-template-id="${template.id}" data-start="${template.start_time}" data-end="${template.end_time}"
+             title="Drag a name here, click to add, or right-click">+ Add</div>
+      `).join('');
+
+      return `
+        <div class="template-col" data-template-id="${template.id}" data-start="${template.start_time}" data-end="${template.end_time}"
+             style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);min-height:${slotCount * 2.5}rem;">
+          <div class="template-col-label" title="${escapeHtml(template.name)}">${escapeHtml(template.name)} · ${formatTime12(template.start_time)}–${formatTime12(template.end_time)}</div>
+          <div class="template-col-slots">${approvedHtml}${pendingHtml}${emptyHtml}</div>
+        </div>
+      `;
+    }
+
+    // Day view's timeline, grouped by template instead of one column per
+    // person (see groupDayItemsByTemplate). Anything that fits no template
+    // at all still gets its own individual column, exactly as before.
+    function dayTemplateBarsHtml(iso, shifts, pendingShiftReqs, conflicts, shiftTemplates, startMin, windowMin) {
+      const { groups, unmatched } = groupDayItemsByTemplate(shiftTemplates, shifts, pendingShiftReqs, iso);
+
+      const groupItems = groups.map((group) => {
+        const [dispStart, dispEnd] = displayRange(group.template.start_time, group.template.end_time, startMin);
+        return { start: Math.max(0, dispStart), end: Math.min(dispEnd, windowMin), kind: 'template-group', group };
+      });
+      const unmatchedItems = unmatched.map(({ kind, row }) => {
+        const [dispStart, dispEnd] = displayRange(row.start_time, row.end_time, startMin);
+        return { start: Math.max(0, dispStart), end: Math.min(dispEnd, windowMin), kind, row };
+      });
+
+      const packed = packNoReuse([...groupItems, ...unmatchedItems]);
+      const totalCols = packed.reduce((max, item) => Math.max(max, item.cols), 1);
+      const html = packed.map((item) => {
+        const { start, end, col, kind } = item;
+        const top = Math.max(0, (start / windowMin) * 100);
+        const height = Math.max(3, ((end - start) / windowMin) * 100);
+        const leftCss = `${col * DAY_COL_WIDTH_REM}rem`;
+        const widthCss = `${DAY_COL_WIDTH_REM}rem`;
+        if (kind === 'template-group') return templateColumnHtml(item.group, conflicts, top, height, leftCss, widthCss);
+        const row = item.row;
+        const note = conflicts.get(row.id);
+        return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftCss, widthCss, !!note, note);
+      }).join('');
+      return { html, cols: totalCols };
+    }
 
     function renderMonth() {
       const year = anchor.getFullYear();
@@ -697,8 +655,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       }
 
       const coverage = computeDayCoverage(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
-      const templateSlots = computeTemplateSlots(data.shiftTemplates || [], shifts, data.shiftRequests || [], iso);
-      const { html: bars, cols, heightRem } = dayBarsHtml(iso, shifts, pendingShiftReqs, conflicts, startMin, windowMin, templateSlots, true);
+      const { html: bars, cols } = dayTemplateBarsHtml(iso, shifts, pendingShiftReqs, conflicts, data.shiftTemplates || [], startMin, windowMin);
       const coverageHtml = renderCoveragePanel(coverage);
       const colWidth = `${cols * DAY_COL_WIDTH_REM}rem`;
 
@@ -717,7 +674,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         </div>
         <div class="cal-day-body">
           <div class="cal-hours">${hourLabels.join('')}</div>
-          <div class="cal-day-col" data-date="${iso}" style="height:${heightRem}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
+          <div class="cal-day-col" data-date="${iso}" style="height:${(windowMin / 60) * DAY_REM_PER_HOUR}rem;min-width:${colWidth};width:${colWidth};">${bars}</div>
         </div>
       `;
       wireDayInteractions(iso, startMin, windowMin);
@@ -824,32 +781,44 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           await refreshAndRender();
         });
       }
-      // .coverage-block is the whole-template summary card above the
-      // timeline; .template-slot.open is an individual OPEN slot inside a
-      // template's column IN the timeline (see computeTemplateSlots,
-      // coverage.js) — both accept the exact same three kinds of drop and
-      // both open the same reviewable Add Shift modal on click, so they
-      // share one wiring pass.
-      root.querySelectorAll('.coverage-block, .template-slot.open').forEach((block) => {
-        // A .template-slot's own data-date is always `iso` here (a
-        // template's date-of-day slots don't need a next-day bump the way
-        // the old time-sliced ghost boxes sometimes did) — kept as a
-        // fallback for forward-compatibility, not currently exercised.
+      // .template-slot-empty (an open slot inside a template-col — see
+      // templateColumnHtml) gets the exact same click/drag/drop behavior
+      // as a .coverage-block card: drag a roster name on, or click a name
+      // then click the slot, opens the same reviewable Add Shift modal.
+      // Also wired for right-click below, since a slot is a much smaller
+      // target than the old whole-column ghost bar and the owner
+      // specifically asked for right-click to work too.
+      root.querySelectorAll('.coverage-block, .template-slot-empty').forEach((block) => {
         const blockDate = block.getAttribute('data-date') || iso;
-        const openAddModal = () => {
+        // A .template-slot-empty already names an exact template + time —
+        // there's nothing left to review, unlike a .coverage-block (which
+        // still opens the modal, unchanged): dragging or clicking a name
+        // onto a specific slot saves immediately, no modal. Right-click
+        // still opens the modal either way, since that's a "let me
+        // configure this manually" action, not "use this exact slot."
+        const isSlot = block.classList.contains('template-slot-empty');
+        async function fillSlot(userId) {
+          const payload = { user_id: userId, date: blockDate, start_time: block.getAttribute('data-start'), end_time: block.getAttribute('data-end') };
+          const r = await window.shawarmaApi('POST', '/api/shifts', payload);
+          if (!r.ok) { window.shawarmaToast(r.error || 'Could not add shift'); return; }
+          if (r.shift) pushUndo(`add ${userName(userId)}'s shift`, () => window.shawarmaApi('DELETE', `/api/shifts/${r.shift.id}`));
+          window.shawarmaToast(`${userName(userId)} added`);
+          await refreshAndRender();
+        }
+        block.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
           const userId = selectedRosterUserId;
           selectedRosterUserId = null;
           root.querySelectorAll('.roster-chip.selected').forEach((c) => c.classList.remove('selected'));
           openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
-        };
-        block.addEventListener('click', openAddModal);
-        // "the admin can right-click on that column and add names" — an
-        // explicit second way in, alongside drag and click-to-select,
-        // requested alongside the slot model itself.
-        block.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openAddModal();
+        });
+        block.addEventListener('click', () => {
+          const userId = selectedRosterUserId;
+          selectedRosterUserId = null;
+          root.querySelectorAll('.roster-chip.selected').forEach((c) => c.classList.remove('selected'));
+          if (isSlot && userId) { fillSlot(userId); return; }
+          openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
         });
         block.addEventListener('dragover', (e) => {
           if (![...e.dataTransfer.types].includes('application/x-kind')) return;
@@ -857,12 +826,13 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           block.classList.add('drag-over');
         });
         block.addEventListener('dragleave', () => block.classList.remove('drag-over'));
-        // Dropping opens the same reviewable Add Shift modal as the
-        // click-to-select path, rather than saving instantly — a silent
-        // save gives no visible confirmation a drag even registered
-        // (native HTML5 drag-and-drop isn't reliable on every trackpad/
-        // browser to begin with), and either way an admin should get a
-        // chance to check/adjust the time before it's actually scheduled.
+        // For .coverage-block, dropping opens the same reviewable Add
+        // Shift modal as the click-to-select path, rather than saving
+        // instantly — a silent save gives no visible confirmation a drag
+        // even registered, and an admin should get a chance to check/
+        // adjust the time before it's scheduled. A .template-slot-empty
+        // skips that: the slot already IS the exact template+time, so
+        // there's nothing left to confirm.
         block.addEventListener('drop', async (e) => {
           e.preventDefault();
           // Without this, a drop here also bubbles up to the day-column's
@@ -877,6 +847,7 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
 
           if (kind === 'roster-user') {
             const userId = e.dataTransfer.getData('text/plain');
+            if (isSlot) { await fillSlot(userId); return; }
             openAddShiftModal(blockDate, block.getAttribute('data-start'), block.getAttribute('data-end'), userId);
             return;
           }
@@ -904,10 +875,10 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
           // stretched to the block's full time — since the whole point is
           // an admin visually confirming "yes, use this person for this
           // slot," not silently rewriting what they said they're available
-          // for. Once approved it just becomes a real shift, which
-          // computeTemplateSlots re-matches to its own slot on next
-          // render like any other approved shift — no special-casing
-          // needed here for that.
+          // for. If their hours don't cover the whole block, the remainder
+          // correctly stays a red open slot on its own (computeGhostItems'
+          // instant-by-instant sweep already handles a partially-covered
+          // window; no special-casing needed here for that).
           if (kind === 'shift-pending') {
             const id = e.dataTransfer.getData('text/plain');
             const req = (data.shiftRequests || []).find((r) => r.id === id);
@@ -917,6 +888,26 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
             window.shawarmaToast(`Approved ${userName(req.user_id)}`);
             await refreshAndRender();
           }
+        });
+      });
+
+      // The "Approve" button on an Unapproved slot inside a template-col
+      // (see templateColumnHtml) — a direct in-place approval, since the
+      // pending person is already shown sitting in the right slot; no
+      // need to drag them anywhere first. Right-click on the same row
+      // still opens the usual approve/deny/delete context menu too
+      // (wireContextMenus already covers it via data-kind="shift-pending").
+      root.querySelectorAll('.slot-approve-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const id = btn.getAttribute('data-approve-id');
+          const req = (data.shiftRequests || []).find((r) => r.id === id);
+          if (!req) return;
+          const r = await window.shawarmaApi('PATCH', `/api/shift-requests/${id}`, { status: 'approved' });
+          if (!r.ok) { window.shawarmaToast(r.error || 'Could not approve'); return; }
+          window.shawarmaToast(`Approved ${userName(req.user_id)}`);
+          await refreshAndRender();
         });
       });
     }

@@ -19,6 +19,15 @@ const lang = getLang(Astro);
     </a>
   )}
 
+  <!-- Hidden until GET /api/state's checkInAvailable is true (no geofence
+       set up yet) — see admin.astro's "Location Check-In" card. -->
+  <div class="card" id="checkin-card" style="display:none;">
+    <h2><Icon name="clock" size={18} class="icon-inline" /> {t(lang, 'checkin.title')}</h2>
+    <p class="card-sub">{t(lang, 'checkin.sub')}</p>
+    <p id="checkin-status" style="font-weight:600;margin:0 0 0.75rem;"></p>
+    <button class="btn-primary" id="checkin-btn" type="button" style="width:100%;"></button>
+  </div>
+
   <div class="card">
     <h2><Icon name="calendar" size={18} class="icon-inline" /> {t(lang, 'home.myUpcomingShifts')}</h2>
     <div id="shifts-list"><p class="empty">{t(lang, 'common.loading')}</p></div>
@@ -126,7 +135,58 @@ const lang = getLang(Astro);
           </div>
         `;
       }).join('');
+
+      renderCheckIn(data);
     }
+
+    // ----- Check In / Check Out -----
+    let myOpenCheckIn = null;
+    function renderCheckIn(data) {
+      const card = document.getElementById('checkin-card');
+      if (!data.checkInAvailable) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      myOpenCheckIn = data.myOpenCheckIn || null;
+      const statusEl = document.getElementById('checkin-status');
+      const btn = document.getElementById('checkin-btn');
+      if (myOpenCheckIn) {
+        statusEl.textContent = t(lang, 'checkin.checkedInSince', { time: formatTime12(myOpenCheckIn.clock_in) });
+        btn.textContent = t(lang, 'checkin.checkOutBtn');
+      } else {
+        statusEl.textContent = t(lang, 'checkin.notCheckedIn');
+        btn.textContent = t(lang, 'checkin.checkInBtn');
+      }
+    }
+
+    document.getElementById('checkin-btn').addEventListener('click', () => {
+      if (!navigator.geolocation) { window.shawarmaToast(t(lang, 'checkin.noGeolocation')); return; }
+      const btn = document.getElementById('checkin-btn');
+      const statusEl = document.getElementById('checkin-status');
+      btn.disabled = true;
+      const prevStatus = statusEl.textContent;
+      statusEl.textContent = t(lang, 'checkin.reading');
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const now = new Date();
+          const payload = {
+            action: myOpenCheckIn ? 'out' : 'in',
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            date: todayISO(),
+            time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+          };
+          const r = await window.shawarmaApi('POST', '/api/checkin', payload);
+          btn.disabled = false;
+          if (!r.ok) { statusEl.textContent = prevStatus; window.shawarmaToast(r.error || 'Could not check in'); return; }
+          window.shawarmaToast(payload.action === 'in' ? t(lang, 'checkin.success') : t(lang, 'checkin.successOut'));
+          await init();
+        },
+        () => {
+          btn.disabled = false;
+          statusEl.textContent = prevStatus;
+          window.shawarmaToast(t(lang, 'checkin.locationDenied'));
+        },
+      );
+    });
 
     init();
   </script>

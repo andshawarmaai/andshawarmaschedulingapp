@@ -33,6 +33,40 @@ const user = Astro.locals.user;
   )}
 
   <div class="card">
+    <h2>Jobs</h2>
+    <p class="card-sub">
+      Operational positions (e.g. "Shawarma Station", "Cashier") — separate from a user's app role
+      (staff/manager/admin) above. Assign who's qualified and how proficient they are for each job from
+      that person's Edit user screen.
+    </p>
+    <button class="btn-primary" id="add-job-btn" type="button" style="margin-bottom:0.75rem;"><Icon name="plus" size={14} /> Add job</button>
+    <div id="jobs-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2><Icon name="clock" size={18} class="icon-inline" /> Location Check-In</h2>
+    <p class="card-sub">
+      Staff check themselves in/out from their phone on the Home page; this verifies a single GPS
+      reading at that moment against these coordinates — never ongoing tracking. Leave this unset and
+      check-in stays hidden from staff entirely.
+    </p>
+    <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
+      Before turning this on for real staff, give them written notice that check-in verifies their
+      location — that's a compliance step outside this app, not something this form can satisfy for you.
+    </p>
+    <div class="field-row">
+      <div class="field"><label>Latitude</label><input type="number" id="geo-lat" class="input" step="any" placeholder="39.1434" /></div>
+      <div class="field"><label>Longitude</label><input type="number" id="geo-lng" class="input" step="any" placeholder="-77.2014" /></div>
+      <div class="field"><label>Radius (meters)</label><input type="number" id="geo-radius" class="input" min="0" step="1" placeholder="150" /></div>
+    </div>
+    <div style="display:flex;gap:0.5rem;">
+      <button class="btn-secondary" id="geo-use-current" type="button">Use my current location</button>
+      <button class="btn-primary" id="geo-save" type="button">Save</button>
+    </div>
+    <p class="card-sub" id="geo-status" style="margin-top:0.5rem;"></p>
+  </div>
+
+  <div class="card">
     <h2>API Keys</h2>
     <p class="card-sub">
       Let an AI agent or script send a bulk shift import directly, without anyone logging in. Give each
@@ -109,6 +143,18 @@ const user = Astro.locals.user;
           </div>
         )}
         <hr class="divider" />
+        {user.role === 'admin' && (
+          <div class="field">
+            <label>Job qualifications &amp; proficiency</label>
+            <p class="card-sub" style="margin:0 0 0.5rem;">
+              "Qualified" is required before proficiency can be set, and before this job counts toward
+              a hard staffing requirement. Proficiency is a preference signal among already-qualified
+              people — never a single overall score.
+            </p>
+            <div id="eu-jobs-list"></div>
+          </div>
+        )}
+        <hr class="divider" />
         <div class="field"><label>Reset password</label>
           <div style="display:flex;gap:0.5rem;">
             <input type="text" id="eu-new-password" class="input" placeholder="Leave blank to keep current" />
@@ -139,6 +185,11 @@ const user = Astro.locals.user;
           <div class="field"><label>Max weekend shifts per month</label><input type="number" id="tier-max-weekend-shifts" class="input" min="0" step="1" placeholder="No limit" /></div>
           <div class="field"><label>Max days off per month</label><input type="number" id="tier-max-days-off" class="input" min="0" step="1" placeholder="No limit" /></div>
           <div class="field"><label>Max weekend days off per month</label><input type="number" id="tier-max-weekend-days-off" class="input" min="0" step="1" placeholder="No limit" /></div>
+          <hr class="divider" />
+          <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:400;">
+            <input type="checkbox" id="tier-auto-approve" style="width:1rem;height:1rem;" />
+            <span>Auto-approve time off that's within this tier's limits above (skips manual review — a request that would create a staffing conflict still goes to pending regardless)</span>
+          </label>
         </div>
         <div class="modal-footer">
           <button class="btn-danger" id="tier-delete" style="margin-right:auto;" type="button" hidden>Delete tier</button>
@@ -147,6 +198,21 @@ const user = Astro.locals.user;
       </div>
     </div>
   )}
+
+  <!-- Add/edit job modal -->
+  <div class="modal-backdrop" id="job-modal">
+    <div class="modal">
+      <div class="modal-header"><h2 id="job-modal-title">Add job</h2><button class="modal-close" id="job-modal-close" type="button">&times;</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Name</label><input type="text" id="job-name" class="input" placeholder="e.g. Shawarma Station" /></div>
+        <div class="field"><label>Department (optional)</label><input type="text" id="job-department" class="input" placeholder="e.g. BOH" /></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-danger" id="job-delete" style="margin-right:auto;" type="button" hidden>Delete job</button>
+        <button class="btn-primary" id="job-save" type="button">Save</button>
+      </div>
+    </div>
+  </div>
 
   <script define:vars={{ myUserId: user.id }}>
     window.__adminCtx = { myUserId };
@@ -162,6 +228,7 @@ const user = Astro.locals.user;
     let editingUserId = null;
     let pendingResetRequestId = null;
     let editingTierId = null;
+    let editingJobId = null;
 
     async function loadState() {
       const res = await fetch('/api/state');
@@ -363,6 +430,7 @@ const user = Astro.locals.user;
           (data.tiers || []).map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
         tierSelect.value = (data.userTiers && data.userTiers[uid]) || '';
       }
+      renderEditUserJobs(uid);
       document.getElementById('edit-user-modal').classList.add('show');
     }
     document.getElementById('edit-user-close').addEventListener('click', () => {
@@ -431,6 +499,7 @@ const user = Astro.locals.user;
         if (t.max_weekend_shifts_per_month != null) parts.push(`${t.max_weekend_shifts_per_month} weekend shift(s)/mo`);
         if (t.max_days_off_per_month != null) parts.push(`${t.max_days_off_per_month} day(s) off/mo`);
         if (t.max_weekend_days_off_per_month != null) parts.push(`${t.max_weekend_days_off_per_month} weekend day(s) off/mo`);
+        if (t.auto_approve_time_off) parts.push('auto-approves time off');
         return parts.length ? parts.join(' · ') : 'No limits set';
       };
       el.innerHTML = tiers.map((t) => `
@@ -455,6 +524,7 @@ const user = Astro.locals.user;
       LIMIT_FIELDS.forEach(([elId, field]) => {
         document.getElementById(elId).value = tier && tier[field] != null ? tier[field] : '';
       });
+      document.getElementById('tier-auto-approve').checked = !!(tier && tier.auto_approve_time_off);
       document.getElementById('tier-delete').hidden = !tier;
       document.getElementById('tier-modal').classList.add('show');
     }
@@ -472,6 +542,7 @@ const user = Astro.locals.user;
         LIMIT_FIELDS.forEach(([elId, field]) => {
           payload[field] = document.getElementById(elId).value.trim();
         });
+        payload.auto_approve_time_off = document.getElementById('tier-auto-approve').checked;
         const url = editingTierId ? `/api/admin/tiers/${editingTierId}` : '/api/admin/tiers';
         const r = await window.shawarmaApi(editingTierId ? 'PATCH' : 'POST', url, payload);
         if (!r.ok) { window.shawarmaToast(r.error || 'Could not save tier'); return; }
@@ -489,6 +560,136 @@ const user = Astro.locals.user;
         window.shawarmaToast('Tier deleted');
         editingTierId = null;
         await refreshAndRender();
+      });
+    }
+
+    // ----- Jobs (Sprint 1 — EPIC 2/3) -----
+
+    function renderJobs() {
+      const el = document.getElementById('jobs-list');
+      if (!el) return;
+      const jobs = data.jobs || [];
+      if (jobs.length === 0) {
+        el.innerHTML = '<p class="empty">No jobs yet — add one, then assign it from a person\'s Edit user screen.</p>';
+        return;
+      }
+      el.innerHTML = jobs.map((j) => `
+        <div class="list-item">
+          <div>
+            <div class="who">${escapeHtml(j.name)}</div>
+            ${j.department ? `<div class="meta">${escapeHtml(j.department)}</div>` : ''}
+          </div>
+          <button class="btn-secondary" data-edit-job="${j.id}">Edit</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('[data-edit-job]').forEach((b) => {
+        b.addEventListener('click', () => openJobModal(b.getAttribute('data-edit-job')));
+      });
+    }
+
+    function openJobModal(jobId) {
+      editingJobId = jobId || null;
+      const job = jobId ? (data.jobs || []).find((j) => j.id === jobId) : null;
+      document.getElementById('job-modal-title').textContent = job ? `Edit: ${job.name}` : 'Add job';
+      document.getElementById('job-name').value = job ? job.name : '';
+      document.getElementById('job-department').value = job && job.department ? job.department : '';
+      document.getElementById('job-delete').hidden = !job;
+      document.getElementById('job-modal').classList.add('show');
+    }
+
+    const addJobBtn = document.getElementById('add-job-btn');
+    if (addJobBtn) {
+      addJobBtn.addEventListener('click', () => openJobModal(null));
+      document.getElementById('job-modal-close').addEventListener('click', () => {
+        document.getElementById('job-modal').classList.remove('show');
+        editingJobId = null;
+      });
+      document.getElementById('job-save').addEventListener('click', async () => {
+        const payload = {
+          name: document.getElementById('job-name').value.trim(),
+          department: document.getElementById('job-department').value.trim() || null,
+        };
+        if (!payload.name) { window.shawarmaToast('Job name is required'); return; }
+        const url = editingJobId ? `/api/admin/jobs/${editingJobId}` : '/api/admin/jobs';
+        const r = await window.shawarmaApi(editingJobId ? 'PATCH' : 'POST', url, payload);
+        if (!r.ok) { window.shawarmaToast(r.error || 'Could not save job'); return; }
+        document.getElementById('job-modal').classList.remove('show');
+        window.shawarmaToast('Job saved');
+        editingJobId = null;
+        await refreshAndRender();
+      });
+      document.getElementById('job-delete').addEventListener('click', async () => {
+        const job = (data.jobs || []).find((j) => j.id === editingJobId);
+        if (!job || !confirm(`Delete "${job.name}"? Removes everyone's qualification and proficiency for it.`)) return;
+        const r = await window.shawarmaApi('DELETE', `/api/admin/jobs/${editingJobId}`);
+        if (!r.ok) { window.shawarmaToast(r.error || 'Delete failed'); return; }
+        document.getElementById('job-modal').classList.remove('show');
+        window.shawarmaToast('Job deleted');
+        editingJobId = null;
+        await refreshAndRender();
+      });
+    }
+
+    const QUALIFICATION_LABELS = { not_qualified: 'Not qualified', training: 'Training', qualified: 'Qualified' };
+    const PROFICIENCY_LABELS = { developing: 'Developing', proficient: 'Proficient', advanced: 'Advanced' };
+
+    // Renders one row per job inside the Edit user modal, each with its own
+    // qualification select and (only once qualified) a proficiency select.
+    // Every change saves immediately via its own API call — these aren't
+    // part of the "Save changes" button, same reasoning as tiers/jobs
+    // managing themselves outside that button.
+    function renderEditUserJobs(uid) {
+      const el = document.getElementById('eu-jobs-list');
+      if (!el) return;
+      const jobs = data.jobs || [];
+      if (jobs.length === 0) {
+        el.innerHTML = '<p class="empty">No jobs defined yet — add one in the Jobs card below first.</p>';
+        return;
+      }
+      const qualByJob = new Map((data.employeeJobs || []).filter((r) => r.user_id === uid).map((r) => [r.job_id, r]));
+      const profByJob = new Map((data.employeeRoleProfiles || []).filter((r) => r.user_id === uid).map((r) => [r.job_id, r]));
+      el.innerHTML = jobs.map((j) => {
+        const qual = qualByJob.get(j.id);
+        const state = qual ? qual.qualification_state : 'not_qualified';
+        const prof = profByJob.get(j.id);
+        return `
+        <div class="list-item" style="align-items:center;">
+          <div style="flex:1;"><div class="who">${escapeHtml(j.name)}</div></div>
+          <select class="input" style="width:auto;" data-qual-job="${j.id}">
+            ${Object.entries(QUALIFICATION_LABELS).map(([v, label]) => `<option value="${v}" ${v === state ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+          ${state === 'qualified' ? `
+            <select class="input" style="width:auto;margin-left:0.5rem;" data-prof-job="${j.id}">
+              <option value="">No proficiency set</option>
+              ${Object.entries(PROFICIENCY_LABELS).map(([v, label]) => `<option value="${v}" ${prof && prof.proficiency === v ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
+          ` : ''}
+        </div>
+      `;
+      }).join('');
+      el.querySelectorAll('[data-qual-job]').forEach((sel) => {
+        sel.addEventListener('change', async () => {
+          const job_id = sel.getAttribute('data-qual-job');
+          const qualification_state = sel.value;
+          const r = await window.shawarmaApi('POST', '/api/admin/employee-jobs', { user_id: uid, job_id, qualification_state });
+          if (!r.ok) { window.shawarmaToast(r.error || 'Could not update qualification'); return; }
+          await loadState();
+          renderEditUserJobs(uid);
+        });
+      });
+      el.querySelectorAll('[data-prof-job]').forEach((sel) => {
+        sel.addEventListener('change', async () => {
+          const job_id = sel.getAttribute('data-prof-job');
+          if (!sel.value) {
+            const r = await window.shawarmaApi('DELETE', '/api/admin/employee-role-profiles', { user_id: uid, job_id });
+            if (!r.ok) window.shawarmaToast(r.error || 'Could not clear proficiency');
+          } else {
+            const r = await window.shawarmaApi('POST', '/api/admin/employee-role-profiles', { user_id: uid, job_id, proficiency: sel.value });
+            if (!r.ok) { window.shawarmaToast(r.error || 'Could not set proficiency'); return; }
+          }
+          await loadState();
+          renderEditUserJobs(uid);
+        });
       });
     }
 
@@ -560,7 +761,53 @@ const user = Astro.locals.user;
       renderUsers();
       renderKeys();
       renderTiers();
+      renderJobs();
     }
+
+    // ----- Location Check-In (GPS geofence for staff self check-in) -----
+    async function loadGeofence() {
+      // Raw fetch, not window.shawarmaApi — this fires at page-script
+      // startup (see the bottom of this script), which can run before
+      // Layout.astro's own script has defined window.shawarmaApi (its
+      // <script> comes after the page's slotted content in the DOM, so
+      // it executes after this file's top-level code) — same reasoning
+      // as loadState() above.
+      const res = await fetch('/api/admin/location-geofence');
+      const r = await res.json();
+      if (!r.ok || !r.location) return;
+      document.getElementById('geo-lat').value = r.location.lat ?? '';
+      document.getElementById('geo-lng').value = r.location.lng ?? '';
+      document.getElementById('geo-radius').value = r.location.geofence_radius_meters ?? '';
+      document.getElementById('geo-status').textContent = r.configured
+        ? 'Check-in is live for staff.'
+        : 'Not set up yet — staff won’t see a Check In button until all three fields are saved.';
+    }
+    document.getElementById('geo-use-current').addEventListener('click', () => {
+      if (!navigator.geolocation) { window.shawarmaToast('This browser can’t read your location'); return; }
+      document.getElementById('geo-status').textContent = 'Reading your current location…';
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          document.getElementById('geo-lat').value = pos.coords.latitude.toFixed(6);
+          document.getElementById('geo-lng').value = pos.coords.longitude.toFixed(6);
+          document.getElementById('geo-status').textContent = 'Location read — review the radius, then Save.';
+        },
+        () => { document.getElementById('geo-status').textContent = 'Could not read your location — check browser permission and try again.'; },
+      );
+    });
+    document.getElementById('geo-save').addEventListener('click', async () => {
+      const lat = document.getElementById('geo-lat').value.trim();
+      const lng = document.getElementById('geo-lng').value.trim();
+      const radius = document.getElementById('geo-radius').value.trim();
+      const r = await window.shawarmaApi('PATCH', '/api/admin/location-geofence', {
+        lat: lat === '' ? null : Number(lat),
+        lng: lng === '' ? null : Number(lng),
+        geofence_radius_meters: radius === '' ? null : Number(radius),
+      });
+      if (!r.ok) { window.shawarmaToast(r.error || 'Could not save'); return; }
+      window.shawarmaToast('Saved');
+      await loadGeofence();
+    });
+    loadGeofence();
 
     refreshAndRender();
   </script>

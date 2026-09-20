@@ -5,6 +5,7 @@
 
 import db from '../../lib/db/index.js';
 import { publicUser } from '../../lib/publicUser.js';
+import { isGeofenceConfigured } from '../../lib/geo.js';
 
 export const prerender = false;
 
@@ -12,7 +13,7 @@ export async function GET(context) {
   const me = context.locals.user;
   const isStaffOrAbove = me.role === 'admin' || me.role === 'manager';
 
-  const [users, shifts, timeOff, swapPosts, swapClaims, dayCaps, shiftRequests, shiftTemplates] = await Promise.all([
+  const [users, shifts, timeOff, swapPosts, swapClaims, dayCaps, shiftRequests, shiftTemplates, jobs, myAvailability] = await Promise.all([
     db.listUsers(),
     db.listShifts(),
     db.listTimeOff(),
@@ -21,6 +22,8 @@ export async function GET(context) {
     db.listDayCaps(),
     db.listShiftRequests(),
     db.listShiftTemplates(),
+    db.listJobs(),
+    db.listAvailabilityRules(me.id),
   ]);
 
   const body = {
@@ -37,10 +40,30 @@ export async function GET(context) {
     // (schedule.astro), and there's no actual sensitivity here the way
     // there is for tiers below.
     shiftTemplates,
+    // Job names aren't sensitive (same reasoning as shiftTemplates above) —
+    // everyone needs them to make sense of qualification/proficiency badges
+    // shown elsewhere. Which employee has which qualification/proficiency
+    // stays admin-only below, same treatment as tiers.
+    jobs: jobs.filter((j) => !j.disabled),
+    availabilityMine: myAvailability,
+    myJobQualifications: (await db.listEmployeeJobs({ user_id: me.id })),
     timeOffApproved: timeOff
       .filter((t) => t.status === 'approved')
       .map((t) => ({ user_id: t.user_id, start_date: t.start_date, end_date: t.end_date })),
     timeOffMine: timeOff.filter((t) => t.user_id === me.id),
+    // The caller's own currently-open GPS check-in, if any — what the
+    // Check In/Check Out card on the home page uses to know which of the
+    // two to show. Not date-scoped by the client on purpose (there should
+    // only ever be at most one open punch per person); "today" here is
+    // the server's own clock, which only matters within a few minutes of
+    // midnight and only affects this display hint, never the check-in
+    // write itself (that always uses the caller's own device time).
+    myOpenCheckIn: await db.findOpenActualWorkedShift(me.id, new Date().toISOString().slice(0, 10)),
+    // Whether Check In/Out shows at all — a plain boolean, never the
+    // actual coordinates, which stay admin-only (`locations` below).
+    // Distance math always happens server-side in /api/checkin, so staff
+    // never need to know the target coordinates to use this correctly.
+    checkInAvailable: isGeofenceConfigured(await db.getPrimaryLocation()),
   };
   if (isStaffOrAbove) {
     body.timeOffAll = timeOff;
@@ -59,6 +82,9 @@ export async function GET(context) {
     // response at all.
     body.tiers = await db.listTiers();
     body.userTiers = Object.fromEntries(users.map((u) => [u.id, u.tier_id || null]));
+    body.employeeJobs = await db.listEmployeeJobs();
+    body.employeeRoleProfiles = await db.listEmployeeRoleProfiles();
+    body.locations = await db.listLocations();
   }
 
   return new Response(JSON.stringify(body), {

@@ -152,112 +152,89 @@ export function computeShiftRequestConflicts(shiftTemplates, shifts, shiftReques
   return conflicts;
 }
 
-// How many people are actually present, instant-by-instant, across a
-// template's window — deliberately ANY-OVERLAP here, not the strict
-// best-fit containment computeShiftRequestConflicts uses. That function is
-// answering "which named role does this shift represent" (so a nested
-// template's headcount isn't double-counted); this one is answering "is
-// this window covered at all, and by how many people, right now" — a
-// shift that starts an hour early or ends an hour late relative to the
-// template's declared time is still real, physical coverage during the
-// part that overlaps, and has to count or a merely time-shifted shift
-// would look like a totally open slot it isn't. Splits the window into
-// the minimal set of sub-intervals where the concurrent count doesn't
-// change, so a partial gap (e.g. the last hour of a closer block nobody
-// covers) is found precisely instead of only as a daily total.
-function sweepTemplateCoverage(template, ranges) {
-  const [tStart, tEnd] = templateRange(template);
-  const overlapping = ranges
-    .filter(([s, e]) => s < tEnd && e > tStart)
-    .map(([s, e]) => [Math.max(s, tStart), Math.min(e, tEnd)]);
-
-  const points = [...new Set([tStart, tEnd, ...overlapping.flat()])].sort((a, b) => a - b);
-  const segments = [];
-  for (let i = 0; i < points.length - 1; i++) {
-    const start = points[i];
-    const end = points[i + 1];
-    if (end <= start) continue;
-    const count = overlapping.filter(([s, e]) => s <= start && e >= end).length;
-    segments.push({ start, end, count });
-  }
-  return segments.length ? segments : [{ start: tStart, end: tEnd, count: 0 }];
-}
-
 // One row per template that applies to `dateStr`. Powers the Schedule
 // Builder's Day view "coverage" panel — a plain-English, at-a-glance
 // answer to "is today's schedule actually filled in" instead of making an
-// admin infer it from a pile of individual chips. The displayed count is
-// the WORST moment in the window (its minimum concurrent headcount) when
-// there's a min_staff to judge against — a template that's fully staffed
-// 9-5 but drops to zero for the last hour is not "fully staffed", and a
-// single daily total would hide exactly that. `over` instead looks at the
-// PEAK moment, since exceeding max_staff even briefly is the problem.
+// admin infer it from a pile of individual chips.
+//
+// Best-fit containment ONLY (same rule as groupDayItemsByTemplate/
+// computeShiftRequestConflicts) — a shift counts toward exactly one
+// template's numbers, never both. This used to be deliberately ANY-
+// OVERLAP instead (a shift merely touching a template's window counted
+// toward it too, on the theory that overlapping coverage is still real
+// coverage), but that meant two genuinely independent, merely-adjacent-
+// or-overlapping templates could each show the SAME people counted
+// against them — e.g. a 9am-6pm shift inflating a completely separate
+// 10:30am-9:30pm template's headcount to "2 of 1, over capacity" with
+// zero shifts actually assigned to it. Real, reported confusion: "these
+// are independent shifts so they have nothing to do with each other...
+// one shift template does not pull math or people from another shift
+// template." Matching the timeline's own grouping means the panel and
+// the timeline below it can never disagree about the same day again.
+//
+// Only APPROVED shifts count — same "a pending request must never count
+// toward closing a gap on its own" rule groupDayItemsByTemplate follows,
+// so this can't disagree with the timeline about that either.
 export function computeDayCoverage(shiftTemplates, shifts, shiftRequests, dateStr) {
-  const templates = templatesForDate(shiftTemplates, dateStr);
-  const ranges = rowsForSweep(shifts, shiftRequests, dateStr);
-
-  return templates.map((template) => {
-    const segments = sweepTemplateCoverage(template, ranges);
-    const counts = segments.map((s) => s.count);
-    const minCount = Math.min(...counts);
-    const maxCount = Math.max(...counts);
-    const overMax = template.max_staff != null && maxCount > template.max_staff;
-    const underMin = template.min_staff != null && minCount < template.min_staff;
+  const { groups } = groupDayItemsByTemplate(shiftTemplates, shifts, [], dateStr);
+  return groups.map(({ template, approved }) => {
+    const count = approved.length;
+    const overMax = template.max_staff != null && count > template.max_staff;
+    const underMin = template.min_staff != null && count < template.min_staff;
     const status = overMax ? 'over' : underMin ? 'under' : template.min_staff != null ? 'filled' : 'neutral';
-    const count = status === 'over' || status === 'neutral' ? maxCount : minCount;
     return { template, count, status };
   });
 }
 
-// The Day view timeline used to draw one ghost box per still-short
-// sub-range (see admin/schedule.astro git history for computeGhostItems),
-// which was accurate but kept resizing/reshaping as ANY-OVERLAP coverage
-// from unrelated shifts changed a template's exact shortfall throughout
-// the day — after several rounds of owner feedback landing on genuinely
-// contradictory asks ("lock the size" vs. "don't show a phantom person"),
-// the fix was to stop trying to visualize time-sliced coverage at all and
-// switch to a discrete SLOT model instead: "wherever there's a shift
-// template just have one column for that shift template and if there's
-// three people that should be filling that shift create three slots for
-// the names that can be dragged in there" (2026-09-20).
+// One entry per template that applies to `dateStr` and either has a
+// min_staff/max_staff rule to track or has at least one person already on
+// it — a template with neither is invisible here, same as it already is
+// on the coverage panel. Every approved shift and pending (status=pending,
+// action=create) request is grouped under its single best-fit template
+// (same best-fit rule as computeShiftRequestConflicts above); anything
+// that fits no template at all comes back separately as `unmatched`.
 //
-// Each template gets exactly `max_staff ?? min_staff` slots (skipped
-// entirely if BOTH are null — no defined headcount to track). A slot is
-// FILLED by whichever real shift/pending-request best-fits this template
-// (bestFitTemplate — the same strict-containment, narrowest-match
-// attribution `computeShiftRequestConflicts` uses, deliberately NOT the
-// any-overlap sweep the old gap boxes used — a slot represents "is a
-// specific person assigned to this specific role," not "is this window
-// physically covered by anyone at all"). Approved shifts fill slots
-// before pending requests do (an approved shift is a firmer claim on the
-// slot); if there are more matched rows than slots, the extras still get
-// their own slot beyond the base count rather than being silently
-// dropped — that's an over-capacity situation for a human to notice and
-// resolve, not something to hide.
-export function computeTemplateSlots(shiftTemplates, shifts, shiftRequests, dateStr) {
+// Replaces the old sub-range gap-tracking (computeTemplateTimeGaps +
+// admin/schedule.astro's computeGhostItems) for the Day view timeline —
+// that model gave a template needing 3 people up to 3 separate columns
+// (one lane per still-open head), which is exactly the "three columns for
+// the same 9-9 block" compression the owner asked to fix: "we'll stop all
+// the compression that happens in the adding of co[lumns]... one column
+// and we'll have [N] slots inside that column." This groups by template
+// instead, so the caller renders ONE column per template, sized to the
+// template's own declared time window ("the column size stay in place
+// based on the timeframe it covers"), with one row per person inside it —
+// filled (approved), unapproved (pending, awaiting a decision), or empty
+// (still needs someone). The coverage PANEL above the timeline (see
+// computeDayCoverage) is unrelated and unchanged — this only reshapes the
+// timeline underneath it.
+export function groupDayItemsByTemplate(shiftTemplates, shifts, shiftRequests, dateStr) {
   const templates = templatesForDate(shiftTemplates, dateStr);
-  const pendingCreates = shiftRequests.filter((r) => r.status === 'pending' && r.action === 'create' && r.date === dateStr);
-  const todaysShifts = shifts.filter((s) => s.date === dateStr);
+  const byTemplate = new Map(); // template -> { approved: [], pending: [] }
+  const unmatched = [];
 
-  const byTemplate = new Map(templates.map((t) => [t, []]));
-  for (const row of todaysShifts) {
-    const t = bestFitTemplate(templates, row);
-    if (t) byTemplate.get(t).push({ kind: 'shift-approved', row });
+  for (const s of shifts) {
+    if (s.date !== dateStr) continue;
+    const template = bestFitTemplate(templates, s);
+    if (!template) { unmatched.push({ kind: 'shift-approved', row: s }); continue; }
+    if (!byTemplate.has(template)) byTemplate.set(template, { approved: [], pending: [] });
+    byTemplate.get(template).approved.push(s);
   }
-  for (const row of pendingCreates) {
-    const t = bestFitTemplate(templates, row);
-    if (t) byTemplate.get(t).push({ kind: 'shift-pending', row });
+  for (const r of shiftRequests) {
+    if (r.date !== dateStr) continue;
+    const template = bestFitTemplate(templates, r);
+    if (!template) { unmatched.push({ kind: 'shift-pending', row: r }); continue; }
+    if (!byTemplate.has(template)) byTemplate.set(template, { approved: [], pending: [] });
+    byTemplate.get(template).pending.push(r);
   }
 
-  return templates
-    .filter((t) => t.max_staff != null || t.min_staff != null)
-    .map((template) => {
-      const slotCount = template.max_staff ?? template.min_staff;
-      const matched = byTemplate.get(template);
-      const totalSlots = Math.max(slotCount, matched.length);
-      const slots = Array.from({ length: totalSlots }, (_, i) =>
-        matched[i] ? { filled: true, kind: matched[i].kind, row: matched[i].row } : { filled: false }
-      );
-      return { template, slotCount, slots };
-    });
+  const groups = [];
+  for (const template of templates) {
+    const bucket = byTemplate.get(template) || { approved: [], pending: [] };
+    const hasRule = template.min_staff != null || template.max_staff != null;
+    const hasPeople = bucket.approved.length > 0 || bucket.pending.length > 0;
+    if (!hasRule && !hasPeople) continue;
+    groups.push({ template, approved: bucket.approved, pending: bucket.pending });
+  }
+  return { groups, unmatched };
 }
