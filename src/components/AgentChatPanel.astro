@@ -1,0 +1,330 @@
+---
+// Floating chat panel that lets a manager talk to the Hermes agent in
+// natural language ("schedule Jorge Friday 11-7", "post Adnan's Saturday
+// shift for swap", "who's working Thursday"). Mounted only on pages where
+// a manager is signed in.
+//
+// Architecture: messages go to POST /api/agent/chat → persisted as
+// status='pending'. The Hermes agent (running externally) polls the table,
+// acts via the same /api/* routes documented in AGENT-TRAINING.md, writes
+// back a paired assistant row with status='streaming' (with partial content)
+// then status='complete' (with final content + recorded actions).
+//
+// The browser opens a single SSE stream at /api/agent/chat/stream and
+// renders tokens as they arrive.
+---
+<div id="agent-chat-root" class="agent-chat-collapsed">
+  <button type="button" id="agent-chat-toggle" class="agent-chat-fab" aria-label="Open agent chat" title="Chat with Hermes">
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <span class="agent-chat-fab-label">Ask Hermes</span>
+  </button>
+
+  <div id="agent-chat-panel" class="agent-chat-panel" hidden>
+    <header class="agent-chat-header">
+      <div>
+        <strong>Hermes</strong>
+        <span class="agent-chat-status" id="agent-chat-status">connecting…</span>
+      </div>
+      <button type="button" id="agent-chat-close" class="agent-chat-close" aria-label="Close">×</button>
+    </header>
+
+    <div id="agent-chat-history" class="agent-chat-history"></div>
+
+    <form id="agent-chat-form" class="agent-chat-form" autocomplete="off">
+      <textarea id="agent-chat-input" placeholder="Schedule Jorge Friday 11-7pm, post Adnan's Saturday shift for swap, cap Friday lunch at 2…" rows="2" required></textarea>
+      <button type="submit" id="agent-chat-send" class="agent-chat-send">Send</button>
+    </form>
+
+    <details class="agent-chat-help">
+      <summary>What can Hermes do?</summary>
+      <ul>
+        <li><b>Add/move/delete a shift</b> — "schedule Jorge Friday 11-7pm", "move Adnan Sunday to Monday", "remove Jorge Friday"</li>
+        <li><b>Edit shift templates</b> — "make Mid AM require 4 people" (manager-only)</li>
+        <li><b>Day caps</b> — "cap Friday lunch at 2 people" (per-date override)</li>
+        <li><b>Swap posts</b> — "post my Saturday shift for swap"</li>
+        <li><b>Look up state</b> — "who's working Thursday", "show pending approvals"</li>
+        <li><b>Bulk operations</b> — paste a CSV or describe a whole week</li>
+      </ul>
+      <p class="agent-chat-help-foot">Approving/denying pending requests stays human-only — Hermes won't do that even if you ask.</p>
+    </details>
+  </div>
+</div>
+
+<script is:inline>
+(function () {
+  const root = document.getElementById('agent-chat-root');
+  if (!root) return;
+  const fab = document.getElementById('agent-chat-toggle');
+  const panel = document.getElementById('agent-chat-panel');
+  const closeBtn = document.getElementById('agent-chat-close');
+  const history = document.getElementById('agent-chat-history');
+  const form = document.getElementById('agent-chat-form');
+  const input = document.getElementById('agent-chat-input');
+  const sendBtn = document.getElementById('agent-chat-send');
+  const status = document.getElementById('agent-chat-status');
+
+  let isOpen = false;
+  let sse = null;
+  let currentAssistantId = null;
+  const rendered = {}; // message id -> element
+
+  function open() {
+    isOpen = true;
+    root.classList.add('agent-chat-open');
+    root.classList.remove('agent-chat-collapsed');
+    panel.hidden = false;
+    input.focus();
+    ensureLoaded();
+    connectSSE();
+  }
+  function close() {
+    isOpen = false;
+    root.classList.remove('agent-chat-open');
+    root.classList.add('agent-chat-collapsed');
+    panel.hidden = true;
+  }
+  fab.addEventListener('click', () => { isOpen ? close() : open(); });
+  closeBtn.addEventListener('click', close);
+
+  async function ensureLoaded() {
+    try {
+      const r = await fetch('/api/agent/chat', { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('Failed to load chat history');
+      const data = await r.json();
+      history.innerHTML = '';
+      rendered.currentAssistantId = null;
+      for (const m of (data.history || [])) render(m);
+      // Render action pills under each assistant message
+      for (const [msgId, acts] of Object.entries(data.actions || {})) {
+        if (acts && acts.length) renderActions(msgId, acts);
+      }
+      scrollToBottom();
+    } catch (e) {
+      status.textContent = 'history load failed';
+      console.error(e);
+    }
+  }
+
+  function render(m) {
+    if (rendered[m.id]) {
+      // Update in-place (used for streaming tokens)
+      if (m.role === 'assistant') {
+        const body = rendered[m.id].querySelector('.agent-chat-text');
+        if (body) body.textContent = m.content || '';
+        const dot = rendered[m.id].querySelector('.agent-chat-dot');
+        if (dot) dot.dataset.status = m.status;
+      }
+      return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'agent-chat-msg agent-chat-msg-' + m.role;
+    wrap.dataset.id = m.id;
+
+    const who = document.createElement('div');
+    who.className = 'agent-chat-who';
+    who.textContent = m.role === 'user' ? 'You' : 'Hermes';
+    if (m.role === 'assistant') {
+      const dot = document.createElement('span');
+      dot.className = 'agent-chat-dot';
+      dot.dataset.status = m.status;
+      who.appendChild(dot);
+    }
+    wrap.appendChild(who);
+
+    const body = document.createElement('div');
+    body.className = 'agent-chat-text';
+    body.textContent = m.content || (m.status === 'pending' ? '…' : '');
+    wrap.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'agent-chat-actions';
+    actions.dataset.forMessage = m.id;
+    wrap.appendChild(actions);
+
+    history.appendChild(wrap);
+    rendered[m.id] = wrap;
+  }
+
+  function renderActions(messageId, acts) {
+    const slot = rendered[messageId] && rendered[messageId].querySelector('.agent-chat-actions');
+    if (!slot) return;
+    slot.innerHTML = '';
+    for (const a of acts) {
+      const pill = document.createElement('span');
+      pill.className = 'agent-chat-pill';
+      const ok = a.response_status && a.response_status >= 200 && a.response_status < 300;
+      pill.classList.add(ok ? 'agent-chat-pill-ok' : 'agent-chat-pill-err');
+      pill.textContent = (ok ? '✓ ' : '⚠ ') + a.summary;
+      pill.title = a.method + ' ' + a.endpoint + '\n' + (a.response_status || '?') + ' — ' + (a.summary || '');
+      slot.appendChild(pill);
+    }
+  }
+
+  function scrollToBottom() {
+    history.scrollTop = history.scrollHeight;
+  }
+
+  function connectSSE() {
+    if (sse) try { sse.close(); } catch (_) {}
+    status.textContent = 'connecting…';
+    sse = new EventSource('/api/agent/chat/stream', { withCredentials: true });
+    sse.addEventListener('hello', () => { status.textContent = 'connected'; });
+    sse.addEventListener('status', (e) => {
+      const data = JSON.parse(e.data);
+      const el = rendered[data.id];
+      if (el) {
+        const dot = el.querySelector('.agent-chat-dot');
+        if (dot) dot.dataset.status = data.status;
+      }
+      if (data.status === 'streaming') status.textContent = 'typing…';
+      if (data.status === 'complete') status.textContent = 'connected';
+      if (data.status === 'error') status.textContent = 'error';
+    });
+    sse.addEventListener('token', (e) => {
+      const data = JSON.parse(e.data);
+      const el = rendered[data.id];
+      if (!el) return;
+      const body = el.querySelector('.agent-chat-text');
+      if (body) body.textContent = data.content || '';
+      scrollToBottom();
+    });
+    sse.addEventListener('done', (e) => {
+      const data = JSON.parse(e.data);
+      if (data.actions && data.actions.length) renderActions(data.id, data.actions);
+      scrollToBottom();
+    });
+    sse.addEventListener('error', () => { status.textContent = 'reconnecting…'; });
+    sse.onerror = () => {
+      // Browser auto-reconnects EventSource on close
+    };
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    sendBtn.disabled = true;
+    try {
+      const r = await fetch('/api/agent/chat', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert('Failed to send: ' + (err.error || r.status));
+        return;
+      }
+      const data = await r.json();
+      input.value = '';
+      // Render the user message immediately; SSE will pick up the assistant reply
+      render(data.message);
+      scrollToBottom();
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  });
+
+  // Submit on Enter, newline on Shift+Enter
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+})();
+</script>
+
+<style is:global>
+.agent-chat-collapsed .agent-chat-fab { display: inline-flex; }
+.agent-chat-collapsed .agent-chat-panel { display: none !important; }
+.agent-chat-open .agent-chat-fab { display: none; }
+.agent-chat-open .agent-chat-panel { display: flex; }
+
+.agent-chat-fab {
+  position: fixed; bottom: 1.25rem; right: 1.25rem; z-index: 1000;
+  align-items: center; gap: 0.5rem;
+  padding: 0.7rem 1rem; border-radius: 999px;
+  background: var(--color-accent, #f59e0b); color: #fff; border: none;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+  cursor: pointer; font-weight: 600;
+}
+.agent-chat-fab:hover { filter: brightness(0.93); }
+
+.agent-chat-panel {
+  position: fixed; bottom: 1rem; right: 1rem; z-index: 1000;
+  width: min(28rem, calc(100vw - 2rem));
+  height: min(38rem, calc(100vh - 2rem));
+  flex-direction: column;
+  background: var(--color-card, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 0.75rem;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.22);
+  overflow: hidden;
+}
+.agent-chat-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border);
+  background: var(--color-card);
+}
+.agent-chat-header strong { font-size: 0.95rem; }
+.agent-chat-status { display: block; font-size: 0.75rem; color: var(--color-muted); margin-top: 0.1rem; }
+.agent-chat-close {
+  background: none; border: none; font-size: 1.5rem; line-height: 1; cursor: pointer;
+  color: var(--color-muted); padding: 0 0.25rem;
+}
+
+.agent-chat-history {
+  flex: 1 1 auto; overflow-y: auto;
+  padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;
+  background: var(--color-bg, #fafafa);
+}
+.agent-chat-msg {
+  max-width: 85%; padding: 0.5rem 0.75rem; border-radius: 0.75rem;
+  font-size: 0.9rem; line-height: 1.4; word-wrap: break-word;
+}
+.agent-chat-msg-user { align-self: flex-end; background: var(--color-accent, #f59e0b); color: #fff; }
+.agent-chat-msg-assistant { align-self: flex-start; background: var(--color-card); border: 1px solid var(--color-border); }
+.agent-chat-who { font-size: 0.7rem; font-weight: 600; opacity: 0.75; margin-bottom: 0.15rem; display: flex; align-items: center; gap: 0.4rem; }
+.agent-chat-text { white-space: pre-wrap; }
+.agent-chat-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.4rem; }
+.agent-chat-pill {
+  font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+  background: rgba(0,0,0,0.06); border: 1px solid var(--color-border);
+}
+.agent-chat-pill-ok { color: #166534; border-color: #86efac; background: #dcfce7; }
+.agent-chat-pill-err { color: #991b1b; border-color: #fca5a5; background: #fee2e2; }
+
+.agent-chat-dot {
+  display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: #94a3b8;
+}
+.agent-chat-dot[data-status="pending"] { background: #fbbf24; animation: pulse 1s infinite; }
+.agent-chat-dot[data-status="streaming"] { background: #3b82f6; animation: pulse 0.8s infinite; }
+.agent-chat-dot[data-status="complete"] { background: #22c55e; }
+.agent-chat-dot[data-status="error"] { background: #ef4444; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.agent-chat-form {
+  display: flex; gap: 0.5rem; padding: 0.6rem;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-card);
+}
+.agent-chat-form textarea {
+  flex: 1; resize: none; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border);
+  border-radius: 0.4rem; font: inherit; background: var(--color-bg);
+}
+.agent-chat-send {
+  background: var(--color-accent, #f59e0b); color: #fff; border: none;
+  padding: 0.45rem 0.9rem; border-radius: 0.4rem; cursor: pointer; font-weight: 600;
+}
+.agent-chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.agent-chat-help { padding: 0 0.75rem 0.5rem; font-size: 0.78rem; color: var(--color-muted); border-top: 1px dashed var(--color-border); background: var(--color-card); }
+.agent-chat-help summary { cursor: pointer; padding: 0.4rem 0; }
+.agent-chat-help ul { padding-left: 1.1rem; margin: 0.3rem 0; }
+.agent-chat-help li { margin: 0.15rem 0; }
+.agent-chat-help-foot { margin: 0.3rem 0 0; font-style: italic; }
+</style>
