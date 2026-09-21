@@ -1,4 +1,4 @@
-// AI assistant settings — admin/manager-only. The admin picks a provider,
+// Chat Bot settings — admin/manager-only. The admin picks a provider,
 // pastes an API key, the orchestrator uses it on every chat message.
 // Key is encrypted at rest (AES-256-GCM, see src/lib/settingsCrypto.js).
 //

@@ -1,9 +1,19 @@
 ---
-// Floating chat panel that lets a manager talk to the Hermes agent in
-// natural language ("schedule Jorge Friday 11-7", "post Adnan's Saturday
-// shift for swap", "who's working Thursday"). Mounted only on pages where
-// a manager is signed in.
-//
+// Floating chat panel that lets any signed-in user talk to the Hermes
+// agent in natural language. Staff get the read-side view ("post my
+// Friday shift for swap", "request time off", "when am I working?");
+// managers/admins additionally get write-side actions ("schedule Jorge
+// Friday 11-7", "approve pending requests"). Mounted globally via
+// Layout.astro so it follows the user everywhere. Role gating of every
+// actual write is enforced server-side by middleware.js — this panel
+// just shows/hides affordances and the AI is told the user's role.
+interface Props {
+  userId: string;
+  userRole: string;
+  userDisplayName: string;
+}
+const { userId, userRole, userDisplayName } = Astro.props as Props;
+---
 // Architecture: messages go to POST /api/agent/chat → persisted as
 // status='pending'. The Hermes agent (running externally) polls the table,
 // acts via the same /api/* routes documented in AGENT-TRAINING.md, writes
@@ -36,24 +46,37 @@
     </form>
 
     <details class="agent-chat-help">
-      <summary>What can Hermes do?</summary>
-      <ul>
-        <li><b>Add/move/delete a shift</b> — "schedule Jorge Friday 11-7pm", "move Adnan Sunday to Monday", "remove Jorge Friday"</li>
-        <li><b>Edit shift templates</b> — "make Mid AM require 4 people" (manager-only)</li>
-        <li><b>Day caps</b> — "cap Friday lunch at 2 people" (per-date override)</li>
-        <li><b>Swap posts</b> — "post my Saturday shift for swap"</li>
-        <li><b>Look up state</b> — "who's working Thursday", "show pending approvals"</li>
-        <li><b>Bulk operations</b> — paste a CSV or describe a whole week</li>
+      <summary>What can I ask?</summary>
+      <ul id="agent-chat-help-list">
+        <li><b>When am I working?</b> — "what's my schedule this week?"</li>
+        <li><b>Request time off</b> — "I need next Friday off"</li>
+        <li><b>Submit availability</b> — "I'm free Mon-Wed next week 9-5"</li>
+        <li><b>Post a shift for swap</b> — "put my Saturday shift up for swap"</li>
+        <li><b>Volunteer for a swap</b> — "I'll take Bhanu's Sunday shift"</li>
       </ul>
-      <p class="agent-chat-help-foot">Approving/denying pending requests stays human-only — Hermes won't do that even if you ask.</p>
+      <p class="agent-chat-help-foot">Hermes acts as you — it can only do what your role allows, and approving requests stays human-only.</p>
     </details>
   </div>
 </div>
 
-<script is:inline>
+<script is:inline define:vars={{ userId, userRole, userDisplayName }}>
 (function () {
   const root = document.getElementById('agent-chat-root');
   if (!root) return;
+  // Add role-specific help items so managers see schedule-builder actions,
+  // staff sees their own request actions. Server enforces role on every
+  // endpoint — this just makes the panel's suggestions match what the
+  // user can actually do.
+  const helpList = document.getElementById('agent-chat-help-list');
+  if (helpList && (userRole === 'admin' || userRole === 'manager')) {
+    const extras = [
+      ['<li><b>Add/move/delete a shift</b> — "schedule Jorge Friday 11-7pm"</li>'],
+      ['<li><b>Edit shift templates</b> — "make Mid AM require 4 people"</li>'],
+      ['<li><b>Day caps</b> — "cap Friday lunch at 2 people"</li>'],
+      ['<li><b>Bulk operations</b> — paste a CSV or describe a whole week</li>'],
+    ];
+    for (const [html] of extras) helpList.insertAdjacentHTML('beforeend', html);
+  }
   const fab = document.getElementById('agent-chat-toggle');
   const panel = document.getElementById('agent-chat-panel');
   const closeBtn = document.getElementById('agent-chat-close');
