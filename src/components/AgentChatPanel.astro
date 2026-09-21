@@ -685,7 +685,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 .agent-chat-open .agent-chat-panel { display: flex; }
 
 .agent-chat-fab {
-  position: fixed; bottom: 1.25rem; right: 1.25rem; z-index: 1000;
+  position: fixed; bottom: 1.25rem; right: 1.25rem; z-index: 2147483647;
   align-items: center; gap: 0.5rem;
   padding: 0.7rem 1rem; border-radius: 999px;
   background: var(--color-accent, #f59e0b); color: #fff; border: none;
@@ -695,7 +695,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 .agent-chat-fab:hover { filter: brightness(0.93); }
 
 .agent-chat-panel {
-  position: fixed; bottom: 1rem; right: 1rem; z-index: 1000;
+  position: fixed; bottom: 1rem; right: 1rem; z-index: 2147483647;
   width: min(28rem, calc(100vw - 2rem));
   height: min(38rem, calc(100vh - 2rem));
   flex-direction: column;
