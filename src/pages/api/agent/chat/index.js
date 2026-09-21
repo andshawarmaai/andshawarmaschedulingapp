@@ -362,7 +362,7 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
   // "I don't see any upcoming shifts" while the user had 12 of them.
   // Direct DB access is one round-trip, no auth-redirect race, and is
   // the same data /api/state returns anyway. See CHAT_BOT_HANDOFF_V9_FOLLOWUP.md.
-  async function buildLiveState({ userId, role }) {
+  async function buildLiveState({ userId }) {
     const [users, shifts, shiftTemplates] = await Promise.all([
       db.listUsers().catch(() => []),
       db.listShifts().catch(() => []),
@@ -389,7 +389,7 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
 // Build shared context (state, history, guide) — used by both paths.
   const [historyResp, rawState, guide] = await Promise.all([
     chat.getChatHistory(userId, 10).catch(() => []),
-    buildLiveState({ userId, role }),
+    buildLiveState({ userId }),
     fetch(`${origin}/api/agent-guide/markdown`).then((r) => r.text()).catch(() => ''),
   ]);
   const state = rawState;
