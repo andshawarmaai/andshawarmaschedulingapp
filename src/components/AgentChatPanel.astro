@@ -380,8 +380,14 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   // === THINKING INDICATOR ===
   // A small "Chat Bot is thinking…" bubble shown right after the user
   // hits Send, removed as soon as the assistant's bubble appears (via
-  // SSE 'new' or 'status'). Shows a triple-dot animation so the user
-  // knows the bot is working, not stuck.
+  // SSE 'new' or 'status'). Shows a moving gradient sweep across the
+  // text (matches the Hermes desktop arc-border style: multi-stop
+  // linear-gradient on background-clip:text with background-position
+  // animated 0%→100% via @keyframes gradient-sweep) so the user can
+  // see the bot is actively working, not stuck. Also flips the bottom
+  // status pill to "thinking…" — otherwise it sits at "connected"
+  // forever after the first reply and there's no signal that a new
+  // turn has started (the previous bug per user report).
   let thinkingEl = null;
   function showThinking() {
     if (thinkingEl) return;
@@ -390,13 +396,16 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     thinkingEl.id = 'agent-chat-thinking';
     const who = document.createElement('div');
     who.className = 'agent-chat-who';
-    who.innerHTML = 'Chat Bot <span class="agent-chat-thinking-dots"><span></span><span></span><span></span></span>';
+    who.textContent = 'Chat Bot';
     const body = document.createElement('div');
-    body.className = 'agent-chat-text';
+    body.className = 'agent-chat-text agent-chat-thinking-text';
     body.textContent = 'Thinking…';
     thinkingEl.appendChild(who);
     thinkingEl.appendChild(body);
     history.appendChild(thinkingEl);
+    // Flip the bottom status pill so the connection state reflects
+    // current work, not the last completed turn.
+    status.textContent = 'thinking…';
     scrollToBottomForce();
   }
   function hideThinking() {
@@ -619,6 +628,55 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 .agent-chat-dot[data-status="complete"] { background: #22c55e; }
 .agent-chat-dot[data-status="error"] { background: #ef4444; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* Thinking indicator: bubble styled like a real assistant message so the
+   user sees it's the bot, with a Hermes-style moving gradient sweep
+   across the "Thinking…" text. The gradient is multi-stop (3 colors
+   with transparent bands between) on background-clip:text so the actual
+   glyphs are colored and animated by sliding background-position over
+   a 300% wide canvas — the same trick the Hermes desktop arc-border
+   uses, just on text instead of a border. The bubble body gets a soft
+   background tint that matches the accent so the moving text reads
+   even when the gradient is mid-sweep on a transparent band. */
+.agent-chat-thinking .agent-chat-who { color: var(--color-muted); opacity: 0.85; }
+.agent-chat-thinking-text {
+  /* The animated sweep: 3 colored bands separated by transparent gaps,
+     painted on a 300% wide canvas so the position has somewhere to
+     travel without ever being fully blank. */
+  background-image: linear-gradient(90deg,
+    transparent 0%,
+    var(--color-accent, #f59e0b) 18%,
+    #f59e0b 28%,
+    transparent 38%,
+    transparent 50%,
+    var(--color-accent, #f59e0b) 68%,
+    #fbbf24 78%,
+    transparent 88%);
+  background-size: 300% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+          color: transparent;
+  animation: gradient-sweep 1.6s linear infinite;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  display: inline-block;
+}
+@keyframes gradient-sweep {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+/* Reduced-motion users get a static solid color instead of the sweep
+   so we don't violate the OS-level motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-thinking-text {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+            color: var(--color-accent, #f59e0b);
+  }
+}
 
 .agent-chat-form {
   display: flex; flex-direction: column;
