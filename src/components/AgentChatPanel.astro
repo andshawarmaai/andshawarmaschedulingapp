@@ -24,15 +24,15 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 // renders tokens as they arrive.
 ---
 <div id="agent-chat-root" class="agent-chat-collapsed">
-  <button type="button" id="agent-chat-toggle" class="agent-chat-fab" aria-label="Open agent chat" title="Chat with Hermes">
+  <button type="button" id="agent-chat-toggle" class="agent-chat-fab" aria-label="Open Chat Bot" title="Chat Bot">
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    <span class="agent-chat-fab-label">Ask Hermes</span>
+    <span class="agent-chat-fab-label">Chat Bot</span>
   </button>
 
   <div id="agent-chat-panel" class="agent-chat-panel" hidden>
     <header class="agent-chat-header">
       <div>
-        <strong>Hermes</strong>
+        <strong>Chat Bot</strong>
         <span class="agent-chat-status" id="agent-chat-status">connecting…</span>
       </div>
       <button type="button" id="agent-chat-close" class="agent-chat-close" aria-label="Close">×</button>
