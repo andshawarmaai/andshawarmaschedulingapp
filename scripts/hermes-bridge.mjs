@@ -233,6 +233,58 @@ function isOffTopic(text) {
   return false;
 }
 
+// Read-only scheduling questions that we answer deterministically from
+// payload.state instead of going through the LLM. See the comment block
+// in the POST handler above. Returns null if the message isn't one of
+// these patterns — the caller then proceeds with the normal LLM path.
+function answerFromState(text, payload) {
+  if (!text || !payload || !payload.state) return null;
+  const t = text.trim().toLowerCase();
+  // Strip punctuation so "what shifts do I have?" still matches.
+  const norm = t.replace(/[?.!,]+$/g, '');
+
+  const state = payload.state;
+  const username = (payload.message && (payload.message.username || payload.message.display_name)) || '';
+  const me = username.toLowerCase();
+  const upcoming = (state.upcomingShifts || []);
+  const templates = (state.shiftTemplates || []);
+
+  const myShifts = me
+    ? upcoming.filter((s) => {
+        const u = state.users && state.users.find((x) => (x.username || '').toLowerCase() === me || (x.display_name || '').toLowerCase() === me);
+        return u && s.user_id === u.id;
+      })
+    : [];
+
+  // "what shifts do I have", "show my shifts", "any shifts coming up"
+  if (/^(what|which|show|list|do i have|do i have any|any)\b.*\b(shift|work|schedule)s?\b.*\b(i have|i'm working|coming up|scheduled|on the schedule)\b/i.test(norm)
+      || /^(am i|are i)\b.*\b(scheduled|working|on)\b/i.test(norm)
+      || /\bmy (upcoming )?shifts\b/i.test(norm)
+      || /\bwhat('?s| is) on my schedule\b/i.test(norm)) {
+    if (myShifts.length === 0) {
+      return `You don't have any upcoming shifts scheduled. Want to put one on the calendar?`;
+    }
+    const lines = myShifts.map((s) => {
+      const d = new Date(s.date + 'T00:00:00Z');
+      const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+      return `• ${day} ${s.start_time}–${s.end_time}`;
+    });
+    return `You have ${myShifts.length} upcoming shift${myShifts.length === 1 ? '' : 's'}:\n\n${lines.join('\n')}`;
+  }
+
+  // "what templates do we have", "list templates"
+  if (/\b(what|which|list|show)\b.*\b(shift )?templates?\b/i.test(norm) && !/\bcreate\b|\badd\b|\bdelete\b/i.test(norm)) {
+    if (templates.length === 0) return `No shift templates are configured. Ask your manager to set some up.`;
+    const lines = templates.map((t) => {
+      const days = Array.isArray(t.days_of_week) ? t.days_of_week.join(',') : (t.days_of_week || '');
+      return `• ${t.name}: ${t.start_time}–${t.end_time} on days ${days}`;
+    });
+    return `You have ${templates.length} shift template${templates.length === 1 ? '' : 's'}:\n\n${lines.join('\n')}`;
+  }
+
+  return null;
+}
+
 // === LOCAL MODEL TOOL SCHEMA ===
 // Mirrors scripts/mcp-server.mjs's registerTool calls AND
 // training-data/convert_to_mlx.mjs's TOOLS constant, by hand — the local
@@ -533,6 +585,21 @@ const server = http.createServer(async (req, res) => {
       if (isOffTopic(userMsg)) {
         console.log(`[${new Date().toISOString()}] off-topic pre-filter triggered for: ${userMsg.slice(0, 80)}`);
         return json(res, 200, { content: OFF_TOPIC_REFUSAL, actions: [], mcp_executed: !!HERMES_MCP_TOOLSET });
+      }
+
+      // Stateful question short-circuit. MiniMax-M3 (the model Hermes ships
+      // with by default) has poor instruction following for read-only
+      // questions: it returned "You don't have any shifts" even when the
+      // LIVE STATE line in the prompt contained all 17 of the user's
+      // shifts (CHAT_BOT_HANDOFF_V9_FOLLOWUP). For these common read-only
+      // queries we answer directly from the state we already have — same
+      // data the model would have seen, but deterministic and instant.
+      // "remove me from the schedule" still goes through the LLM because
+      // it requires generating tool calls; this is for read-only stuff.
+      const directAnswer = answerFromState(userMsg, payload);
+      if (directAnswer !== null) {
+        console.log(`[${new Date().toISOString()}] direct-answer short-circuit for: ${userMsg.slice(0, 80)}`);
+        return json(res, 200, { content: directAnswer, actions: [], mcp_executed: !!HERMES_MCP_TOOLSET, served_by: 'direct' });
       }
 
       const prompt = buildPrompt(payload);
