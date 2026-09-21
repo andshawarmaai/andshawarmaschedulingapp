@@ -390,3 +390,18 @@ ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_in_distance_mete
 ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_out_lat DOUBLE PRECISION;
 ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_out_lng DOUBLE PRECISION;
 ALTER TABLE actual_worked_shifts ADD COLUMN IF NOT EXISTS clock_out_distance_meters DOUBLE PRECISION;
+
+-- ─── AI assistant settings ─────────────────────────────────────────────
+-- Per-deployment AI provider config (key + which provider to use).
+-- Encrypted at rest (AES-256-GCM with a key derived from SESSION_SECRET).
+-- Read by the chat orchestrator at request time — no env vars or redeploys
+-- needed when the admin changes providers or rotates a key.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key             TEXT PRIMARY KEY,
+  value_encrypted BYTEA NOT NULL,
+  iv              BYTEA NOT NULL,
+  auth_tag        BYTEA NOT NULL,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by      TEXT REFERENCES users(id) ON DELETE SET NULL
+);
+

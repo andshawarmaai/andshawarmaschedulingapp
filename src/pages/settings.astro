@@ -33,6 +33,45 @@ const lang = getLang(Astro);
   <script define:vars={{ lang }}>
     window.__lang = lang;
   </script>
+
+  <div class="card" id="ai-card" hidden>
+    <h2>AI Assistant</h2>
+    <p class="card-sub">Connect an AI service so the chat panel on the Schedule Builder can answer questions and make changes for you. Pick a provider and paste your key — it's encrypted and stored in the database. <strong>Only admins/managers see this card.</strong></p>
+
+    <div id="ai-status" class="card-sub" style="margin-top:0.75rem;"></div>
+
+    <form id="ai-form" style="margin-top:1rem;">
+      <div class="field">
+        <label for="ai-provider">Provider</label>
+        <select id="ai-provider" class="input" required>
+          <option value="">Loading…</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="ai-model">Model (optional — leave blank for the provider default)</label>
+        <input type="text" id="ai-model" class="input" placeholder="e.g. claude-sonnet-4-5" />
+      </div>
+      <div class="field">
+        <label for="ai-key">API Key</label>
+        <input type="password" id="ai-key" class="input" autocomplete="off" placeholder="sk-... or your provider's key format" required />
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button type="submit" class="btn-primary" id="ai-save">Save & Test</button>
+        <button type="button" class="btn-secondary" id="ai-clear">Remove</button>
+      </div>
+    </form>
+
+    <details style="margin-top:1rem;">
+      <summary>How to get a key</summary>
+      <ul style="margin-top:0.5rem;padding-left:1.25rem;">
+        <li><strong>Anthropic:</strong> console.anthropic.com → Settings → API Keys</li>
+        <li><strong>OpenAI:</strong> platform.openai.com → API keys</li>
+        <li><strong>MiniMax:</strong> MiniMax console → API Keys</li>
+      </ul>
+      <p style="margin-top:0.5rem;">All three work the same way. The chat reads this on every message — change it any time, no redeploy.</p>
+    </details>
+  </div>
+
   <script>
     import { t } from '../lib/i18n.js';
 
@@ -79,5 +118,84 @@ const lang = getLang(Astro);
     });
 
     loadState();
+  </script>
+
+  <script>
+    // AI Assistant section — only visible to admin/manager. Loads current
+    // config (provider + has_key, never the raw key) and lets the user
+    // change provider or rotate the key. POST tests the key before storing.
+    const aiCard = document.getElementById('ai-card');
+    const aiProvider = document.getElementById('ai-provider');
+    const aiModel = document.getElementById('ai-model');
+    const aiKey = document.getElementById('ai-key');
+    const aiStatus = document.getElementById('ai-status');
+    const aiSave = document.getElementById('ai-save');
+    const aiClear = document.getElementById('ai-clear');
+    const aiForm = document.getElementById('ai-form');
+
+    async function loadAiConfig() {
+      try {
+        const r = await fetch('/api/admin/settings/ai', { credentials: 'same-origin' });
+        if (r.status === 403) { aiCard.hidden = true; return; }
+        const cfg = await r.json();
+        aiCard.hidden = false;
+        // Populate provider dropdown
+        aiProvider.innerHTML = '<option value="">— Select —</option>' +
+          (cfg.providers || []).map((p) => `<option value="${p.id}">${p.label}</option>`).join('');
+        if (cfg.provider) aiProvider.value = cfg.provider;
+        if (cfg.model) aiModel.value = cfg.model;
+        // Status text
+        if (cfg.has_key && cfg.provider) {
+          aiStatus.textContent = `Connected to ${cfg.provider}${cfg.model ? ' · ' + cfg.model : ''}. The chat will use this provider on every message.`;
+          aiStatus.style.color = '';
+        } else {
+          aiStatus.textContent = 'Not connected. The chat shows a stub reply until you add a key here.';
+          aiStatus.style.color = 'var(--color-muted)';
+        }
+      } catch (e) {
+        aiCard.hidden = false;
+        aiStatus.textContent = 'Failed to load AI settings.';
+      }
+    }
+
+    aiForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!aiProvider.value || !aiKey.value) {
+        window.shawarmaToast('Pick a provider and paste your key.');
+        return;
+      }
+      aiSave.disabled = true;
+      aiSave.textContent = 'Testing…';
+      try {
+        const r = await fetch('/api/admin/settings/ai', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: aiProvider.value,
+            api_key: aiKey.value,
+            model: aiModel.value.trim() || undefined,
+          }),
+        });
+        const result = await r.json();
+        if (!r.ok) { window.shawarmaToast(result.error || 'Save failed'); return; }
+        window.shawarmaToast(`Connected. ${result.models ? result.models.length + ' models available.' : ''}`);
+        aiKey.value = '';
+        await loadAiConfig();
+      } finally {
+        aiSave.disabled = false;
+        aiSave.textContent = 'Save & Test';
+      }
+    });
+
+    aiClear.addEventListener('click', async () => {
+      if (!confirm('Remove the AI key? The chat will fall back to stub mode.')) return;
+      const r = await fetch('/api/admin/settings/ai', { method: 'DELETE', credentials: 'same-origin' });
+      if (!r.ok) { window.shawarmaToast('Failed to remove.'); return; }
+      window.shawarmaToast('Removed.');
+      await loadAiConfig();
+    });
+
+    loadAiConfig();
   </script>
 </Layout>
