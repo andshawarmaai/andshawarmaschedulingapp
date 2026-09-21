@@ -73,12 +73,84 @@ needs negative examples just as much as positive ones, or it over-calls tools.
 
 ## Converting for `mlx_lm.lora`
 
-This canonical format needs one more conversion step before training: turn each
-`tool_calls` array into whatever literal text format the base model was trained
-to emit function calls in (e.g. Hermes-style `<tool_call>{...}</tool_call>` tags
-if using a Nous Hermes-family base model — check that model's own chat template
-docs first, don't assume). That conversion script isn't written yet — do it once
-a base model is actually chosen, since the exact tag syntax depends on it.
+`convert_to_mlx.mjs` turns the canonical `dataset.jsonl` into the chat-format
+JSONL `mlx_lm.lora` expects — one `{"messages":[...], "tools":[...]}` object
+per line, split into `training-data/mlx/{train,valid,test}.jsonl` (90/5/5).
+Each `tool_calls` array is rendered in the standard OpenAI function-calling
+shape (`{id, type:"function", function:{name, arguments: <JSON string>}}`) —
+this is the shape Qwen2.5's own tokenizer chat template already knows how to
+turn into its native `<tool_call>{...}</tool_call>` text at train/inference
+time via `tokenizer.apply_chat_template(messages, tools=tools)`, so nothing
+downstream needs its own custom tag syntax. **If a different base model
+family is chosen instead of Qwen2.5, check that model's own chat template
+first** — a Hermes-family or Llama-3-family base model expects a different
+tool-call tag syntax, and this script's OpenAI-shape `tool_calls` output may
+need adjusting (or may already be compatible, if that model's template also
+accepts the OpenAI shape — increasingly common, but verify, don't assume).
+The 10 tool schemas embedded in this script mirror `scripts/mcp-server.mjs`'s
+`registerTool` calls by hand — keep them in sync if a tool's inputSchema
+changes there.
+
+```bash
+node training-data/convert_to_mlx.mjs
+```
+
+## Fine-tuning on an Apple Silicon Mac (`mlx_lm.lora`)
+
+**This part cannot run in a cloud/Linux session — MLX only runs on Apple
+Silicon.** Run this on the Mac itself (or have Hermes run it there).
+
+```bash
+# one-time setup
+python3 -m venv .mlx-venv && source .mlx-venv/bin/activate
+pip install mlx-lm
+
+# pick a base model — Qwen2.5-3B-Instruct-4bit is a reasonable first choice:
+# small/fast enough for a 16GB M3, and its chat template natively supports
+# the OpenAI-shape tool_calls this conversion script produces. Qwen2.5-1.5B
+# is a faster/lighter fallback if 3B is too slow for the target latency.
+mlx_lm.lora \
+  --model mlx-community/Qwen2.5-3B-Instruct-4bit \
+  --train \
+  --data training-data/mlx \
+  --iters 1000 \
+  --batch-size 4 \
+  --num-layers 8 \
+  --adapter-path training-data/adapters \
+  --save-every 100
+
+# evaluate on the held-out test split
+mlx_lm.lora \
+  --model mlx-community/Qwen2.5-3B-Instruct-4bit \
+  --adapter-path training-data/adapters \
+  --data training-data/mlx \
+  --test
+
+# try it interactively before fusing
+mlx_lm.generate \
+  --model mlx-community/Qwen2.5-3B-Instruct-4bit \
+  --adapter-path training-data/adapters \
+  --prompt "schedule Jorge Tuesday 9 to 3"
+
+# fuse the LoRA adapter into a standalone model once happy with it
+mlx_lm.fuse \
+  --model mlx-community/Qwen2.5-3B-Instruct-4bit \
+  --adapter-path training-data/adapters \
+  --save-path training-data/fused-model
+```
+
+`--iters 1000` with `--batch-size 4` over ~549 train examples is roughly
+7-8 epochs — a reasonable starting point for a dataset this size, not a
+tuned value. Watch `valid` loss in the training log; stop early (lower
+`--iters`, or just kill it and use an earlier `--save-every` checkpoint) if
+it starts climbing while train loss keeps dropping (overfitting — more
+likely on a dataset this size than underfitting). If it plainly isn't
+learning the format at all, `--num-layers` (how many of the model's layers
+get LoRA-adapted) is the first knob to raise before touching data size.
+
+None of these exact numbers have been validated against a real run yet —
+they're a documented starting point, not a proven recipe. Update this
+section with what actually worked once a real training run has been done.
 
 ## Status
 
@@ -138,10 +210,9 @@ returns nothing, in both languages). Roster (`roster.json`) and templates
 deployment's real data.
 
 **Not yet done:**
-- Not validated against a real training run (`mlx_lm.lora` or otherwise).
-- No conversion script yet to the target base model's actual function-calling
-  chat template (see "Converting" above) - still using the canonical
-  intermediate format.
+- Not validated against a real training run (`mlx_lm.lora` or otherwise) -
+  the fine-tuning commands in this README are a documented starting point,
+  not a proven recipe yet.
 - Missing tool coverage matches the gaps flagged in `CHAT_BOT_TEST_CASES.md`
   (§7 there): `swap_post_cancel`, `timeoff_edit`, `availability_reschedule`,
   and recurring weekly `availability_rule_create`/`delete` have no MCP tool
