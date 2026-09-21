@@ -380,7 +380,20 @@ function buildPrompt(payload) {
       });
       parts.push(`LIVE STATE - shift templates: ${JSON.stringify(templateLines)}`);
     }
-    parts.push(`LIVE STATE - upcoming shifts (next 30 days): ${(s.upcomingShifts || []).length}`);
+    // Include the actual upcoming shift details (user_id, date, times) so
+    // the model can answer "what shifts do I have", "remove me from
+    // Tuesday", etc. — without this it only got the count and couldn't
+    // tell what to do (CHAT_BOT_HANDOFF_V9 follow-up: "remove me from the
+    // schedule" said "you're not on it" while 12 shifts existed). Cap at
+    // 30 to keep prompt size bounded; orchestrator already filters to
+    // today+ and slices to 30.
+    const upcoming = (s.upcomingShifts || []).map((sh) => ({
+      user_id: sh.user_id,
+      date: sh.date,
+      start_time: sh.start_time,
+      end_time: sh.end_time,
+    }));
+    parts.push(`LIVE STATE - upcoming shifts (next 30 days): ${JSON.stringify(upcoming)}`);
   }
 
   // Ground the model in the actual current date. Without this, "next
