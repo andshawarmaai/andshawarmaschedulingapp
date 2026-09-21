@@ -7,21 +7,19 @@
 // Layout.astro so it follows the user everywhere. Role gating of every
 // actual write is enforced server-side by middleware.js — this panel
 // just shows/hides affordances and the AI is told the user's role.
+//
+// Architecture: messages go to POST /api/agent/chat → persisted as
+// status='pending'. The agent (Hermes tunnel OR cloud provider) picks
+// the message up, acts via the same /api/* routes documented in
+// AGENT-TRAINING.md, writes back a paired assistant row. The browser
+// opens a single SSE stream at /api/agent/chat/stream and renders
+// tokens as they arrive.
 interface Props {
   userId: string;
   userRole: string;
   userDisplayName: string;
 }
 const { userId, userRole, userDisplayName } = Astro.props as Props;
----
-// Architecture: messages go to POST /api/agent/chat → persisted as
-// status='pending'. The Hermes agent (running externally) polls the table,
-// acts via the same /api/* routes documented in AGENT-TRAINING.md, writes
-// back a paired assistant row with status='streaming' (with partial content)
-// then status='complete' (with final content + recorded actions).
-//
-// The browser opens a single SSE stream at /api/agent/chat/stream and
-// renders tokens as they arrive.
 ---
 <div id="agent-chat-root" class="agent-chat-collapsed">
   <button type="button" id="agent-chat-toggle" class="agent-chat-fab" aria-label="Open Chat Bot" title="Chat Bot">
