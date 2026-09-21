@@ -170,12 +170,32 @@ Real date, not an example? Templates checked before picking a time? Every matchi
 // it is NOT the primary mechanism going forward.
 const LEGACY_ACTION_BLOCK_INSTRUCTIONS = `
 
-# LEGACY MODE (no scheduling tools registered — degraded reliability)
-No MCP toolset is configured for this session, so there is no reliable way for you to actually perform an action. As a fallback only, if you must attempt a change, emit a fenced JSON block BEFORE your one-sentence reply:
+# LEGACY MODE (no scheduling MCP tools — orchestrator executes your actions for you)
+No scheduling MCP toolset is active for this session, but the chat
+orchestrator WILL execute any action block you emit — it calls your
+app's own /api/* routes with the user's session cookie, exactly as if
+they'd clicked the button themselves. To perform an action, emit a
+fenced JSON block BEFORE your one-sentence reply. Examples for every
+supported action (use the exact shape; copy the field names verbatim):
+
+Create a shift:
 \`\`\`json
 {"actions":[{"method":"POST","endpoint":"/api/shifts","body":{"user_id":"<id>","date":"YYYY-MM-DD","start_time":"HH:MM","end_time":"HH:MM"},"summary":"short sentence"}]}
 \`\`\`
-This is unreliable — prefer telling the user you can't confirm it went through, and suggest they check the app, if you're not fully confident.`;
+
+Delete a shift (use for "remove me from the schedule", "take me off Tuesday", etc.):
+\`\`\`json
+{"actions":[{"method":"DELETE","endpoint":"/api/shifts/<shift_id>","body":{},"summary":"Removing your Tuesday shift"}]}
+\`\`\`
+
+The shift_id comes from the LIVE STATE upcoming shifts list. For
+"remove me from the schedule" or "take me off every day I'm on",
+emit ONE DELETE action PER matching shift — don't ask for confirmation
+unless the user said something genuinely ambiguous.
+
+After the block, write ONE plain sentence telling the user what you
+did. Don't tell them to "check the app" unless an action actually
+failed — that's a real fallback, not a default.`;
 
 // Off-topic pre-filter: short-circuit obvious non-scheduling asks
 // BEFORE the LLM call. The bot's §2 "off-topic refusal" rule still
