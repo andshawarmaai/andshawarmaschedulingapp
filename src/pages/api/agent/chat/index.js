@@ -55,6 +55,7 @@ import * as chat from '../../../../lib/agentChat.js';
 import { getActiveProviderConfig } from '../../admin/settings/ai.js';
 import { getActiveChatSource } from '../../admin/settings/chat-source.js';
 import { readFile } from 'node:fs/promises';
+import { waitUntil } from '@vercel/functions';
 
 export const prerender = false;
 
@@ -272,16 +273,28 @@ export async function POST(context) {
   //    response returns immediately. The chat UI's SSE stream watches for
   //    the assistant row to appear.
   const callerCookie = context.request.headers.get('cookie') || '';
-  orchestrateReply({
-    userMsg,
-    userId: me.id,
-    username: me.username,
-    displayName: me.display_name,
-    callerCookie,
-    origin: context.url.origin,
-    source,
-    cloudCfg,
-  }).catch((err) => console.error('orchestration failed:', err));
+  // waitUntil keeps the serverless function alive for this promise after
+  // the response below is sent. Without it, Vercel is free to reclaim the
+  // function the moment the HTTP response completes — a plain
+  // fire-and-forget `.catch()` here would race the platform: a fast
+  // Hermes/cloud reply (e.g. "hello") finishes before reclamation and
+  // works, but a slower one (an actual schedule change, which involves a
+  // tunnel round-trip + local CLI spawn) gets killed mid-flight with the
+  // user message stuck in 'pending' forever and no assistant row ever
+  // written. Matches the exact symptom reported in
+  // CHAT_BOT_HANDOFF_V2.md ("Problem B").
+  waitUntil(
+    orchestrateReply({
+      userMsg,
+      userId: me.id,
+      username: me.username,
+      displayName: me.display_name,
+      callerCookie,
+      origin: context.url.origin,
+      source,
+      cloudCfg,
+    }).catch((err) => console.error('orchestration failed:', err))
+  );
 
   return json({ ok: true, message: userMsg }, 201);
 }
@@ -436,6 +449,62 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
         actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
       } catch (_) { /* malformed JSON — treat whole thing as reply */ }
       content = content.replace(/```json[\s\S]+?```/, '').trim();
+    }
+  }
+
+  // The model sometimes narrates a schedule change ("Done — Jorge's on
+  // Friday 4-10pm") without emitting the ```json {"actions":[...]}```
+  // block the orchestrator actually parses and executes — so nothing
+  // happens even though the reply sounds confident. This is a separate
+  // failure mode from the one handled below (an action that WAS emitted
+  // but failed to execute): here, no action was emitted at all. The block
+  // is never shown to the user, so there's no cost to asking the model to
+  // try again. Retry once, only when the user's own message plausibly
+  // asked for a real change (not e.g. "hello" or "who's working Thursday").
+  const impliesAction = actions.length === 0 && /\b(schedul|assign|add|mov|delet|remov|swap|post|creat|updat|cancel|chang|book|put)\w*\b/i.test(userMsg.content);
+  if (impliesAction) {
+    const reminder = '\n\n[SYSTEM REMINDER] Your previous reply did not include the required ```json {"actions":[...]}``` block, so nothing was actually done — a plain-English confirmation alone never performs the action. That block is never shown to the user, only your one-sentence reply is, so there is no downside to including it. If the user asked for a real schedule change, emit the block now in the exact format instructed, followed by your plain-English reply.';
+    let retryText = null;
+    if (triedHermes && source.tunnelUrl) {
+      retryText = await callHermes(source.tunnelUrl, {
+        ...payload,
+        message: { ...payload.message, content: payload.message.content + reminder },
+      }).catch(() => null);
+    } else if (cloudCfg) {
+      try {
+        const retryMessages = [...history, { role: 'user', content: userMsg.content }, { role: 'assistant', content }, { role: 'user', content: reminder }];
+        retryText = await cloudCfg.provider.chat(cloudCfg.api_key, {
+          model: cloudCfg.model,
+          system: SYSTEM_PROMPT + '\n\n' + guide,
+          messages: retryMessages,
+          max_tokens: 2048,
+        });
+      } catch (_) { retryText = null; }
+    }
+    if (retryText) {
+      let retryContent = '';
+      let retryActions = [];
+      if (typeof retryText === 'object' && retryText !== null) {
+        retryContent = retryText.content || '';
+        retryActions = Array.isArray(retryText.actions) ? retryText.actions : [];
+      } else {
+        retryContent = String(retryText);
+        const rm = retryContent.match(/```json\s*([\s\S]+?)\s*```/);
+        if (rm) {
+          try {
+            const parsed = JSON.parse(rm[1]);
+            retryActions = Array.isArray(parsed?.actions) ? parsed.actions : [];
+          } catch (_) { /* malformed JSON — keep whatever we already had */ }
+          retryContent = retryContent.replace(/```json[\s\S]+?```/, '').trim();
+        }
+      }
+      // Only adopt the retry if it actually produced an action — otherwise
+      // keep the original (still-valid) reply rather than replacing a good
+      // plain-text answer with a worse one.
+      if (retryActions.length > 0) {
+        actions = retryActions;
+        content = retryContent || content;
+      }
     }
   }
 
