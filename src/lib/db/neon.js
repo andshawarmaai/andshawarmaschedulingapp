@@ -866,6 +866,25 @@ export async function deleteChatAttachment(id) {
   await sql`DELETE FROM agent_chat_attachments WHERE id = ${id}`;
 }
 
+// Wipe ALL chat history for a single user. We DELETE the related rows
+// explicitly rather than relying on a CASCADE because the
+// agent_chat_actions.message_id FK was never declared ON DELETE CASCADE
+// (the CASCADE on agent_chat_attachments.message_id is the only one in
+// the schema). Called from /api/auth/login and /api/auth/logout so the
+// chat panel starts fresh on every session and the DB doesn't fill up
+// with stale conversation rows.
+export async function clearChatForUser(user_id) {
+  // Snapshot the user's message ids, then wipe everything that points at
+  // them (actions + attachments), then the messages themselves.
+  const messageRows = await sql`SELECT id FROM agent_chat_messages WHERE user_id = ${user_id}`;
+  const ids = messageRows.map((r) => r.id);
+  if (ids.length === 0) return 0;
+  await sql`DELETE FROM agent_chat_actions WHERE message_id = ANY(${ids})`;
+  await sql`DELETE FROM agent_chat_attachments WHERE message_id = ANY(${ids})`;
+  const result = await sql`DELETE FROM agent_chat_messages WHERE id = ANY(${ids}) RETURNING id`;
+  return result.length;
+}
+
 // ─── App settings (encrypted key/value) ────────────────────────────────────
 
 export async function getSetting(key) {

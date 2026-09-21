@@ -1152,6 +1152,30 @@ export async function deleteChatAttachment(id) {
   return d.agent_chat_attachments.length < before;
 }
 
+// Wipe ALL chat history for a single user: their messages, any actions
+// the assistant took on their behalf, and any attachments those messages
+// owned. Called from /api/auth/login and /api/auth/logout so the chat
+// panel starts fresh on every session and the DB doesn't fill up with
+// stale conversation rows.
+export async function clearChatForUser(user_id) {
+  const d = load();
+  const messageIds = new Set(
+    d.agent_chat_messages.filter((m) => m.user_id === user_id).map((m) => m.id)
+  );
+  const beforeMsg = d.agent_chat_messages.length;
+  const beforeAct = d.agent_chat_actions.length;
+  const beforeAtt = d.agent_chat_attachments.length;
+  d.agent_chat_messages = d.agent_chat_messages.filter((m) => m.user_id !== user_id);
+  d.agent_chat_actions = d.agent_chat_actions.filter((a) => !messageIds.has(a.message_id));
+  d.agent_chat_attachments = d.agent_chat_attachments.filter((a) => !messageIds.has(a.message_id));
+  const deleted =
+    (beforeMsg - d.agent_chat_messages.length) +
+    (beforeAct - d.agent_chat_actions.length) +
+    (beforeAtt - d.agent_chat_attachments.length);
+  if (deleted > 0) save(d);
+  return deleted;
+}
+
 // ─── App settings (encrypted key/value) ────────────────────────────────────
 
 export async function getSetting(key) {
