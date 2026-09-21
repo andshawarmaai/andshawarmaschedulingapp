@@ -82,25 +82,60 @@ a base model is actually chosen, since the exact tag syntax depends on it.
 
 ## Status
 
-**v1, generated and spot-checked.** `generate.mjs` implements 13 categories
-(shift creation - basic and recurring, availability, time off, swap post/claim,
-removal, read-only queries, multi-action, template-choice with numbered-list
-multi-turn resolution, name-collision ambiguity multi-turn, off-topic refusal,
-casual/typo phrasing, pure greetings). Deterministic ground truth throughout -
-every `tool_calls` value is computed from the same scenario parameters as the
-phrasing via real date math, never guessed or LLM-generated.
+**v1.1, generated and spot-checked, now bilingual (EN/ES).** `generate.mjs`
+implements 13 categories (shift creation - basic and recurring, availability,
+time off, swap post/claim, removal, read-only queries, multi-action,
+template-choice with numbered-list multi-turn resolution, name-collision
+ambiguity multi-turn, off-topic refusal, casual/typo phrasing, pure
+greetings). Deterministic ground truth throughout - every `tool_calls` value
+is computed from the same scenario parameters as the phrasing via real date
+math, never guessed or LLM-generated. Phrase-template banks were expanded
+per category (4-14+ variants each) so `--count 60` doesn't just repeat a
+handful of sentences with different names/dates swapped in.
 
-Run `node training-data/generate.mjs --count 60 --seed 1` to regenerate (613
-examples at count=60; scale `--count` up for more). Spot-checked one example per
-category by hand after generating - two real bugs were found and fixed this way
-(a `nextWeekday` vs `thisWeekday` date-math bug in time-off, and a broken 12-hour
-time formatter in the template-choice list) - re-spot-check after any further
-edits to `generate.mjs` rather than trusting it blindly.
+**Spanish support (added to mirror the live app's own EN/ES staff toggle,
+`src/lib/i18n.js`):** every one of the 13 categories now randomly picks
+`en`/`es` per example (`row.lang`, roughly 50/50) and renders that example's
+user message, assistant reply, weekday/month names, and date formatting
+("26 de enero" vs "Jan 26") in the chosen language — not just a translated
+system prompt with English examples underneath. `botIdentityLine()` also has
+a Spanish system-prompt variant. Real Spanish grammar was checked by hand,
+not assumed: self-reference ("mí") is only ever placed in object position
+(`pon a mí...`), never as a sentence subject, since two rounds of spot-check
+caught real breakage there (see bugs below) — a handful of subject-first
+English templates ("X needs to work...", "X va a trabajar...") are
+deliberately excluded from the self-reference pool in both languages for the
+same reason. Spanish phrasing diversity is real but intentionally narrower
+than English's (roughly half as many variants per category) — this is a
+first pass at bilingual coverage, not full parity; widen `*Es` phrase banks
+the same way the English ones were widened if the model under- or
+over-fits on Spanish phrasing.
+
+Run `node training-data/generate.mjs --count 60 --seed 1` to regenerate (611
+examples at count=60, ~46% Spanish; scale `--count` up for more). Spot-checked
+by hand after every generation round — bugs found and fixed this way:
+- `nextWeekday` vs `thisWeekday` date-math bug in time-off (v1)
+- a broken 12-hour time formatter in the template-choice list (v1)
+- a single-arg swap-claim phrase template called with two args, silently
+  dropping the day label (v1)
+- Spanish self-reference producing "el este lunes" (double article) and
+  "a a mí" (doubled preposition) when a template that already carried its
+  own "el "/"a " literal was fed a day-label or name-label that also carried
+  one (v1.1)
+- Spanish self-reference substituted into subject-first templates producing
+  ungrammatical "mí va a trabajar..." / "mí necesita trabajar..." — "mí" is
+  never a grammatical subject in Spanish, only ever object/prepositional
+  (v1.1)
+
+Re-spot-check after any further edits to `generate.mjs` rather than trusting
+it blindly — every one of the bugs above passed `node --check` (syntax is not
+correctness).
 
 Brand-neutral by design - no restaurant name appears anywhere in the generated
 data or the generator itself (verified: `grep -i shawarma` over the output
-returns nothing). Roster (`roster.json`) and templates (`templates.json`) are
-generic placeholder fixtures, not tied to any specific deployment's real data.
+returns nothing, in both languages). Roster (`roster.json`) and templates
+(`templates.json`) are generic placeholder fixtures, not tied to any specific
+deployment's real data.
 
 **Not yet done:**
 - Not validated against a real training run (`mlx_lm.lora` or otherwise).
@@ -111,3 +146,5 @@ generic placeholder fixtures, not tied to any specific deployment's real data.
   (§7 there): `swap_post_cancel`, `timeoff_edit`, `availability_reschedule`,
   and recurring weekly `availability_rule_create`/`delete` have no MCP tool
   built yet, so no training examples exist for them either.
+- Spanish phrasing diversity is roughly half of English's per category (see
+  above) - real coverage, not yet equal depth.
