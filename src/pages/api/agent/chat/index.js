@@ -301,7 +301,7 @@ export async function POST(context) {
 
 // ─── Async orchestration: build context, call agent, execute actions, write reply ───
 //
-// Three modes (set in Settings → Chat Source):
+// Three modes (set in Manage → Chat Bot):
 //   - 'hermes':  POST to local tunnel. If tunnel is unreachable, error
 //                out so the manager knows their Mac isn't available.
 //   - 'cloud':   Direct API call to the cloud provider (Claude / OpenAI
@@ -406,7 +406,7 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
       });
     } catch (err) {
       const fallback = triedHermes
-        ? `I tried Hermes (got: ${hermesError}) and the cloud provider (got: ${err.message}). Set up one of them in Settings → Chat Source.`
+        ? `I tried Hermes (got: ${hermesError}) and the cloud provider (got: ${err.message}). Set up one of them in Manage → Chat Bot.`
         : `The ${cloudCfg.provider.label || cloudCfg.provider} agent failed: ${err.message}`;
       const assistant = await chat.createChatMessage({
         user_id: userId,
@@ -424,7 +424,7 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
     const assistant = await chat.createChatMessage({
       user_id: userId,
       role: 'assistant',
-      content: 'No chat source is configured. Open Settings → Chat Source to pick Hermes, Cloud, or Hybrid.',
+      content: 'No chat source is configured. Open Manage → Chat Bot to pick Hermes, Cloud, or Hybrid.',
       parent_id: userMsg.id,
     });
     await chat.updateChatMessageStatus(assistant.id, 'error');
