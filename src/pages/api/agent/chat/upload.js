@@ -52,6 +52,11 @@ async function ensureUploadDir() {
 export async function POST(context) {
   const me = context.locals.user;
   if (!me) return json({ error: 'Unauthorized' }, 401);
+  // Staff-only — uploads are part of the chat surface (chat/index.js
+  // POST stitch) and are subject to the same V9 trust boundary as the
+  // chat itself. See CHAT_BOT_HANDOFF_TO_HERMES_HYBRID_PAUSED.md and
+  // the related commit "Chat API: lock chat surface to admin/manager".
+  if (!(me.role === 'admin' || me.role === 'manager')) return json({ error: 'Forbidden' }, 403);
 
   let form;
   try {

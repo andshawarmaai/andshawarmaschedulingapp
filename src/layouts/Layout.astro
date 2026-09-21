@@ -38,13 +38,18 @@ const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
 const lang = getLang(Astro);
 
 // Master switch + source/AI detection, runs once per page render on the
-// server. Hides the chat bubble entirely when disabled, when the source
-// is missing its dependency, or when no source is configured at all —
-// no point shipping the FAB + panel HTML/CSS/JS to a deployment that
-// isn't using the chat.
+// server. Hides the chat bubble entirely when:
+//   - the chat is disabled by setting
+//   - the source is missing its dependency
+//   - no source is configured
+//   - the user is not staff/manager (regular waitstaff never get the
+//     chat; the bot's instruction-following is unreliable enough that
+//     'I removed your shifts' from a staff account is dangerous —
+//     fixes the V9 incident at the source; LLM can take its time on
+//     the admin path where mistakes are easier to spot and undo)
 const chatEnabled = await getChatEnabled();
 let chatVisible = false;
-if (chatEnabled) {
+if (chatEnabled && isStaffOrAbove) {
   const source = await getActiveChatSource();
   const cloudCfg = await getActiveProviderConfig();
   const hasTunnel = !!source.tunnelUrl;

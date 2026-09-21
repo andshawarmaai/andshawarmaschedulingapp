@@ -239,6 +239,14 @@ function stubReply(userMessage, history, state) {
 
 export async function POST(context) {
   const me = context.locals.user;
+  // The chat bot is staff-only. Waitstaff calling the LLM produces
+  // the V9 failure mode ("bot said it would cancel and didn't") and
+  // the more dangerous inverse where the bot says it cancelled when
+  // it didn't, leaving the user confused. Locked at the API edge so
+  // even a malicious client can't trigger it. Mirrors the GET gate
+  // and the Layout.astro bubble render gate (2026-09-21 security
+  // change — see commit message).
+  if (!isStaffOrAbove(me.role)) return json({ error: 'Forbidden' }, 403);
   // Accept either JSON { content, attachment_ids? } OR multipart/form-data
   // for clients that want to send everything in one shot. The upload.js
   // endpoint is the dedicated file endpoint — this handler just stitches
@@ -257,8 +265,6 @@ export async function POST(context) {
   if (!body || (!String(body.content || '').trim() && attachmentIds.length === 0)) {
     return json({ error: 'Message content or at least one attachment is required.' }, 400);
   }
-  // All signed-in users can chat. The AI decides what's actually
-  // possible per role; the per-endpoint role gates still enforce server-side.
   if (!me) {
     return json({ error: 'Unauthorized' }, 401);
   }
