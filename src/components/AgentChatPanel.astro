@@ -528,6 +528,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     const hasAttachments = pendingAttachments.length > 0;
     if (!text && !hasAttachments) return;
     sendBtn.disabled = true;
+    let sentOk = false; // see the finally block — don't kill the indicator on success
     try {
       // Send as multipart when there are attachments (so we can include
       // attachment_ids as form fields cleanly); otherwise plain JSON like
@@ -555,6 +556,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
         alert('Failed to send: ' + (err.error || r.status));
         return;
       }
+      sentOk = true;
       const data = await r.json();
       input.value = '';
       pendingAttachments.length = 0;
@@ -563,7 +565,13 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       render(data.message, { [data.message.id]: [] });
       // Show the "Chat Bot is thinking…" indicator immediately so the
       // user knows the assistant is working while the SSE stream waits
-      // for the reply. Removed as soon as the assistant bubble appears.
+      // for the reply. Removed ONLY when the assistant bubble appears
+      // (the SSE 'new' handler above) or when the request fails (the
+      // finally block below). On a successful POST, calling hideThinking()
+      // here would kill the indicator immediately — the user's screenshot
+      // showed exactly this bug: the spinner flickered for ~100ms then
+      // vanished, leaving the reply bubble with no preceding "Thinking…"
+      // label.
       showThinking('Warming up…');
       // Force-scroll after the user hits Send — they just sent a message,
       // they obviously want to follow it down.
@@ -604,8 +612,14 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       // If the request failed before the SSE 'new' fired (network error,
       // 500 response, etc.), the thinking indicator would otherwise stay
       // forever. The submit handler's catch block already shows an alert;
-      // here we just make sure the spinner is gone.
-      hideThinking();
+      // here we just make sure the spinner is gone. On a successful POST
+      // (sentOk === true) we LEAVE the indicator up — the SSE 'new'
+      // event will hide it when the actual assistant bubble lands.
+      // (Previously this branch called hideThinking() unconditionally,
+      // which killed the indicator ~100ms after it appeared for any
+      // successful send — the user's "I never see the Thinking… label"
+      // screenshot.)
+      if (!sentOk) hideThinking();
     }
   });
 
