@@ -103,9 +103,8 @@ Followed by your plain-English reply (NOT inside the JSON block). The summary st
 
 // ─── Action execution: re-call this app's own /api/* with the caller's cookie ───
 
-async function executeAction(action, callerCookie) {
+async function executeAction(action, callerCookie, origin) {
   const method = action.method || 'POST';
-  const origin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : (process.env.AGENT_SELF_URL || 'http://localhost:3000');
   const r = await fetch(`${origin}${action.endpoint}`, {
     method,
     headers: {
@@ -445,8 +444,29 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
   const executed = [];
   for (const action of actions) {
     if (!action || !action.endpoint) continue;
-    const result = await executeAction(action, callerCookie);
+    const result = await executeAction(action, callerCookie, origin);
     executed.push(result);
+  }
+
+  // The model wrote `content` (e.g. "Done — Jorge's on Friday 4-10pm")
+  // BEFORE any action actually ran — it's a prediction, not a report.
+  // If any action actually failed, don't let that confident narration
+  // stand uncorrected: a manager reading "Done" has no reason to check
+  // the small pass/fail pill under the bubble. Replace the bubble text
+  // with what actually happened for the failed ones.
+  const failed = executed.filter((a) => !(a.response_status >= 200 && a.response_status < 300));
+  if (failed.length) {
+    const reasons = failed.map((a) => {
+      const errMsg = (a.response_body && typeof a.response_body === 'object' && a.response_body.error)
+        || (typeof a.response_body === 'string' && a.response_body)
+        || `HTTP ${a.response_status}`;
+      return `- ${a.summary || a.endpoint}: ${errMsg}`;
+    });
+    const okSummaries = executed.filter((a) => a.response_status >= 200 && a.response_status < 300).map((a) => a.summary).filter(Boolean);
+    const parts = [];
+    if (okSummaries.length) parts.push(`Done: ${okSummaries.join('; ')}.`);
+    parts.push(`I couldn't actually complete ${failed.length === 1 ? 'this' : 'these'}:\n${reasons.join('\n')}`);
+    content = parts.join('\n\n');
   }
 
   // Write the assistant reply + action log
