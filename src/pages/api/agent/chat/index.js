@@ -609,12 +609,14 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
 
   // Execute each action via this app's own /api/* routes (using the
   // caller's session cookie so audit attribution is correct).
-  const executed = [];
-  for (const action of actions) {
-    if (!action || !action.endpoint) continue;
-    const result = await executeAction(action, callerCookie, origin);
-    executed.push(result);
-  }
+  // Parallelized — a 12-shift deletion shouldn't take 12 round-trips
+  // sequentially. Vercel supports up to ~50 concurrent fetches per
+  // function invocation without issue.
+  const executed = await Promise.all(
+    (actions || [])
+      .filter((action) => action && action.endpoint)
+      .map((action) => executeAction(action, callerCookie, origin))
+  );
 
   // The model wrote `content` (e.g. "Done — Jorge's on Friday 4-10pm")
   // BEFORE any action actually ran — it's a prediction, not a report.
