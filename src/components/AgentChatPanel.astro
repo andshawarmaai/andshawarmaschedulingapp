@@ -43,9 +43,10 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     <form id="agent-chat-form" class="agent-chat-form" autocomplete="off">
       <div id="agent-chat-pending-attachments" class="agent-chat-pending"></div>
       <div class="agent-chat-input-row">
-        <button type="button" id="agent-chat-attach" class="agent-chat-attach" aria-label="Attach photo or document" title="Attach photo or document">
+        <label for="agent-chat-file" class="agent-chat-attach" aria-label="Attach a photo or document to your message" title="Attach photo / PDF / document (optional)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-        </button>
+          <span class="agent-chat-attach-label">Attach</span>
+        </label>
         <input type="file" id="agent-chat-file" class="agent-chat-file" accept="image/*,application/pdf,text/*,.doc,.docx,.txt" multiple capture="environment" hidden>
         <textarea id="agent-chat-input" placeholder="Schedule Jorge Friday 11-7pm, post Adnan's Saturday shift for swap, cap Friday lunch at 2..." rows="2"></textarea>
         <button type="submit" id="agent-chat-send" class="agent-chat-send">Send</button>
@@ -119,12 +120,13 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 
   // ─── Attachments: file picker, drag-drop, upload-before-send ─────────────
 
-  const attachBtn = document.getElementById('agent-chat-attach');
   const fileInput = document.getElementById('agent-chat-file');
   const pendingEl = document.getElementById('agent-chat-pending-attachments');
   const historyEl = document.getElementById('agent-chat-history');
 
-  attachBtn.addEventListener('click', () => fileInput.click());
+  // Clicking the visible "Attach" label triggers the hidden file input via
+  // the for= attribute, so no JS click handler is needed here. (Leaving
+  // the legacy attachBtn reference would error since the button is gone.)
 
   // Desktop: drag a file into the chat panel to attach. Mobile has no
   // drag events so this is just a bonus, but it's the standard expected
@@ -367,7 +369,20 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     if (sse) try { sse.close(); } catch (_) {}
     status.textContent = 'connecting...';
     sse = new EventSource('/api/agent/chat/stream', { withCredentials: true });
-    sse.addEventListener('hello', () => { status.textContent = 'connected'; });
+        sse.addEventListener('hello', () => { status.textContent = 'connected'; });
+    sse.addEventListener('new', async (e) => {
+      // The 'new' event arrives when the SSE detects a fresh assistant
+      // message in the DB. Fetch the full message and render its
+      // bubble — without this, the 'status' and 'token' updates
+      // have no element to write to and the reply never appears.
+      const data = JSON.parse(e.data);
+      if (rendered[data.id]) return;
+      const r = await fetch('/api/agent/chat', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const history = (await r.json()).history || [];
+      const m = history.find((x) => x.id === data.id);
+      if (m) render(m, {});
+    });
     sse.addEventListener('status', (e) => {
       const data = JSON.parse(e.data);
       const el = rendered[data.id];
@@ -586,12 +601,15 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   align-items: flex-end;
 }
 .agent-chat-attach {
+  display: inline-flex; align-items: center; gap: 0.35rem;
   background: var(--color-bg); border: 1px solid var(--color-border);
-  border-radius: 0.4rem; padding: 0.45rem 0.55rem;
-  font-size: 1.1rem; cursor: pointer;
+  border-radius: 0.4rem; padding: 0.45rem 0.6rem;
+  font-size: 0.85rem; cursor: pointer; color: var(--color-muted);
   align-self: stretch;
 }
 .agent-chat-attach:hover { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.agent-chat-attach svg { width: 1.1rem; height: 1.1rem; }
+.agent-chat-attach-label { font-weight: 500; }
 .agent-chat-form textarea {
   flex: 1; resize: none; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border);
   border-radius: 0.4rem; font: inherit; background: var(--color-bg);
