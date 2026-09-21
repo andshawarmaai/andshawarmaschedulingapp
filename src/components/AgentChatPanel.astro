@@ -34,7 +34,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
         <span class="agent-chat-status" id="agent-chat-status">connecting...</span>
       </div>
       <button type="button" id="agent-chat-close" class="agent-chat-close" aria-label="Close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </header>
 
@@ -387,10 +387,16 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   // see the bot is actively working, not stuck. Also flips the bottom
   // status pill to "thinking…" — otherwise it sits at "connected"
   // forever after the first reply and there's no signal that a new
-  // turn has started (the previous bug per user report).
+  // turn has started (the previous bug per user report). The label is
+  // explicit ("Warming up…" for the first ~2s, then "Thinking…" once the
+  // round-trip is in flight) plus an elapsed-second counter, so the user
+  // can see the bot is working even when MiniMax-M3 takes 10-15s.
   let thinkingEl = null;
+  let thinkingTimer = null;
+  let thinkingStartedAt = 0;
   function showThinking() {
     if (thinkingEl) return;
+    thinkingStartedAt = Date.now();
     thinkingEl = document.createElement('div');
     thinkingEl.className = 'agent-chat-msg agent-chat-msg-assistant agent-chat-thinking';
     thinkingEl.id = 'agent-chat-thinking';
@@ -399,16 +405,31 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     who.textContent = 'Chat Bot';
     const body = document.createElement('div');
     body.className = 'agent-chat-text agent-chat-thinking-text';
-    body.textContent = 'Thinking…';
+    body.textContent = 'Warming up…';
+    const elapsed = document.createElement('div');
+    elapsed.className = 'agent-chat-thinking-elapsed';
+    elapsed.textContent = '';
     thinkingEl.appendChild(who);
     thinkingEl.appendChild(body);
+    thinkingEl.appendChild(elapsed);
     history.appendChild(thinkingEl);
     // Flip the bottom status pill so the connection state reflects
     // current work, not the last completed turn.
-    status.textContent = 'thinking…';
+    status.textContent = 'warming up…';
     scrollToBottomForce();
+    // Update the elapsed counter every 250ms so the user sees real
+    // progress. After 2s the label flips "Warming up…" → "Thinking…"
+    // so it's clear the bot is past initial setup.
+    thinkingTimer = setInterval(() => {
+      if (!thinkingEl) return;
+      const sec = ((Date.now() - thinkingStartedAt) / 1000).toFixed(1);
+      const label = body.textContent;
+      if (sec >= 2 && label === 'Warming up…') body.textContent = 'Thinking…';
+      elapsed.textContent = `${sec}s`;
+    }, 250);
   }
   function hideThinking() {
+    if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
     if (thinkingEl && thinkingEl.parentNode) thinkingEl.parentNode.removeChild(thinkingEl);
     thinkingEl = null;
   }
@@ -594,9 +615,13 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 .agent-chat-header strong { font-size: 0.95rem; }
 .agent-chat-status { display: block; font-size: 0.75rem; color: var(--color-muted); margin-top: 0.1rem; }
 .agent-chat-close {
-  background: none; border: none; font-size: 1.5rem; line-height: 1; cursor: pointer;
-  color: var(--color-muted); padding: 0 0.25rem;
+  background: none; border: 1px solid transparent; font-size: 1rem; line-height: 1; cursor: pointer;
+  color: var(--color-muted); padding: 0.25rem; border-radius: 0.375rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; flex-shrink: 0;
 }
+.agent-chat-close:hover { color: var(--color-fg, #111); background: rgba(0,0,0,0.05); border-color: var(--color-border, #e5e7eb); }
+.agent-chat-close svg { display: block; }
 
 .agent-chat-history {
   flex: 1 1 auto; overflow-y: auto;
@@ -666,6 +691,16 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 @keyframes gradient-sweep {
   0%   { background-position: 0% 50%; }
   100% { background-position: 100% 50%; }
+}
+/* Elapsed-seconds counter under the "Warming up…" / "Thinking…" label.
+   Small, muted, monospace so the moving text stays the focal point but
+   the user can see real progress during the 5-15s MiniMax round-trip. */
+.agent-chat-thinking-elapsed {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.15rem;
+  opacity: 0.7;
 }
 /* Reduced-motion users get a static solid color instead of the sweep
    so we don't violate the OS-level motion preference. */
