@@ -308,3 +308,86 @@ anywhere in the app; they're just data entered through this UI.
 - Passwords are bcrypt-hashed; nothing plaintext is ever stored past
   creation time (account creation, `db/seed.mjs`, and password resets all
   print/show a password exactly once).
+
+## Hermes chat (manager ↔ AI agent)
+
+A floating chat panel sits in the bottom-right of the Schedule Builder
+(`admin/schedule.astro`). A manager types natural-language schedule
+changes ("schedule Jorge Friday 11-7pm", "move Adnan Sunday to Monday",
+"who's working Thursday") and an AI agent answers, mutating the schedule
+through the same `/api/*` endpoints any user would call.
+
+### Configuration (zero-config to enable)
+
+Set these Vercel environment variables on the project
+(Settings → Environment Variables):
+
+| Var | Purpose | Default if unset |
+|---|---|---|
+| `AGENT_ENDPOINT` | URL of the AI agent (any service) | _(stub mode)_ |
+| `AGENT_HEADERS_JSON` | Extra request headers as JSON, e.g. `{"Authorization":"Bearer sk-...","x-api-key":"sk-..."}` | `{}` |
+| `AGENT_SYSTEM_PROMPT` | Optional override for the system prompt sent to the agent | _(built-in)_ |
+| `AGENT_TIMEOUT_MS` | How long to wait for the agent | `55000` |
+
+With **`AGENT_ENDPOINT` unset**, the chat still works — it falls back
+to a stub mode that echoes the message and shows what the agent *would*
+have done. Use this to verify the UI without configuring AI.
+
+### How it works
+
+When a manager sends a message, the Vercel function `POST /api/agent/chat`
+runs the full agent loop IN-PROCESS:
+
+1. Save the message (status='pending')
+2. Build a context payload: message + last 10 chat turns + live
+   `GET /api/state` snapshot + the full agent training guide
+3. POST it to `AGENT_ENDPOINT`
+4. Execute each `{method, endpoint, body, summary}` action the agent
+   returned by re-calling this app's own `/api/*` endpoints with the
+   caller's session cookie preserved (so audit attribution is correct)
+5. Save the assistant reply + an audit-log row per action
+6. The chat UI's SSE stream picks up the new assistant row and renders
+   it token-by-token with confirmation pills ("✓ Scheduled Jorge
+   Friday 11-7pm via /api/shifts")
+
+No external service (no Node script, no separate process, no webhook)
+needs to run. The Vercel function is the orchestrator.
+
+### Endpoint contract (any AI service that satisfies it works)
+
+```
+POST {AGENT_ENDPOINT}
+Content-Type: application/json
+Headers: (AGENT_HEADERS_JSON merged in)
+
+{
+  "message":       { "id", "role":"user", "content", "user_id", "username", "display_name" },
+  "history":       [ { "role":"user"|"assistant", "content" } ],
+  "state":         { "users":[...], "shiftTemplates":[...], "upcomingShifts":[...] },
+  "guide":         "...full AGENT-TRAINING.md text...",
+  "system_prompt": "..."
+}
+
+→ 200 { "content": "your reply", "actions": [
+       { "method":"POST", "endpoint":"/api/shifts",
+         "body": { "user_id":"...", "date":"2026-09-26", "start_time":"11:00", "end_time":"19:00" },
+         "summary": "Scheduled Jorge Friday 11-7pm" }
+     ] }
+```
+
+Examples of things that work as `AGENT_ENDPOINT`:
+- Anthropic Messages API (`https://api.anthropic.com/v1/messages`)
+  + `AGENT_HEADERS_JSON='{"x-api-key":"sk-ant-...","anthropic-version":"2023-06-01"}'`
+  with a small adapter wrapper that returns `{content, actions}`.
+- OpenAI Chat Completions API + same kind of adapter.
+- A custom webhook into any agent framework.
+- A local LLM served at any HTTP endpoint that returns the contract.
+
+### Code path
+
+| File | What |
+|---|---|
+| `src/pages/api/agent/chat/index.js` | POST sends, GET history, full orchestration |
+| `src/pages/api/agent/chat/stream.js` | SSE — chat UI watches for assistant rows |
+| `src/components/AgentChatPanel.astro` | The floating chat UI |
+| `src/lib/agentChat.js` | Data layer (dual-backend: neon.js + local.js) |
