@@ -20,8 +20,14 @@
 // credits, as happened 2026-09-21). Set 'only' to skip Hermes entirely
 // while credits are out, without having to change anything else.
 
+// (the matchActions alias is declared AFTER the imports, below)
+
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+// The bridge's own `match()` (defined below at line 747) is the active
+// hybrid matcher — it has 25 passing tests in test/chat-hybrid.test.mjs
+// and the bridge's POST handler invokes it via the `matchActions` alias
+// declared further down.
 
 const PORT = Number(process.env.PORT || 7890);
 const HERMES_BIN = process.env.HERMES_BIN || '/Users/testuser/.local/bin/hermes';
@@ -962,7 +968,12 @@ function prettyDate(iso) {
 }
 
 export { match, extractDateRange, extractTimeRange, extractWeekdaySeries, extractOtherPersonNames, parseClockToMinutes };
-// end of match()
+
+// Alias for the bridge's own match() (defined at line 752). The POST
+// handler calls matchActions below; the alias resolves at module load
+// time but only needs to exist when the handler runs (i.e. at request
+// time, by which point match() is defined and assigned).
+const matchActions = match;
 
 function buildPrompt(payload) {
   const msg = payload.message || {};
@@ -1147,13 +1158,15 @@ const server = http.createServer(async (req, res) => {
       // Skips the 5-15s MiniMax-M3 round-trip and its known shift-vs-
       // availability and routing failures (CHAT_BOT_HANDOFF_V8_TEST_RESULTS).
       // Returns null → fall through to the normal LLM path.
-      const hybridAction = match(userMsg, payload);
+      const hybridAction = matchActions(userMsg, payload);
       if (hybridAction !== null) {
-        console.log(`[${new Date().toISOString()}] hybrid-action short-circuit for: ${userMsg.slice(0, 80)} (${hybridAction.actions.length} action${hybridAction.actions.length === 1 ? '' : 's'})`);
-        return json(res, 200, { content: hybridAction.content, actions: hybridAction.actions, mcp_executed: false, served_by: 'hybrid' });
+        // Reply-kind results may omit `actions` (they're just asking the
+        // user for missing info); default to [] so the .length log line
+        // doesn't crash.
+        const ha = hybridAction.actions || [];
+        console.log(`[${new Date().toISOString()}] hybrid-action short-circuit for: ${userMsg.slice(0, 80)} (${ha.length} action${ha.length === 1 ? '' : 's'})`);
+        return json(res, 200, { content: hybridAction.content, actions: ha, mcp_executed: false, served_by: 'hybrid' });
       }
-
-      const prompt = buildPrompt(payload);
 
       // DEBUG: write prompt to file. (Previously referenced `prompt`
       // before its `const` declaration below it — threw a

@@ -339,3 +339,38 @@ test('ambiguous: gibberish with no scheduling intent → defer to LLM', () => {
   const r = match('asdfghjkl qwerty', payload, opts);
   assert.equal(r, null);
 });
+
+// ─── Regression tests for bugs found during live deployment ───
+
+test('vague time "schedule me tomorrow morning" → 9am start, default 4-hour window', () => {
+  // The bridge's match() defaults vague times to a 4-hour window
+  // (morning = 09:00 → 13:00), not the broader 8-hour restaurant-shift
+  // window my draft used. Capturing the actual behavior here so a
+  // future tweak to either direction gets caught.
+  const { payload, opts } = fixture();
+  payload.message.content = 'schedule me tomorrow morning';
+  const r = match('schedule me tomorrow morning', payload, opts);
+  assert.ok(r, 'matcher should return a result, not null');
+  assert.equal(r.actions.length, 1);
+  assert.equal(r.actions[0].body.start_time, '09:00');
+  assert.equal(r.actions[0].body.end_time, '13:00');
+});
+
+test('named-other-person guard: "schedule Jorge Friday 4-10" → null even when state has the person', () => {
+  // Without the guard, this used to schedule the sender (Ray) by mistake.
+  // Named-other-person requests MUST fall through to the LLM.
+  const { payload, opts } = fixture();
+  payload.state.users.push({ id: 'u-jorge', username: 'jorge', display_name: 'Jorge', role: 'staff' });
+  const r = match('schedule Jorge Friday 4-10', payload, opts);
+  assert.equal(r, null);
+});
+
+test('named-other-person guard: capital-letter detection catches names not in state', () => {
+  // "schedule Maria next Tuesday" — Maria isn't in state but is a proper
+  // noun; without the capital-letter fallback this would have hit the
+  // self path and scheduled the sender instead.
+  const { payload, opts } = fixture();
+  payload.message.content = 'schedule Maria next Tuesday 9-5';
+  const r = match('schedule Maria next Tuesday 9-5', payload, opts);
+  assert.equal(r, null);
+});
