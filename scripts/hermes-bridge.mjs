@@ -154,6 +154,42 @@ No MCP toolset is configured for this session, so there is no reliable way for y
 \`\`\`
 This is unreliable — prefer telling the user you can't confirm it went through, and suggest they check the app, if you're not fully confident.`;
 
+// Off-topic pre-filter: short-circuit obvious non-scheduling asks
+// BEFORE the LLM call. The bot's §2 "off-topic refusal" rule still
+// failed on MiniMax-M3 even after Claude's strongest rewrite (V8) —
+// the model told jokes and "weather" questions instead of refusing.
+// This pre-filter is a deterministic regex guard, not an LLM judgment.
+// Scope: scheduling. If the user asks for a joke, story, fact, weather,
+// trivia, math, who-is, recipe, opinion, or anything clearly outside
+// shifts/templates/availability/timeoff/swaps/roster, return the canned
+// refusal directly. Mismatches cost nothing — if the regex doesn't
+// fire, we still call the LLM as before. Matches save a 5-15s LLM call.
+const OFF_TOPIC_REFUSAL = "I can only help with scheduling here. What shift do you need to set up?";
+const OFF_TOPIC_PATTERNS = [
+  /\b(tell|say|give)\s+(me\s+)?(a\s+|another\s+)?(joke|funny|story|riddle|fact|trivia)\b/i,
+  /\b(make me |write me )?(a |the )?(recipe|poem|haiku|song|joke|story)\b/i,
+  /\bwhat'?s\s+(the\s+)?(weather|temperature|outside)\b/i,
+  /\b(who|what)\s+(is|are|was|were)\s+(the\s+)?(president|prime minister|ceo|founder)\b/i,
+  /\b(can you |could you |will you )?(sing|dance|draw|paint|play)\b/i,
+  /^\s*(hi|hello|hey|yo|sup)\s+(can|could|will)\s+you\s+(help|assist|do)/i,
+  /\bmath\s+(problem|question|homework)\b/i,
+  /\b(what\s+is|what'?s|calculate|compute|solve)\s+[\d.]+\s*[+\-*\/x×]\s*[\d.]+/i,   // "what's 2+2", "what is 10*3", "calculate 100/4"
+  /\b(what\s+is|what's)\s+\d+\s*(plus|minus|times|divided\s+by|multiplied\s+by)\s+\d+/i,
+];
+function isOffTopic(text) {
+  if (!text) return false;
+  const t = text.trim();
+  if (t.length > 120) return false; // longer messages likely real scheduling requests even if they mention off-topic words
+  // Any message that explicitly mentions scheduling primitives is
+  // scheduling, period — even if it also mentions joke/weather/sing/etc.
+  // ("schedule someone to sing at the event" is a real scheduling ask).
+  if (/\b(schedule|shift|availability|time\s*off|swap|template|roster|cover(age)?)\b/i.test(t)) return false;
+  for (const re of OFF_TOPIC_PATTERNS) {
+    if (re.test(t)) return true;
+  }
+  return false;
+}
+
 function buildPrompt(payload) {
   const msg = payload.message || {};
   const parts = [];
@@ -275,6 +311,17 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw || '{}');
+      const userMsg = (payload && payload.message && payload.message.content) || '';
+
+      // Off-topic pre-filter (see isOffTopic above). Deterministic
+      // refusal BEFORE the LLM call — saves 5-15s of MiniMax-M3 latency
+      // AND sidesteps the model's tendency to comply with jokes/weather
+      // asks instead of refusing.
+      if (isOffTopic(userMsg)) {
+        console.log(`[${new Date().toISOString()}] off-topic pre-filter triggered for: ${userMsg.slice(0, 80)}`);
+        return json(res, 200, { content: OFF_TOPIC_REFUSAL, actions: [], mcp_executed: !!HERMES_MCP_TOOLSET });
+      }
+
       const prompt = buildPrompt(payload);
 
       // DEBUG: write prompt to file. (Previously referenced `prompt`
