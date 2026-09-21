@@ -34,6 +34,47 @@ const lang = getLang(Astro);
     window.__lang = lang;
   </script>
 
+  <div class="card" id="source-card" hidden>
+    <h2>Chat Source</h2>
+    <p class="card-sub">Where the Chat Bot gets its brain from. Pick one — only the matching dependency below needs to be set.</p>
+
+    <div id="source-status" class="card-sub" style="margin-top:0.75rem;"></div>
+
+    <form id="source-form" style="margin-top:1rem;">
+      <div class="field">
+        <label for="source-mode">Source</label>
+        <select id="source-mode" class="input" required>
+          <option value="hermes">Hermes (local) — free, needs your Mac on</option>
+          <option value="cloud">Cloud API — paid, always works</option>
+          <option value="hybrid">Hybrid — Hermes first, cloud fallback</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:0.5rem;">
+        <button type="submit" class="btn-primary" id="source-save">Save</button>
+      </div>
+    </form>
+
+    <p class="card-sub" style="margin-top:1rem;">Once saved, the floating Chat Bot button picks up the new source on the next message. Switch any time, no rebuild needed.</p>
+  </div>
+
+  <div class="card" id="tunnel-card" hidden>
+    <h2>Hermes (local tunnel)</h2>
+    <p class="card-sub">For the <b>Hermes</b> and <b>Hybrid</b> modes. Run <code>scripts/hermes-bridge.mjs</code> + <code>cloudflared tunnel</code> on your Mac, then paste the public URL here. <a href="#" id="tunnel-help">How do I set this up?</a></p>
+
+    <div id="tunnel-status" class="card-sub" style="margin-top:0.75rem;"></div>
+
+    <form id="tunnel-form" style="margin-top:1rem;">
+      <div class="field">
+        <label for="tunnel-url">Tunnel URL</label>
+        <input type="url" id="tunnel-url" class="input" placeholder="https://something.trycloudflare.com" />
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button type="submit" class="btn-primary" id="tunnel-save">Save & Test</button>
+        <button type="button" class="btn-secondary" id="tunnel-clear">Remove</button>
+      </div>
+    </form>
+  </div>
+
   <div class="card" id="ai-card" hidden>
     <h2>Chat Bot</h2>
     <p class="card-sub">Connect an AI service so the chat panel on the Schedule Builder can answer questions and make changes for you. Pick a provider and paste your key — it's encrypted and stored in the database. <strong>Only admins/managers see this card.</strong></p>
@@ -118,6 +159,113 @@ const lang = getLang(Astro);
     });
 
     loadState();
+  </script>
+
+  <script>
+    // Chat Source section — picks where the chat gets its brain from.
+    // Hidden for non-admin/manager. Always shown to admin/manager so they
+    // can switch between Hermes / Cloud / Hybrid without env vars.
+    const sourceCard = document.getElementById('source-card');
+    const sourceMode = document.getElementById('source-mode');
+    const sourceStatus = document.getElementById('source-status');
+    const sourceSave = document.getElementById('source-save');
+    const sourceForm = document.getElementById('source-form');
+
+    // Tunnel URL section — used by Hermes and Hybrid modes.
+    const tunnelCard = document.getElementById('tunnel-card');
+    const tunnelUrl = document.getElementById('tunnel-url');
+    const tunnelStatus = document.getElementById('tunnel-status');
+    const tunnelSave = document.getElementById('tunnel-save');
+    const tunnelClear = document.getElementById('tunnel-clear');
+    const tunnelForm = document.getElementById('tunnel-form');
+
+    async function loadSourceConfig() {
+      try {
+        const r = await fetch('/api/admin/settings/chat-source', { credentials: 'same-origin' });
+        if (r.status === 403) { sourceCard.hidden = true; tunnelCard.hidden = true; return; }
+        const cfg = await r.json();
+        sourceCard.hidden = false;
+        tunnelCard.hidden = false;
+        if (cfg.mode) sourceMode.value = cfg.mode;
+        sourceStatus.textContent = `Current source: ${cfg.mode || 'none'}.`;
+      } catch (_) {
+        sourceCard.hidden = false;
+        sourceStatus.textContent = 'Failed to load source config.';
+      }
+    }
+
+    async function loadTunnelConfig() {
+      try {
+        const r = await fetch('/api/admin/settings/tunnel', { credentials: 'same-origin' });
+        if (r.status === 403) { tunnelCard.hidden = true; return; }
+        const cfg = await r.json();
+        tunnelCard.hidden = false;
+        if (cfg.tunnel_url) tunnelUrl.value = cfg.tunnel_url;
+        if (cfg.reachable) {
+          tunnelStatus.textContent = `Connected to ${cfg.tunnel_url}. Tunnel is reachable.`;
+        } else if (cfg.tunnel_url) {
+          tunnelStatus.textContent = `Saved URL: ${cfg.tunnel_url}, but it's not responding right now. Mode: ${cfg.mode}.`;
+        } else {
+          tunnelStatus.textContent = 'No tunnel URL set. Add one to enable Hermes or Hybrid mode.';
+        }
+      } catch (_) {
+        tunnelCard.hidden = false;
+        tunnelStatus.textContent = 'Failed to load tunnel config.';
+      }
+    }
+
+    sourceForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!sourceMode.value) { window.shawarmaToast('Pick a source.'); return; }
+      sourceSave.disabled = true;
+      try {
+        const r = await fetch('/api/admin/settings/chat-source', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: sourceMode.value }),
+        });
+        if (!r.ok) { window.shawarmaToast('Save failed.'); return; }
+        window.shawarmaToast('Source updated.');
+        await loadSourceConfig();
+      } finally {
+        sourceSave.disabled = false;
+      }
+    });
+
+    tunnelForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!tunnelUrl.value.trim()) { window.shawarmaToast('Paste a tunnel URL.'); return; }
+      tunnelSave.disabled = true;
+      tunnelSave.textContent = 'Testing…';
+      try {
+        const r = await fetch('/api/admin/settings/tunnel', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tunnel_url: tunnelUrl.value.trim() }),
+        });
+        const result = await r.json();
+        if (!r.ok) { window.shawarmaToast(result.error || 'Save failed.'); return; }
+        window.shawarmaToast('Tunnel connected.');
+        await loadTunnelConfig();
+      } finally {
+        tunnelSave.disabled = false;
+        tunnelSave.textContent = 'Save & Test';
+      }
+    });
+
+    tunnelClear.addEventListener('click', async () => {
+      if (!confirm('Remove the tunnel URL?')) return;
+      const r = await fetch('/api/admin/settings/tunnel', { method: 'DELETE', credentials: 'same-origin' });
+      if (!r.ok) { window.shawarmaToast('Failed.'); return; }
+      window.shawarmaToast('Removed.');
+      tunnelUrl.value = '';
+      await loadTunnelConfig();
+    });
+
+    loadSourceConfig();
+    loadTunnelConfig();
   </script>
 
   <script>
