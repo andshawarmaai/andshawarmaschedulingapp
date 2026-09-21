@@ -53,6 +53,7 @@
 
 import * as chat from '../../../../lib/agentChat.js';
 import { getActiveProviderConfig } from '../../admin/settings/ai.js';
+import { getActiveChatSource } from '../../admin/settings/chat-source.js';
 
 export const prerender = false;
 
@@ -194,11 +195,16 @@ export async function POST(context) {
     parent_id: body.parent_id || null,
   });
 
-  // 2. Optimistic stub reply if no provider is configured (Settings panel
-  //    hasn't been filled in). Lets the UI show something while the admin
-  //    sets up their AI key.
-  const cfg = await getActiveProviderConfig();
-  if (!cfg) {
+  // 2. Decide where to route the message based on the configured chat
+  //    source: hermes (tunnel), cloud (provider API key), hybrid
+  //    (hermes first, cloud fallback), or stub (no AI — plain echo).
+  const source = await getActiveChatSource();
+  const cloudCfg = await getActiveProviderConfig();
+  const useCloud = source.mode === 'cloud' || (source.mode === 'hybrid' && !source.tunnelUrl);
+  const useHermes = (source.mode === 'hermes' || source.mode === 'hybrid') && source.tunnelUrl;
+
+  // Stub when nothing's configured — echo + helpful guidance, no AI spend.
+  if (!useCloud && !useHermes) {
     try {
       const state = await fetch(`${context.url.origin}/api/state`, { headers: { Cookie: context.request.headers.get('cookie') || '' } }).then((r) => r.json()).catch(() => ({}));
       const { content, actions } = stubReply(userMsg.content, [], state);
@@ -229,16 +235,24 @@ export async function POST(context) {
     displayName: me.display_name,
     callerCookie,
     origin: context.url.origin,
-    cfg,
+    source,
+    cloudCfg,
   }).catch((err) => console.error('orchestration failed:', err));
 
   return json({ ok: true, message: userMsg }, 201);
 }
 
 // ─── Async orchestration: build context, call agent, execute actions, write reply ───
-
-async function orchestrateReply({ userMsg, userId, username, displayName, callerCookie, origin, cfg }) {
-  // Build context
+//
+// Three modes (set in Settings → Chat Source):
+//   - 'hermes':  POST to local tunnel. If tunnel is unreachable, error
+//                out so the manager knows their Mac isn't available.
+//   - 'cloud':   Direct API call to the cloud provider (Claude / OpenAI
+//                / MiniMax) using the key in the AI settings card.
+//   - 'hybrid':  Try tunnel first; if it doesn't respond within 3s,
+//                fall back to cloud automatically.
+async function orchestrateReply({ userMsg, userId, username, displayName, callerCookie, origin, source, cloudCfg }) {
+  // Build shared context (state, history, guide) — used by both paths.
   const [historyResp, state, guide] = await Promise.all([
     fetch(`${origin}/api/agent/chat`, { headers: { Cookie: callerCookie } }).then((r) => r.json()).catch(() => ({ history: [] })),
     fetch(`${origin}/api/state`, { headers: { Cookie: callerCookie } }).then((r) => r.json()).catch(() => ({})),
@@ -250,47 +264,104 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
     .map((m) => ({ role: m.role, content: (m.content || '').replace(/```json[\s\S]+?```/g, '').trim() }))
     .slice(-10);
 
-  // Call the configured provider with the chat context. The provider
-  // returns plain text; we extract any JSON action block from it (same
-  // contract the old relay used) so the existing executeAction pipeline
-  // keeps working unchanged.
-  let assistantText = '';
-  try {
-    const messages = [
-      ...history,
-      { role: 'user', content: userMsg.content },
-    ];
-    assistantText = await cfg.provider.chat(cfg.api_key, {
-      model: cfg.model,
-      system: SYSTEM_PROMPT + '\n\n' + guide,
-      messages,
-      max_tokens: 2048,
+  const payload = {
+    message: {
+      id: userMsg.id,
+      role: userMsg.role,
+      content: userMsg.content,
+      user_id: userId,
+      username,
+      display_name: displayName,
+    },
+    history,
+    state: {
+      users: (state.users || []).map((u) => ({ username: u.username, display_name: u.display_name, role: u.role })),
+      shiftTemplates: state.shiftTemplates,
+      upcomingShifts: (state.shifts || []).filter((s) => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 30),
+    },
+    guide,
+  };
+
+  // Try Hermes (tunnel) — used by mode='hermes' and the first attempt of 'hybrid'.
+  let assistantText = null;
+  let triedHermes = false;
+  let hermesError = null;
+  if ((source.mode === 'hermes' || source.mode === 'hybrid') && source.tunnelUrl) {
+    triedHermes = true;
+    assistantText = await callHermes(source.tunnelUrl, payload).catch((err) => {
+      hermesError = err.message;
+      return null;
     });
-  } catch (err) {
+  }
+
+  // If we're in hermes-only and it failed, surface the error.
+  if (source.mode === 'hermes' && !assistantText) {
     const assistant = await chat.createChatMessage({
       user_id: userId,
       role: 'assistant',
-      content: `The ${cfg.provider.label || cfg.provider} agent failed: ${err.message}`,
+      content: `Hermes wasn't reachable at ${source.tunnelUrl}. Make sure your Mac is on and the bridge is running.\n\nError: ${hermesError || 'no response'}`,
       parent_id: userMsg.id,
     });
     await chat.updateChatMessageStatus(assistant.id, 'error');
     return;
   }
 
-  // Extract any JSON action block from the assistant's reply. The provider
-  // (Claude/OpenAI/MiniMax) just returns plain text following the system
-  // prompt's instructions: a ```json``` block with the actions, then the
-  // user-facing reply. We split them so the action JSON never reaches the
-  // chat panel.
-  let content = assistantText || '';
-  let actions = [];
-  const m = content.match(/```json\s*([\s\S]+?)\s*```/);
-  if (m) {
+  // If we got a reply from Hermes, we're done — skip cloud.
+  if (!assistantText && (source.mode === 'cloud' || source.mode === 'hybrid') && cloudCfg) {
     try {
-      const parsed = JSON.parse(m[1]);
-      actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
-    } catch (_) { /* malformed JSON — treat whole thing as reply */ }
-    content = content.replace(/```json[\s\S]+?```/, '').trim();
+      const messages = [...history, { role: 'user', content: userMsg.content }];
+      assistantText = await cloudCfg.provider.chat(cloudCfg.api_key, {
+        model: cloudCfg.model,
+        system: SYSTEM_PROMPT + '\n\n' + guide,
+        messages,
+        max_tokens: 2048,
+      });
+    } catch (err) {
+      const fallback = triedHermes
+        ? `I tried Hermes (got: ${hermesError}) and the cloud provider (got: ${err.message}). Set up one of them in Settings → Chat Source.`
+        : `The ${cloudCfg.provider.label || cloudCfg.provider} agent failed: ${err.message}`;
+      const assistant = await chat.createChatMessage({
+        user_id: userId,
+        role: 'assistant',
+        content: fallback,
+        parent_id: userMsg.id,
+      });
+      await chat.updateChatMessageStatus(assistant.id, 'error');
+      return;
+    }
+  }
+
+  if (!assistantText) {
+    // Shouldn't happen — POST handler already short-circuits when nothing's configured.
+    const assistant = await chat.createChatMessage({
+      user_id: userId,
+      role: 'assistant',
+      content: 'No chat source is configured. Open Settings → Chat Source to pick Hermes, Cloud, or Hybrid.',
+      parent_id: userMsg.id,
+    });
+    await chat.updateChatMessageStatus(assistant.id, 'error');
+    return;
+  }
+
+  // Extract any JSON action block from the assistant's reply. The
+  // tunnel contract returns { content, actions: [...] } directly; the
+  // cloud path returns plain text that follows the system prompt's
+  // instructions: a ```json``` block with the actions, then the reply.
+  let content = '';
+  let actions = [];
+  if (typeof assistantText === 'object' && assistantText !== null) {
+    content = assistantText.content || '';
+    actions = Array.isArray(assistantText.actions) ? assistantText.actions : [];
+  } else {
+    content = String(assistantText);
+    const m = content.match(/```json\s*([\s\S]+?)\s*```/);
+    if (m) {
+      try {
+        const parsed = JSON.parse(m[1]);
+        actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
+      } catch (_) { /* malformed JSON — treat whole thing as reply */ }
+      content = content.replace(/```json[\s\S]+?```/, '').trim();
+    }
   }
 
   // Execute each action via this app's own /api/* routes (using the
@@ -312,6 +383,28 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
   await chat.updateChatMessageStatus(assistant.id, 'complete');
   for (const a of executed) {
     await chat.recordChatAction({ message_id: assistant.id, user_id: userId, ...a });
+  }
+}
+
+// POST {tunnel_url} → context: payload { message, history, state, guide }
+// Returns { content, actions[] } or throws.
+async function callHermes(tunnelUrl, payload) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const r = await fetch(`${tunnelUrl.replace(/\/$/, '')}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+    }
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
   }
 }
 
