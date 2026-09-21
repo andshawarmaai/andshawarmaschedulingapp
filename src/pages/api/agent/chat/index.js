@@ -157,26 +157,29 @@ function stubReply(userMessage, history, state) {
   // Time detection
   const timeHit = content.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
 
-  const lines = [
-    `✓ I received: "${userMessage}"`,
-    ``,
-    `_(Stub mode — no AGENT_ENDPOINT configured. To enable real AI, set the AGENT_ENDPOINT environment variable in Vercel project settings. See README for the endpoint contract.)_`,
-    ``,
-    `Here's what I would do with a real agent:`,
-  ];
+  const lines = [`Got it — you said: "${userMessage}".`];
 
   if (nameMatch && (dayHit || timeHit)) {
-    lines.push(`- Resolve "${nameMatch.display_name}" → user_id ${nameMatch.id}`);
-    if (dayHit) lines.push(`- Find the date for "${dayHit}"`);
-    if (timeHit) lines.push(`- Extract time "${timeHit[0]}"`);
-    lines.push(`- POST /api/shifts with the resolved fields`);
-    lines.push(`- Tag the shift with notes describing what the manager asked for`);
-  } else if (content.includes('who') || content.includes('show')) {
-    lines.push(`- Read GET /api/state to gather users, shifts, templates`);
-    lines.push(`- Format a readable summary for the manager`);
+    lines.push(`\nI'd put ${nameMatch.display_name} on`);
+    if (dayHit) lines.push(`• ${dayHit.charAt(0).toUpperCase()}${dayHit.slice(1)}day`);
+    if (timeHit) lines.push(`• at ${timeHit[0]}`);
+    lines.push(`\nBut I'm running in test mode right now — no AI connected yet, so I can't actually save the change. Your manager (or whoever set this app up) needs to plug an AI into the chat settings.`);
+    lines.push(`\nIn the meantime you can add the shift directly on the calendar by clicking the day and using the + button.`);
+  } else if (content.includes('who') || content.includes('show') || content.includes('working')) {
+    lines.push(`\nI'm in test mode so I can't look anything up yet. Once an AI is connected I'll be able to tell you who's working when, summarize the day, and so on.`);
+    lines.push(`\nFor now, scroll the calendar above to see who's scheduled.`);
+  } else if (content.includes('remove') || content.includes('delete') || content.includes('cancel')) {
+    lines.push(`\nI'd handle that for you normally, but I'm in test mode. To remove a shift: hover the colored block on the calendar, right-click, pick Delete.`);
+  } else if (content.includes('swap')) {
+    lines.push(`\nI'd post that for swap, but I'm in test mode. For now: go to the Shift Swap page in the sidebar.`);
+  } else if (content.includes('template') || content.includes('coverage') || content.includes('open')) {
+    lines.push(`\nI'm in test mode — I can't edit shift templates yet. There's a Shift Templates panel at the bottom of this page you can use directly.`);
   } else {
-    lines.push(`- Parse the request (this stub recognizes "schedule [name] [day] [time]" patterns)`);
-    lines.push(`- For more complex intents, set AGENT_ENDPOINT to a real AI service`);
+    lines.push(`\nI'm in test mode so I can't actually do anything yet. Once your developer wires up an AI I'll be able to:`);
+    lines.push(`• Add, move, or remove shifts`);
+    lines.push(`• Show who's working when`);
+    lines.push(`• Post shifts for swap, mark time off, manage templates`);
+    lines.push(`\nFor now, just describe what you want and I'll get to it once I'm fully set up. Your manager knows what's needed.`);
   }
   return { content: lines.join('\n'), actions: [] };
 }
