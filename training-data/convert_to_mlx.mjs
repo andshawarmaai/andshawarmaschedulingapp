@@ -171,9 +171,19 @@ function buildSystemContent(row) {
   const ctx = row.context;
   const userList = ctx.users.map((u) => `${u.username}=${u.display_name}`).join(', ');
   const templateList = ctx.templates.map((t) => `${t.name} ${t.start_time}-${t.end_time} days:${t.days_of_week.join('')}`).join(' | ');
+  // Render the current user's upcoming shifts so the model learns to
+  // consult this state before answering "remove me from the schedule"
+  // / "what shifts do I have" / etc. — see CHAT_BOT_HANDOFF_V9 follow-up.
+  // Same shape as scripts/hermes-bridge.mjs injects after my V9 fix.
+  const selfShiftsList = (ctx.selfShifts || [])
+    .map((s) => `${s.date} ${s.start_time}-${s.end_time} (id=${s.id})`)
+    .join('; ');
+  const selfShiftsLine = row.lang === 'es'
+    ? `\nMis turnos próximos: ${selfShiftsList || '(ninguno)'}`
+    : `\nMy upcoming shifts: ${selfShiftsList || '(none)'}`;
   const contextLine = row.lang === 'es'
-    ? `\n\nHoy: ${ctx.today}\nPersonal: ${userList}\nPlantillas de turnos: ${templateList}`
-    : `\n\nToday: ${ctx.today}\nStaff: ${userList}\nShift templates: ${templateList}`;
+    ? `\n\nHoy: ${ctx.today}\nPersonal: ${userList}\nPlantillas de turnos: ${templateList}${selfShiftsLine}`
+    : `\n\nToday: ${ctx.today}\nStaff: ${userList}\nShift templates: ${templateList}${selfShiftsLine}`;
   return row.system + contextLine;
 }
 

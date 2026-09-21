@@ -168,11 +168,46 @@ function botIdentityLine(lang = 'en') {
     : 'You are "Chat Bot", the in-app scheduling assistant for a restaurant staff scheduling app.';
 }
 
-function baseContext(today, extraUsers = []) {
+// Realistic per-person shift history — what "current user's upcoming
+// shifts" looks like when the bridge passes state.upcomingShifts to the
+// model. The training set used to drop this entirely from baseContext,
+// so the model learned to act as if no shifts existed at all. Real bug:
+// live chat's "remove me from the schedule" returned "you're not on it"
+// while 7 shifts existed (CHAT_BOT_HANDOFF_V9 follow-up).
+//
+// Each example gets a small fake "self" shift set: 1-4 upcoming shifts
+// owned by a synthesized `current_user` so the assistant has something
+// concrete to point at / delete. Staff IDs use the same u_* shape
+// roster.json uses for consistency with the MCP tool schemas.
+function genUpcomingShiftsForSelf(today, n = null) {
+  const count = n != null ? n : randInt(0, 4); // 0-4 so we also see "you have no upcoming shifts"
+  const out = [];
+  let cursor = addDays(today, 1); // start tomorrow, never in the past
+  for (let i = 0; i < count; i++) {
+    cursor = addDays(cursor, randInt(2, 6)); // space them out
+    // Use one of the roster's Opener/Mid/Late times so they look real
+    const tpl = pick(TEMPLATES);
+    out.push({
+      id: `<shift-self-${i}>`,
+      user_id: 'u_current_user',
+      user_name: 'Current User',
+      date: isoDate(cursor),
+      start_time: tpl.start_time,
+      end_time: tpl.end_time,
+    });
+  }
+  return out;
+}
+
+function baseContext(today, extraUsers = [], opts = {}) {
   return {
     today: isoDate(today),
     users: [...ROSTER, ...extraUsers].map((u) => ({ username: u.username, display_name: u.display_name })),
     templates: TEMPLATES,
+    // Always include the current user's upcoming shifts so the model
+    // learns to check state before claiming "you're not on it" or
+    // before issuing a delete/remove. set opts.selfShifts=null to omit.
+    selfShifts: opts.selfShifts === null ? null : (opts.selfShifts || genUpcomingShiftsForSelf(today)),
   };
 }
 
@@ -571,6 +606,121 @@ function genRemoval(n) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// CATEGORY 6b — SELF REMOVAL (the "remove me from the schedule" gap)
+// ═══════════════════════════════════════════════════════════════════════
+// Real, shipped bug: live chat's "remove me from the schedule" said
+// "you're not on it" while the user had 7 upcoming shifts, because the
+// training data never taught the model to consult state.selfShifts
+// before refusing / clarifying. Covers:
+//   - "remove me from the schedule" → look at selfShifts, delete all of them
+//   - "remove me from Tuesday" → filter selfShifts by weekday, delete just those
+//   - "remove me from October" → filter by month, delete those
+//   - "remove me from next week" → filter by week, delete those
+//   - "what shifts do I have" → read selfShifts, no tool call (just answer)
+//   - "cancel everything I have coming up" → same as full schedule removal
+//   - "I have nothing scheduled, take me off" → empty selfShifts, say so
+function genSelfRemoval(n) {
+  for (let i = 0; i < n; i++) {
+    const today = randomToday();
+    const lang = pickLang();
+
+    // Pick how many shifts the user has (0..5) and what dates they cover
+    const shiftCount = randInt(0, 5);
+    const selfShifts = [];
+    const baseCursor = addDays(today, 1);
+    for (let j = 0; j < shiftCount; j++) {
+      selfShifts.push({
+        id: `<shift-self-${j}>`,
+        user_id: 'u_current_user',
+        user_name: 'Current User',
+        date: isoDate(addDays(baseCursor, j * randInt(2, 5))),
+        start_time: pick(['09:00', '11:00', '16:00']),
+        end_time: pick(['17:00', '19:00', '22:00']),
+      });
+    }
+
+    const ctx = baseContext(today, [], { selfShifts });
+
+    const dow = randInt(0, 6);
+    const dayLabel = weekdayName(dow, lang);
+    const dayLabelKey = WEEKDAY_NAMES[dow].toLowerCase();
+
+    // Sub-case A: no shifts on file → bot must say so, not invent
+    if (shiftCount === 0 || rand() < 0.2) {
+      const phrases = lang === 'es'
+        ? [`¿qué turnos tengo?`, `muéstrame mis turnos próximos`, `¿estoy programado esta semana?`, `quita todos mis turnos`]
+        : [`what shifts do I have`, `show me my upcoming shifts`, `am I on the schedule`, `take me off everything`];
+      const userText = pick(phrases);
+      const assistantText = lang === 'es'
+        ? `No tienes turnos próximos en el horario. ¿Quieres que te quite un turno específico?`
+        : `You don't have any upcoming shifts on the schedule. Want me to take you off something specific?`;
+      emit('self_removal_query', ctx, [
+        { role: 'user', content: userText },
+        { role: 'assistant', content: assistantText, tool_calls: [] },
+      ], lang);
+      continue;
+    }
+
+    // Sub-case B: full removal ("remove me from the schedule") → delete all
+    if (rand() < 0.4) {
+      const phrases = lang === 'es'
+        ? [`quítame del horario`, `elimina todos mis turnos`, `cancela todos mis turnos próximos`, `ya no quiero trabajar, quítame de todo`]
+        : [`remove me from the schedule`, `cancel all my shifts`, `take me off the schedule completely`, `pull me from all my upcoming shifts`];
+      const toolCalls = selfShifts.map((sh) => ({
+        name: 'shift_delete',
+        arguments: { shift_id: sh.id },
+      }));
+      const dateList = selfShifts.length === 1
+        ? selfShifts[0].date
+        : `${selfShifts.length} dates`;
+      const assistantText = lang === 'es'
+        ? `Listo - fuiste quitado de tus ${selfShifts.length} turnos próximos (${dateList}). Confirma en la app.`
+        : `Done - removed all ${selfShifts.length} of your upcoming shifts (${dateList}). Confirm in the app.`;
+      emit('self_removal_full', ctx, [
+        { role: 'user', content: pick(phrases) },
+        { role: 'assistant', content: assistantText, tool_calls: toolCalls },
+      ], lang);
+      continue;
+    }
+
+    // Sub-case C: specific weekday removal ("remove me from Tuesday")
+    const matching = selfShifts.filter((sh) => new Date(sh.date + 'T00:00:00Z').getUTCDay() === dow);
+    if (matching.length > 0) {
+      const phrases = lang === 'es'
+        ? [`quítame del ${dayLabel}`, `cancela mi turno del ${dayLabel}`, `ya no puedo el ${dayLabel}, quítame`]
+        : [`remove me from ${dayLabel}`, `cancel my ${dayLabel} shift`, `take me off ${dayLabel}`];
+      const toolCalls = matching.map((sh) => ({
+        name: 'shift_delete',
+        arguments: { shift_id: sh.id },
+      }));
+      const assistantText = lang === 'es'
+        ? `Listo - fuiste quitado del ${dayLabel} (${matching.length} ${matching.length === 1 ? 'turno' : 'turnos'}). Confirma en la app.`
+        : `Done - removed your ${dayLabel} shift${matching.length > 1 ? 's' : ''} (${matching.length}). Confirm in the app.`;
+      emit('self_removal_weekday', ctx, [
+        { role: 'user', content: pick(phrases) },
+        { role: 'assistant', content: assistantText, tool_calls: toolCalls },
+      ], lang);
+      continue;
+    }
+
+    // Sub-case D: read-only "what shifts do I have" when shifts exist
+    {
+      const phrases = lang === 'es'
+        ? [`¿qué turnos tengo próximos?`, `muéstrame mis turnos`, `¿cuándo trabajo?`]
+        : [`what shifts do I have`, `show my upcoming shifts`, `when am I working next`];
+      const dateList = selfShifts.map((s) => `${WEEKDAY_NAMES[new Date(s.date + 'T00:00:00Z').getUTCDay()]} ${s.date}`).join(', ');
+      const assistantText = lang === 'es'
+        ? `Tienes ${selfShifts.length} turnos próximos: ${dateList}.`
+        : `You have ${selfShifts.length} upcoming shifts: ${dateList}.`;
+      emit('self_removal_query', ctx, [
+        { role: 'user', content: pick(phrases) },
+        { role: 'assistant', content: assistantText, tool_calls: [] },
+      ], lang);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // CATEGORY 7 — read-only queries (NO tool write, state_read or plain answer)
 // ═══════════════════════════════════════════════════════════════════════
 function genReadOnly(n) {
@@ -880,6 +1030,7 @@ genAvailability(PER_CATEGORY);
 genTimeOff(PER_CATEGORY);
 genSwap(PER_CATEGORY);
 genRemoval(PER_CATEGORY);
+genSelfRemoval(PER_CATEGORY);
 genReadOnly(Math.ceil(PER_CATEGORY / 2));
 genMultiAction(Math.ceil(PER_CATEGORY / 2));
 genTemplateAsk(PER_CATEGORY);
