@@ -53,6 +53,13 @@ if (!AGENT_API_KEY) {
 }
 
 async function callApi(method, path, body) {
+  // Logged to stderr (MCP's stdout is reserved for the protocol itself —
+  // writing here would corrupt it) so a hang or failure is visible from
+  // outside even though this process's own console isn't attached to a
+  // terminal when Hermes spawns it. If a tool call never even logs the
+  // "-> " line below, Hermes isn't reaching this server at all; if it
+  // logs "->" but never "<-", the hang is in the fetch to VERCEL_BASE.
+  console.error(`[${new Date().toISOString()}] -> ${method} ${path}`);
   const r = await fetch(`${VERCEL_BASE}${path}`, {
     method,
     headers: {
@@ -61,6 +68,7 @@ async function callApi(method, path, body) {
     },
     body: method === 'GET' ? undefined : JSON.stringify(body || {}),
   });
+  console.error(`[${new Date().toISOString()}] <- ${method} ${path} : ${r.status}`);
   let data;
   try { data = await r.json(); } catch { data = await r.text().catch(() => ''); }
   if (!r.ok) {

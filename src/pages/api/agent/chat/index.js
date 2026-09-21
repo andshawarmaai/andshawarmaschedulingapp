@@ -565,7 +565,16 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
 // Returns { content, actions[] } or throws.
 async function callHermes(tunnelUrl, payload) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  // Was 30000 — shorter than the bridge's own REQUEST_TIMEOUT_MS (55000
+  // in scripts/hermes-bridge.mjs), so this would abort a healthy-but-slow
+  // MCP-enabled call before the bridge itself ever gave up. A cold MCP
+  // server spawn + tool discovery + an actual tool call (which itself
+  // round-trips to this app's live API) easily exceeds 30s, especially
+  // on the first call of a session. Raised to 56000 — just under the
+  // bridge's 55s budget plus a hair of margin, and under Vercel's
+  // maxDuration: 60 (astro.config.mjs) so the platform doesn't kill the
+  // function before this fetch would time out on its own.
+  const timer = setTimeout(() => controller.abort(), 56000);
   try {
     const r = await fetch(`${tunnelUrl.replace(/\/$/, '')}`, {
       method: 'POST',

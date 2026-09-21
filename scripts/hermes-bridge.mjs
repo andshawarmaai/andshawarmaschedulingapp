@@ -180,20 +180,35 @@ function callHermes(prompt) {
     if (HERMES_MCP_TOOLSET) {
       args.push('-t', HERMES_MCP_TOOLSET);
     }
+    console.error(`[${new Date().toISOString()}] spawning: ${HERMES_BIN} ${args.map((a) => (a === prompt ? '<prompt>' : a)).join(' ')}`);
     const proc = spawn(HERMES_BIN, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, HERMES_PROFILE: process.env.HERMES_PROFILE || 'scheduling' },
     });
     let out = '';
     let err = '';
+    // Heartbeat so a hang is visible in the bridge's own logs as it's
+    // happening, not just after the fact — a silent bridge process makes
+    // it impossible to tell "still working" from "already dead" from the
+    // outside (see CHAT_BOT_HANDOFF_V5.md's hang report).
+    const heartbeat = setInterval(() => {
+      console.error(`[${new Date().toISOString()}] still waiting on hermes chat (pid ${proc.pid})...`);
+    }, 10000);
     const timer = setTimeout(() => {
       proc.kill('SIGTERM');
-      reject(new Error(`hermes chat timed out after ${REQUEST_TIMEOUT_MS}ms`));
+      // Previously dropped `err` entirely on timeout — the one case
+      // where seeing what hermes had printed so far mattered most.
+      reject(new Error(`hermes chat timed out after ${REQUEST_TIMEOUT_MS}ms. stderr so far:\n${err.slice(-1000)}`));
     }, REQUEST_TIMEOUT_MS);
     proc.stdout.on('data', (d) => { out += d.toString('utf8'); });
-    proc.stderr.on('data', (d) => { err += d.toString('utf8'); });
+    proc.stderr.on('data', (d) => {
+      const s = d.toString('utf8');
+      err += s;
+      console.error(`[hermes stderr] ${s}`);
+    });
     proc.on('close', (code) => {
       clearTimeout(timer);
+      clearInterval(heartbeat);
       if (code !== 0) {
         reject(new Error(`hermes chat exited ${code}: ${err.slice(-500)}`));
         return;
@@ -201,7 +216,7 @@ function callHermes(prompt) {
       const cleaned = out.replace(/\n*session_id:\s*\S+\s*$/, '').trim();
       resolve(cleaned);
     });
-    proc.on('error', (e) => { clearTimeout(timer); reject(e); });
+    proc.on('error', (e) => { clearTimeout(timer); clearInterval(heartbeat); reject(e); });
   });
 }
 
