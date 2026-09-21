@@ -1229,8 +1229,8 @@ const isDirectRun = (() => {
 })();
 
 if (isDirectRun) {
-  server.listen(PORT, '127.0.0.1', () => {
-    console.log(`hermes-bridge listening on http://127.0.0.1:${PORT}`);
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`hermes-bridge listening on http://0.0.0.0:${PORT}`);
     console.log(`Will spawn: ${HERMES_BIN} chat --oneshot -Q --query ...`);
   });
 }

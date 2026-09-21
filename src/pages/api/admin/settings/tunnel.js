@@ -79,7 +79,17 @@ export async function DELETE(context) {
 // Helper used by the chat orchestrator: returns the tunnel URL if set,
 // null otherwise. The orchestrator decides whether to use it or fall
 // back to the Chat Bot cloud provider.
+//
+// FALLBACK ORDER: (1) `TUNNEL_URL` env var (plaintext, no DB needed),
+// (2) DB row (`agent_tunnel_url`, encrypted with SESSION_SECRET),
+// (3) `null` (orchestrator falls back to the cloud chat-bot provider).
+// The env var path is useful when the DB row is wrong or the deploy
+// environment doesn't have SESSION_SECRET, but it does NOT bypass auth
+// — anyone who can set env vars in this project already has full access.
 export async function getActiveTunnelUrl() {
+  if (process.env.TUNNEL_URL && /^https?:\/\//.test(process.env.TUNNEL_URL)) {
+    return process.env.TUNNEL_URL;
+  }
   const raw = await dbCore.getSetting(TUNNEL_KEY);
   if (!raw) return null;
   try { return decryptSecret(raw); } catch (_) { return null; }
