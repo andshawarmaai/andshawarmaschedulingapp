@@ -71,3 +71,12 @@ export async function getChatAttachment(id) {
 export async function deleteChatAttachment(id) {
   return dbCore.deleteChatAttachment(id);
 }
+
+
+// Wipe a single user's chat history (messages + actions + attachments).
+// Called from /api/auth/login and /api/auth/logout so the chat panel
+// starts fresh on every session and the DB doesn't fill up with stale
+// conversation rows.
+export async function clearChatForUser(user_id) {
+  return dbCore.clearChatForUser(user_id);
+}

@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import db from '../../../lib/db/index.js';
+import * as chat from '../../../lib/agentChat.js';
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from '../../../lib/session.js';
 
 export const prerender = false;
@@ -52,6 +53,15 @@ export async function POST(context) {
     path: '/',
     maxAge: SESSION_MAX_AGE,
   });
+
+  // Fresh session = fresh chat history. Wipe any leftover rows from this
+  // user's previous session so the panel always opens empty and the DB
+  // doesn't accumulate stale conversations.
+  try {
+    await chat.clearChatForUser(user.id);
+  } catch (_) {
+    // Non-fatal — never block sign-in on a chat cleanup failure.
+  }
 
   return json({ ok: true, user: publicUser(user) });
 }
