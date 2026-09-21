@@ -126,6 +126,30 @@ async function executeAction(action, callerCookie, origin) {
   };
 }
 
+// ─── Fast-path: pure greetings skip the LLM entirely ───
+//
+// "hi" / "hello" / "hey" should reply in ~50-200ms, not 5-15s. The full
+// orchestrator path (history fetch + state fetch + guide fetch + bridge
+// spawn + MCP spawn + LLM turn) for a one-word greeting is a waste of
+// tokens and a real UX problem on a cold start (CHAT_BOT_HANDOFF_V6.md
+// follow-up). This helper detects a pure greeting and returns a canned
+// reply matching the bot's voice (per CHAT_BOT_PROMPT in
+// scripts/hermes-bridge.mjs): short, never self-references as AI,
+// scheduling-scoped. Only fires on a clearly-greeting-only message —
+// if there's ANY scheduling intent (a name, a day, a time, a verb like
+// "schedule"/"swap"/"cancel"), the message goes to the real agent.
+const GREETING_RE = /^\s*(hi|hey|hello|yo|sup|greetings|good\s+(morning|afternoon|evening))[\s.!]*$/i;
+
+function pureGreeting(text) {
+  if (!text) return null;
+  if (text.length > 60) return null; // anything longer is probably a real question
+  if (!GREETING_RE.test(text)) return null;
+  // Single-token matches only ("hi", "hey", "hello"); multi-word phrases like
+  // "hi can you help me" must NOT short-circuit.
+  if (text.trim().split(/\s+/).length > 3) return null;
+  return 'Hey, what shift do you need to set up?';
+}
+
 // ─── Stub mode: when AGENT_ENDPOINT isn't set, reply with a useful echo ───
 
 function stubReply(userMessage, history, state) {
@@ -309,6 +333,26 @@ export async function POST(context) {
 //   - 'hybrid':  Try tunnel first; if it doesn't respond within 3s,
 //                fall back to cloud automatically.
 async function orchestrateReply({ userMsg, userId, username, displayName, callerCookie, origin, source, cloudCfg }) {
+  // Fast-path: a pure greeting ("hi" / "hey" / "good morning") needs no
+  // history, no state, no guide, no LLM call, no bridge/MCP spawn. Reply
+  // in ~50-200ms and exit. Anything with scheduling intent still goes
+  // through the full pipeline below.
+  const canned = pureGreeting(userMsg.content);
+  if (canned) {
+    try {
+      const assistant = await chat.createChatMessage({
+        user_id: userId,
+        role: 'assistant',
+        content: canned,
+        parent_id: userMsg.id,
+      });
+      await chat.updateChatMessageStatus(assistant.id, 'complete');
+    } catch (err) {
+      console.error('greeting fast-path failed:', err);
+    }
+    return;
+  }
+
   // Build shared context (state, history, guide) — used by both paths.
   const [historyResp, state, guide] = await Promise.all([
     fetch(`${origin}/api/agent/chat`, { headers: { Cookie: callerCookie } }).then((r) => r.json()).catch(() => ({ history: [] })),
