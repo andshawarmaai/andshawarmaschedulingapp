@@ -882,4 +882,16 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 .agent-chat-help ul { padding-left: 1.1rem; margin: 0.3rem 0; }
 .agent-chat-help li { margin: 0.15rem 0; }
 .agent-chat-help-foot { margin: 0.3rem 0 0; font-style: italic; }
+
+/* Hide Vercel Toolbar injection — only renders for project owners
+   on production URLs, sits on top of the chat FAB at z-index 999999
+   and eats clicks. Lives in this component's CSS bundle so the rule
+   ships with the chat CSS, not the global one (Astro splits them per
+   page and the schedule page only loads the chat CSS, not global.css). */
+vercel-toolbar, vercel-toolbar-launcher,
+#vercel-toolbar, [data-vercel-toolbar] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
 </style>
