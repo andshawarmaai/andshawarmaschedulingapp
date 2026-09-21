@@ -43,12 +43,36 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const VERCEL_BASE = process.env.VERCEL_BASE || 'https://andshawarmaschedulingapp.vercel.app';
-const AGENT_API_KEY = process.env.AGENT_API_KEY;
+
+// AGENT_API_KEY fallback chain:
+//   1. process.env.AGENT_API_KEY (preferred — same key the bridge uses,
+//      passed by whichever process spawns this one)
+//   2. /Users/testuser/andshawarma-scheduling/.env.local (read directly so
+//      the MCP server is self-contained — no env-injection drama with
+//      `hermes mcp add --env`, which serializes the flag into `args:` not
+//      `env:` in v0.21.3+, see CHAT_BOT_HANDOFF_V5/V6)
+// Strips comments, ignores unrelated vars, returns the value or undefined.
+function readEnvLocalValue(key) {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const path = resolve(here, '..', '.env.local');
+  if (!existsSync(path)) return undefined;
+  const line = readFileSync(path, 'utf8')
+    .split('\n')
+    .find((l) => l.trim().startsWith(`${key}=`));
+  if (!line) return undefined;
+  const v = line.slice(line.indexOf('=') + 1).trim();
+  return v && v !== '<redacted>' ? v : undefined;
+}
+
+const AGENT_API_KEY = process.env.AGENT_API_KEY || readEnvLocalValue('AGENT_API_KEY');
 
 if (!AGENT_API_KEY) {
-  console.error('AGENT_API_KEY is not set. Run: AGENT_API_KEY=shwrm_xxx node scripts/mcp-server.mjs');
+  console.error('AGENT_API_KEY is not set (neither in env nor in .env.local). Set it in the shell that launches this process, or add AGENT_API_KEY=shwrm_xxx to /Users/testuser/andshawarma-scheduling/.env.local');
   process.exit(1);
 }
 
