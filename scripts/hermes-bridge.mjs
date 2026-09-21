@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 // Local Hermes bridge. Listens on http://127.0.0.1:7890.
-// Receives the orchestrator's payload from Vercel (via Cloudflare quick tunnel)
-// and produces a real AI reply by spawning `hermes chat --oneshot` on
-// the local Mac.
+// Receives the orchestrator's payload from Vercel (via Cloudflare tunnel)
+// and produces a real AI reply, either by spawning `hermes chat --oneshot`
+// (calls out to MiniMax) or, when configured, by calling a LOCAL fine-tuned
+// model server running on this same machine (see training-data/README.md —
+// mlx_lm.server serving the fused output of the LoRA fine-tune, once
+// trained). The local path needs no per-message API credits: everything
+// runs on-device via MLX.
 //
 // Wire shape (matches what /api/agent/chat's orchestrator expects):
 //   POST /  body: { message: { id, content, ... }, history: [...],
 //                    state: {...}, guide: "..." }
 //   response: { content: "...", actions: [{method, endpoint, body, summary}, ...] }
 //
-// The bridge constructs a single prompt from message+history+guide for
-// hermes chat, captures its reply, and extracts any actions the agent
-// chose to execute (encoded as a ```json``` block in the reply).
+// Routing between Hermes and the local model is controlled by
+// LOCAL_MODEL_MODE (see constants below) — 'fallback' is the sane default
+// once a local model is configured: try Hermes, and only pay the local
+// model's (lower) quality cost if Hermes errors (e.g. out of MiniMax
+// credits, as happened 2026-09-21). Set 'only' to skip Hermes entirely
+// while credits are out, without having to change anything else.
 
 import http from 'node:http';
 import { spawn } from 'node:child_process';
@@ -25,6 +32,22 @@ const REQUEST_TIMEOUT_MS = 55_000;
 // this default. When unset, falls back to the old prompted-JSON-block
 // behavior (kept as a legacy path below, not the primary mechanism).
 const HERMES_MCP_TOOLSET = process.env.HERMES_MCP_TOOLSET || '';
+
+// === LOCAL FINE-TUNED MODEL (optional) ===
+// Point this at an OpenAI-compatible chat-completions endpoint serving the
+// model fine-tuned from training-data/ — the simplest way to get one is
+// `mlx_lm.server --model training-data/fused-model --port 8081` (see
+// training-data/README.md's fuse step) running on this same Mac. Unlike
+// Hermes, this makes zero outbound API calls per message — it's pure local
+// inference, so it keeps working when MiniMax credits run out.
+const LOCAL_MODEL_URL = process.env.LOCAL_MODEL_URL || '';
+const LOCAL_MODEL_NAME = process.env.LOCAL_MODEL_NAME || 'local-finetuned';
+const LOCAL_MODEL_TIMEOUT_MS = Number(process.env.LOCAL_MODEL_TIMEOUT_MS || 20_000);
+// off: never use it (default when LOCAL_MODEL_URL is unset).
+// fallback: try Hermes first, use the local model only if Hermes errors.
+// primary: try the local model first, fall back to Hermes if IT errors.
+// only: skip Hermes entirely — use this while MiniMax credits are out.
+const LOCAL_MODEL_MODE = process.env.LOCAL_MODEL_MODE || (LOCAL_MODEL_URL ? 'fallback' : 'off');
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -190,6 +213,146 @@ function isOffTopic(text) {
   return false;
 }
 
+// === LOCAL MODEL TOOL SCHEMA ===
+// Mirrors scripts/mcp-server.mjs's registerTool calls AND
+// training-data/convert_to_mlx.mjs's TOOLS constant, by hand — the local
+// model was fine-tuned on exactly this shape (training-data/mlx/*.jsonl),
+// so the request sent to it at inference time has to match, or its
+// tool-calling accuracy silently degrades. Keep all three in sync.
+const LOCAL_MODEL_TOOLS = [
+  { type: 'function', function: { name: 'state_read', description: 'Read current schedule state - users, shifts, availability, time off, templates, swaps. Call first to resolve names to ids.', parameters: { type: 'object', properties: {}, required: [] } } },
+  { type: 'function', function: { name: 'shift_create', description: 'Creates a real, immediately-live scheduled shift.', parameters: { type: 'object', properties: { user_id: { type: 'string' }, date: { type: 'string' }, start_time: { type: 'string' }, end_time: { type: 'string' }, department: { type: 'string', enum: ['FOH', 'BOH'] }, notes: { type: 'string' } }, required: ['date', 'start_time', 'end_time'] } } },
+  { type: 'function', function: { name: 'shift_update', description: 'Moves or edits an already-scheduled shift. Send only fields being changed.', parameters: { type: 'object', properties: { shift_id: { type: 'string' }, user_id: { type: 'string' }, date: { type: 'string' }, start_time: { type: 'string' }, end_time: { type: 'string' }, department: { type: 'string', enum: ['FOH', 'BOH'] }, notes: { type: 'string' } }, required: ['shift_id'] } } },
+  { type: 'function', function: { name: 'shift_delete', description: 'Removes a shift from the schedule. Immediate, no undo.', parameters: { type: 'object', properties: { shift_id: { type: 'string' } }, required: ['shift_id'] } } },
+  { type: 'function', function: { name: 'availability_create', description: 'Submits the caller\'s availability. Use "00:00"/"23:59" for all day.', parameters: { type: 'object', properties: { date: { type: 'string' }, start_time: { type: 'string' }, end_time: { type: 'string' }, notes: { type: 'string' } }, required: ['date', 'start_time', 'end_time'] } } },
+  { type: 'function', function: { name: 'availability_cancel', description: 'Cancels a still-pending availability submission.', parameters: { type: 'object', properties: { shift_request_id: { type: 'string' } }, required: ['shift_request_id'] } } },
+  { type: 'function', function: { name: 'timeoff_create', description: 'Submits the caller\'s time-off request.', parameters: { type: 'object', properties: { start_date: { type: 'string' }, end_date: { type: 'string' }, reason: { type: 'string' } }, required: ['start_date', 'end_date'] } } },
+  { type: 'function', function: { name: 'timeoff_cancel', description: 'Cancels a time-off request regardless of status.', parameters: { type: 'object', properties: { timeoff_id: { type: 'string' } }, required: ['timeoff_id'] } } },
+  { type: 'function', function: { name: 'swap_post_create', description: 'Posts an existing shift for swap.', parameters: { type: 'object', properties: { shift_id: { type: 'string' }, reason: { type: 'string' } }, required: ['shift_id'] } } },
+  { type: 'function', function: { name: 'swap_claim_create', description: 'Volunteers for a posted shift.', parameters: { type: 'object', properties: { post_id: { type: 'string' }, offer_shift_id: { type: 'string' } }, required: ['post_id'] } } },
+];
+
+// Maps a tool-call the local model chose into the {method, endpoint, body}
+// shape the Vercel orchestrator's own executeAction() expects (the same
+// shape the legacy ```json``` action block already produced) — mirrors
+// each tool's callApi() call in scripts/mcp-server.mjs by hand.
+function actionFromToolCall(name, args) {
+  switch (name) {
+    case 'state_read': return { method: 'GET', endpoint: '/api/state', body: {}, summary: 'Checking the schedule.' };
+    case 'shift_create': return { method: 'POST', endpoint: '/api/shifts', body: args, summary: 'Creating a shift.' };
+    case 'shift_update': { const { shift_id, ...rest } = args; return { method: 'PATCH', endpoint: `/api/shifts/${shift_id}`, body: rest, summary: 'Updating a shift.' }; }
+    case 'shift_delete': return { method: 'DELETE', endpoint: `/api/shifts/${args.shift_id}`, body: {}, summary: 'Removing a shift.' };
+    case 'availability_create': return { method: 'POST', endpoint: '/api/shift-requests', body: { action: 'create', ...args }, summary: 'Submitting availability.' };
+    case 'availability_cancel': return { method: 'DELETE', endpoint: `/api/shift-requests/${args.shift_request_id}`, body: {}, summary: 'Canceling a request.' };
+    case 'timeoff_create': return { method: 'POST', endpoint: '/api/timeoff', body: args, summary: 'Submitting time off.' };
+    case 'timeoff_cancel': return { method: 'DELETE', endpoint: `/api/timeoff/${args.timeoff_id}`, body: {}, summary: 'Canceling time off.' };
+    case 'swap_post_create': return { method: 'POST', endpoint: '/api/swap/posts', body: args, summary: 'Posting a shift for swap.' };
+    case 'swap_claim_create': return { method: 'POST', endpoint: '/api/swap/claims', body: args, summary: 'Claiming a swap.' };
+    default: return null;
+  }
+}
+
+// A handful of local inference servers echo tool calls as literal
+// <tool_call>{...}</tool_call> text inside `content` instead of (or as well
+// as) the structured OpenAI `tool_calls` field — this is exactly what the
+// Qwen2.5 chat template renders them as. Parse both; prefer the structured
+// field when present, fall back to tag-scraping when it's not.
+function parseToolCallTags(content) {
+  const calls = [];
+  const re = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+  let m;
+  while ((m = re.exec(content || ''))) {
+    try {
+      const obj = JSON.parse(m[1]);
+      if (obj && obj.name) calls.push({ name: obj.name, arguments: obj.arguments || {} });
+    } catch (_) { /* malformed tag body */ }
+  }
+  return calls;
+}
+
+// Builds the same shape of {messages, tools} the model was fine-tuned on
+// (see training-data/convert_to_mlx.mjs's convertRow) — system message
+// with identity + today's date + roster + templates, then recent history,
+// then the new user message. Matching the training distribution matters a
+// lot more for a small fine-tuned model than for a general-purpose one.
+function buildLocalMessages(payload) {
+  const msg = payload.message || {};
+  const s = payload.state || {};
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const users = (s.users || []).map((u) => `${u.username}=${u.display_name}`).join(', ');
+  const templates = (s.shiftTemplates || []).map((t) => {
+    let days = t.days_of_week;
+    if (typeof days === 'string') days = days.split(',').map((x) => x.trim()).filter(Boolean);
+    if (!Array.isArray(days)) days = [];
+    return `${t.name} ${t.start_time}-${t.end_time} days:${days.join('')}`;
+  }).join(' | ');
+  const systemContent = `You are "Chat Bot", the in-app scheduling assistant for a restaurant staff scheduling app.\n\nToday: ${todayIso}\nStaff: ${users}\nShift templates: ${templates}`;
+
+  const messages = [{ role: 'system', content: systemContent }];
+  const history = Array.isArray(payload.history) ? payload.history.slice(-10) : [];
+  for (const h of history) messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: (h.content || '').slice(0, 1000) });
+  messages.push({ role: 'user', content: msg.content || '' });
+  return messages;
+}
+
+async function callLocalModel(messages) {
+  const res = await fetch(LOCAL_MODEL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: LOCAL_MODEL_NAME, messages, tools: LOCAL_MODEL_TOOLS, tool_choice: 'auto', max_tokens: 400, temperature: 0.1 }),
+    signal: AbortSignal.timeout(LOCAL_MODEL_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`local model server ${LOCAL_MODEL_URL} returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const choice = data?.choices?.[0]?.message || {};
+  return { content: choice.content || '', tool_calls: choice.tool_calls || [] };
+}
+
+// Runs the local fine-tuned model and converts whatever it decided into
+// the same {content, actions} shape runHermes() produces, so the caller
+// doesn't need to know which path served the reply.
+async function runLocalModel(payload) {
+  const messages = buildLocalMessages(payload);
+  const { content, tool_calls } = await callLocalModel(messages);
+
+  // Structured tool_calls (proper OpenAI shape: function.name +
+  // function.arguments as a JSON string) take priority; fall back to
+  // scraping <tool_call> tags out of the raw content otherwise.
+  let calls = tool_calls.map((tc) => {
+    try {
+      return { name: tc.function?.name, arguments: JSON.parse(tc.function?.arguments || '{}') };
+    } catch (_) {
+      return null;
+    }
+  }).filter(Boolean);
+  if (calls.length === 0) calls = parseToolCallTags(content);
+
+  const actions = calls.map((c) => actionFromToolCall(c.name, c.arguments)).filter(Boolean);
+  const cleanedContent = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim() || (actions.length ? 'Done.' : content);
+  return { content: cleanedContent, actions };
+}
+
+// Runs the existing Hermes CLI path (spawns `hermes chat`), unchanged
+// behavior — extracted into its own function so the request handler can
+// choose between this and runLocalModel() without duplicating logic.
+async function runHermes(payload, prompt) {
+  const reply = await callHermes(prompt);
+  let content = reply;
+  let actions = [];
+  if (!HERMES_MCP_TOOLSET) {
+    const m = reply.match(/\`\`\`json\s*([\s\S]+?)\s*\`\`\`/);
+    if (m) {
+      try {
+        const parsed = JSON.parse(m[1]);
+        actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
+        content = reply.replace(/\`\`\`json[\s\S]+?\`\`\`/, '').trim();
+      } catch (_) { /* malformed JSON */ }
+    }
+  }
+  return { content, actions, mcp_executed: !!HERMES_MCP_TOOLSET };
+}
+
 function buildPrompt(payload) {
   const msg = payload.message || {};
   const parts = [];
@@ -353,35 +516,45 @@ const server = http.createServer(async (req, res) => {
       } catch (_) {}
 
       const t0 = Date.now();
-      const reply = await callHermes(prompt);
-      const elapsed = Date.now() - t0;
-      console.log(`[${new Date().toISOString()}] hermes replied in ${elapsed}ms (${reply.length} chars)`);
-
-      let content = reply;
-      let actions = [];
-      if (!HERMES_MCP_TOOLSET) {
-        // Legacy path only — with MCP enabled, Hermes has already
-        // executed any real scheduling actions itself via the
-        // shawarma-scheduling MCP server, so there is nothing left in
-        // `reply` for the orchestrator to parse or re-run.
-        const m = reply.match(/\`\`\`json\s*([\s\S]+?)\s*\`\`\`/);
-        if (m) {
-          try {
-            const parsed = JSON.parse(m[1]);
-            actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
-            content = reply.replace(/\`\`\`json[\s\S]+?\`\`\`/, '').trim();
-          } catch (_) { /* malformed JSON */ }
+      let result;
+      let servedBy;
+      if (LOCAL_MODEL_MODE === 'only') {
+        result = await runLocalModel(payload);
+        servedBy = 'local';
+      } else if (LOCAL_MODEL_MODE === 'primary') {
+        try {
+          result = await runLocalModel(payload);
+          servedBy = 'local';
+        } catch (e) {
+          console.error(`[${new Date().toISOString()}] local model failed (${e.message}), falling back to hermes`);
+          result = await runHermes(payload, prompt);
+          servedBy = 'hermes';
+        }
+      } else {
+        // 'off' or 'fallback'
+        try {
+          result = await runHermes(payload, prompt);
+          servedBy = 'hermes';
+        } catch (e) {
+          if (LOCAL_MODEL_MODE !== 'fallback') throw e;
+          console.error(`[${new Date().toISOString()}] hermes failed (${e.message}), falling back to local model`);
+          result = await runLocalModel(payload);
+          servedBy = 'local';
         }
       }
+      const elapsed = Date.now() - t0;
+      console.log(`[${new Date().toISOString()}] ${servedBy} replied in ${elapsed}ms (${result.content.length} chars, ${result.actions.length} actions)`);
 
       // mcp_executed tells the Vercel orchestrator (src/pages/api/agent/
       // chat/index.js) two things: (1) don't retry-prompt for a missing
       // action block — an empty `actions` array here is EXPECTED and
       // correct once MCP already ran the real action, not a sign
       // anything was skipped; (2) there's nothing in `actions` to
-      // execute, because it already happened. Only set when the toolset
-      // was actually enabled for this call.
-      return json(res, 200, { content, actions, mcp_executed: !!HERMES_MCP_TOOLSET });
+      // execute, because it already happened. Only ever true on the
+      // Hermes+MCP path — the local model never executes anything
+      // itself, it only decides what to do, so the orchestrator always
+      // has to run `actions` for a local-model reply.
+      return json(res, 200, { content: result.content, actions: result.actions, mcp_executed: !!result.mcp_executed, served_by: servedBy });
     } catch (err) {
       console.error('chat error:', err);
       return json(res, 500, { error: String(err.message || err) });

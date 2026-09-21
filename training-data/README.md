@@ -139,6 +139,34 @@ mlx_lm.fuse \
   --save-path training-data/fused-model
 ```
 
+## Wiring the fused model into the chat bot
+
+Once fused, serve it locally as an OpenAI-compatible endpoint and point
+`scripts/hermes-bridge.mjs` at it — this makes zero MiniMax API calls per
+message, so it keeps working regardless of Hermes's own credit state:
+
+```bash
+mlx_lm.server --model training-data/fused-model --port 8081
+```
+
+Then start the bridge with:
+
+```bash
+LOCAL_MODEL_URL=http://127.0.0.1:8081/v1/chat/completions \
+LOCAL_MODEL_MODE=only \
+node scripts/hermes-bridge.mjs
+```
+
+`LOCAL_MODEL_MODE=only` skips Hermes entirely (use this while MiniMax
+credits are out); `fallback` (the default once `LOCAL_MODEL_URL` is set)
+tries Hermes first and only uses the local model if Hermes errors;
+`primary` is the reverse. See the `LOCAL_MODEL_*` constants near the top of
+`hermes-bridge.mjs` for the full routing logic, and CLAUDE.md §11 for the
+incident that motivated this (Hermes running out of MiniMax credits
+mid-session with no fallback at all). Verified end-to-end against a fake
+local-model server standing in for `mlx_lm.server`; not yet verified
+against a real fine-tuned model, since no training run has happened yet.
+
 `--iters 1000` with `--batch-size 4` over ~549 train examples is roughly
 7-8 epochs — a reasonable starting point for a dataset this size, not a
 tuned value. Watch `valid` loss in the training log; stop early (lower
