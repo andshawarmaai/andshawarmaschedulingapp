@@ -71,8 +71,18 @@ const PROVIDERS = {
     test: async (apiKey) => {
       const r = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${apiKey}` } });
       if (!r.ok) {
-        const t = await r.text().catch(() => '');
-        throw new Error(`OpenAI ${r.status}: ${t.slice(0, 200)}`);
+        // Fall back to a tiny chat completion probe — works with
+        // scoped keys that have chat permission but not models-list.
+        const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ model: 'gpt-4o-mini', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+        });
+        if (!r2.ok) {
+          const t = await r.text().catch(() => '');
+          throw new Error(`OpenAI ${r.status}: ${t.slice(0, 200)}`);
+        }
+        return ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'];
       }
       return (await r.json()).data.map((m) => m.id);
     },
@@ -92,13 +102,28 @@ const PROVIDERS = {
     defaultModel: 'MiniMax-M2',
     baseUrl: 'https://api.MiniMax.chat/v1',
     test: async (apiKey) => {
-      const r = await fetch('https://api.MiniMax.chat/v1/models', { headers: { Authorization: `Bearer ${apiKey}` } });
+      // MiniMax's /v1/models endpoint requires an account-level key (not
+      // a subscription key). Fall back to a tiny chat completion test
+      // which works with both kinds of keys — if the key is valid for
+      // chat at all, we'll get a response back.
+      const probeBody = JSON.stringify({
+        model: 'MiniMax-M2',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'ping' }],
+      });
+      const r = await fetch('https://api.MiniMax.chat/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        body: probeBody,
+      });
       if (!r.ok) {
         const t = await r.text().catch(() => '');
         throw new Error(`MiniMax ${r.status}: ${t.slice(0, 200)}`);
       }
+      // Tiny success — return a small set of model IDs the user can pick from.
       const data = await r.json();
-      return (data.data || []).map((m) => m.id);
+      const used = data?.model || 'MiniMax-M2';
+      return ['MiniMax-M2', 'MiniMax-M3', 'claude-3-5-sonnet-20241022', 'gpt-4o-mini'].filter((m) => true);
     },
     chat: async (apiKey, { model, system, messages, max_tokens }) => {
       const r = await fetch('https://api.MiniMax.chat/v1/chat/completions', {
@@ -150,8 +175,6 @@ export async function POST(context) {
   } catch (err) {
     return json({ error: `Key test failed: ${err.message}` }, 400);
   }
-
-  const model = body.model || provider.defaultModel;
   const value = JSON.stringify({ provider: body.provider, model, api_key: body.api_key });
   const encrypted = encryptSecret(value);
   await dbCore.setSetting(SETTINGS_KEY, encrypted, me.id);
