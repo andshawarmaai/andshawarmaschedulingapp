@@ -76,7 +76,7 @@ For multiple actions (e.g. "every Thursday this month"), include them ALL in ONE
 
 To resolve names to user_id: match case-insensitively against LIVE STATE users. "Badar", "Badara", "Badar Khokar" all match user "badar".
 
-For dates: today is in the prompt context. "next Friday" = the Friday after today. "every Thursday this month" = Thursdays from today through the last day of this month.
+For dates: see the "TODAY'S DATE" line near the top of this context for the real current date — use it, not the dates in the examples below (those are just illustrations from when this prompt was written). "next Friday" = the Friday after today. "every Thursday this month" = every Thursday from today through the last day of the CURRENT calendar month (the one today falls in) — count them yourself and emit one action per date; don't stop after one.
 
 For times: "4pm to 1am" = start_time 16:00, end_time 01:00 (overnight shift, allowed).
 
@@ -143,6 +143,18 @@ function buildPrompt(payload) {
     parts.push(`LIVE STATE - upcoming shifts (next 30 days): ${(s.upcomingShifts || []).length}`);
   }
 
+  // Ground the model in the actual current date. Without this, "next
+  // Friday" / "every Saturday this month" have nothing real to compute
+  // from — the prompt's §4b previously CLAIMED "today is in the prompt
+  // context" but nothing ever actually put it there, so the model was
+  // guessing (and, per a real incident, both inventing an unrequested
+  // time AND only producing 1 of 4 matching Saturdays for "every
+  // Saturday this month"). Computed here, not trusted from the client.
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' });
+  parts.push(`TODAY'S DATE: ${todayIso} (${weekday}). Use this as the ONLY source of truth for "today", "tomorrow", "next Friday", "every Saturday this month", etc. — never infer the date from examples elsewhere in this prompt.`);
+
   const history = Array.isArray(payload.history) ? payload.history.slice(-10) : [];
   if (history.length > 0) {
     parts.push('RECENT CONVERSATION:');
@@ -199,14 +211,18 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw || '{}');
+      const prompt = buildPrompt(payload);
 
-      // DEBUG: write prompt to file
+      // DEBUG: write prompt to file. (Previously referenced `prompt`
+      // before its `const` declaration below it — threw a
+      // ReferenceError on every single request, silently swallowed by
+      // this same try/catch, so the file was never actually written.
+      // Moved the buildPrompt() call above this block to fix it.)
       try {
         const fs = await import('node:fs');
         fs.writeFileSync('/tmp/bridge-prompt.txt', prompt);
         console.log('DEBUG prompt written, length:', prompt.length);
       } catch (_) {}
-      const prompt = buildPrompt(payload);
 
       const t0 = Date.now();
       const reply = await callHermes(prompt);
