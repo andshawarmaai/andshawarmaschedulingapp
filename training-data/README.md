@@ -82,7 +82,32 @@ a base model is actually chosen, since the exact tag syntax depends on it.
 
 ## Status
 
-v1 generator, ~14 categories from `CHAT_BOT_TEST_CASES.md`, deterministic ground
-truth, includes multi-turn clarification/correction conversations. Not yet
-validated against a real training run — treat as a starting point, not a
-finished artifact.
+**v1, generated and spot-checked.** `generate.mjs` implements 13 categories
+(shift creation - basic and recurring, availability, time off, swap post/claim,
+removal, read-only queries, multi-action, template-choice with numbered-list
+multi-turn resolution, name-collision ambiguity multi-turn, off-topic refusal,
+casual/typo phrasing, pure greetings). Deterministic ground truth throughout -
+every `tool_calls` value is computed from the same scenario parameters as the
+phrasing via real date math, never guessed or LLM-generated.
+
+Run `node training-data/generate.mjs --count 60 --seed 1` to regenerate (613
+examples at count=60; scale `--count` up for more). Spot-checked one example per
+category by hand after generating - two real bugs were found and fixed this way
+(a `nextWeekday` vs `thisWeekday` date-math bug in time-off, and a broken 12-hour
+time formatter in the template-choice list) - re-spot-check after any further
+edits to `generate.mjs` rather than trusting it blindly.
+
+Brand-neutral by design - no restaurant name appears anywhere in the generated
+data or the generator itself (verified: `grep -i shawarma` over the output
+returns nothing). Roster (`roster.json`) and templates (`templates.json`) are
+generic placeholder fixtures, not tied to any specific deployment's real data.
+
+**Not yet done:**
+- Not validated against a real training run (`mlx_lm.lora` or otherwise).
+- No conversion script yet to the target base model's actual function-calling
+  chat template (see "Converting" above) - still using the canonical
+  intermediate format.
+- Missing tool coverage matches the gaps flagged in `CHAT_BOT_TEST_CASES.md`
+  (§7 there): `swap_post_cancel`, `timeoff_edit`, `availability_reschedule`,
+  and recurring weekly `availability_rule_create`/`delete` have no MCP tool
+  built yet, so no training examples exist for them either.
