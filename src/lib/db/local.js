@@ -53,6 +53,7 @@ function seedData() {
     actual_worked_shifts: [],
     agent_chat_messages: [],
     agent_chat_actions: [],
+    app_settings: [],
   };
 }
 
@@ -82,6 +83,7 @@ function load() {
   if (!data.actual_worked_shifts) data.actual_worked_shifts = [];
   if (!data.agent_chat_messages) data.agent_chat_messages = [];
   if (!data.agent_chat_actions) data.agent_chat_actions = [];
+  if (!data.app_settings) data.app_settings = [];
   return data;
 }
 
@@ -1106,4 +1108,39 @@ export async function recordChatAction({ message_id, user_id, method, endpoint, 
 
 export async function getChatActionsForMessage(message_id) {
   return load().agent_chat_actions.filter((a) => a.message_id === message_id);
+}
+
+// ─── App settings (encrypted key/value) ────────────────────────────────────
+
+export async function getSetting(key) {
+  return load().app_settings.find((s) => s.key === key) || null;
+}
+
+export async function listSettings() {
+  return load().app_settings.map((s) => ({ key: s.key, updated_at: s.updated_at, updated_by: s.updated_by }));
+}
+
+export async function setSetting(key, encrypted, updated_by) {
+  const d = load();
+  const i = d.app_settings.findIndex((s) => s.key === key);
+  const row = {
+    key,
+    value_encrypted: encrypted.value_encrypted, // base64 string in local JSON
+    iv: encrypted.iv,
+    auth_tag: encrypted.auth_tag,
+    updated_at: new Date().toISOString(),
+    updated_by: updated_by || null,
+  };
+  if (i >= 0) d.app_settings[i] = row;
+  else d.app_settings.push(row);
+  save(d);
+  return row;
+}
+
+export async function deleteSetting(key) {
+  const d = load();
+  const before = d.app_settings.length;
+  d.app_settings = d.app_settings.filter((s) => s.key !== key);
+  save(d);
+  return d.app_settings.length < before;
 }

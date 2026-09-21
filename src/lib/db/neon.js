@@ -835,3 +835,40 @@ export async function recordChatAction({ message_id, user_id, method, endpoint, 
 export async function getChatActionsForMessage(message_id) {
   return sql`SELECT * FROM agent_chat_actions WHERE message_id = ${message_id} ORDER BY created_at ASC`;
 }
+
+// ─── App settings (encrypted key/value) ────────────────────────────────────
+
+export async function getSetting(key) {
+  return row0(await sql`SELECT * FROM app_settings WHERE key = ${key}`);
+}
+
+export async function listSettings() {
+  // Returns metadata only — never the encrypted value bytes.
+  const rows = await sql`SELECT key, updated_at, updated_by FROM app_settings ORDER BY key`;
+  return rows;
+}
+
+export async function setSetting(key, encrypted, updated_by) {
+  const existing = await getSetting(key);
+  if (existing) {
+    return row0(await sql`
+      UPDATE app_settings
+      SET value_encrypted = ${encrypted.value_encrypted},
+          iv = ${encrypted.iv},
+          auth_tag = ${encrypted.auth_tag},
+          updated_at = now(),
+          updated_by = ${updated_by || null}
+      WHERE key = ${key} RETURNING *
+    `);
+  }
+  return row0(await sql`
+    INSERT INTO app_settings (key, value_encrypted, iv, auth_tag, updated_by)
+    VALUES (${key}, ${encrypted.value_encrypted}, ${encrypted.iv}, ${encrypted.auth_tag}, ${updated_by || null})
+    RETURNING *
+  `);
+}
+
+export async function deleteSetting(key) {
+  const r = await sql`DELETE FROM app_settings WHERE key = ${key}`;
+  return r.length > 0;
+}

@@ -52,6 +52,7 @@
 //   }
 
 import * as chat from '../../../../lib/agentChat.js';
+import { getActiveProviderConfig } from '../../admin/settings/ai.js';
 
 export const prerender = false;
 
@@ -63,60 +64,41 @@ function isStaffOrAbove(role) {
   return role === 'admin' || role === 'manager';
 }
 
-// ─── Config (re-read every request — Vercel env can change without redeploy) ──
+// ─── Provider-driven agent call ─────────────────────────────────────────────
+// The chat orchestrator now reads the AI provider + key from the Settings
+// panel (encrypted in app_settings), not from env vars. Adding a new
+// provider means adding one entry to PROVIDERS in /api/admin/settings/ai.js.
 
-function getAgentConfig() {
-  const endpoint = process.env.AGENT_ENDPOINT || '';
-  let extraHeaders = {};
-  if (process.env.AGENT_HEADERS_JSON) {
-    try { extraHeaders = JSON.parse(process.env.AGENT_HEADERS_JSON); }
-    catch (_) { console.warn('AGENT_HEADERS_JSON is not valid JSON, ignoring'); }
-  }
-  return {
-    endpoint,
-    extraHeaders,
-    systemPrompt: process.env.AGENT_SYSTEM_PROMPT || '',
-    timeoutMs: Number(process.env.AGENT_TIMEOUT_MS || 55000),
-  };
+const SYSTEM_PROMPT = `You are the scheduling assistant inside the &Shawarma scheduling app. You talk to a restaurant manager or owner who is NOT technical. They will speak casually ("schedule jorge friday 11 to 7", "swap john and bhanu saturday", "who's working thursday lunch") and expect you to just figure it out and do it.
+
+VOICE & FORMAT RULES — these matter:
+- Talk like a helpful coworker, not a tech demo. No bullet lists of API endpoints. No "POST /api/shifts". No "resolved user_id".
+- Keep replies short. 1-3 sentences for simple actions, a small paragraph max for anything else.
+- When you did something, say so plainly: "Done — Jorge's on Friday 4-10pm." or "Posted Adnan's Saturday shift for swap."
+- When you're not sure who they mean (e.g. two people share a first name), ask ONE short question.
+- If the time doesn't match any shift template, propose the closest template: "I don't have a 4-10pm shift on the books — closest is the Late Mid block 11:30-10:30pm. Want me to use that, or keep 4-10 as a one-off?"
+- Never mention API keys, JSON blocks, deployments, environment variables, code paths, or any backend plumbing. The manager doesn't care and shouldn't see it.
+- Never approve or deny a pending request — say "ready for review in the Schedule Builder" if needed.
+- Use names how the manager uses them. If they say "Jorge", say "Jorge", not his username.
+
+When you want to actually DO something in the schedule, return a JSON block like this (the orchestrator will execute it for you; the manager never sees this):
+
+\`\`\`json
+{
+  "actions": [
+    { "method": "POST", "endpoint": "/api/shifts", "body": {"user_id":"...","date":"YYYY-MM-DD","start_time":"HH:MM","end_time":"HH:MM"}, "summary": "one short sentence describing what you did" }
+  ]
 }
+\`\`\`
 
-// ─── AI call (model-agnostic — pass-through to whatever URL is configured) ───
+Followed by your plain-English reply (NOT inside the JSON block). The summary strings will appear as small confirmation pills in the chat, so make them human.`;
 
-async function callAgent(endpoint, extraHeaders, payload, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const r = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...extraHeaders },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '');
-      throw new Error(`agent ${endpoint} returned ${r.status}: ${txt.slice(0, 300)}`);
-    }
-    return await r.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// ─── Action execution: re-call this app's own /api/* with the caller's cookie ───
 
-// ─── Execute an action the agent returned against this app's own /api/* ───
-// We use the CALLER's session cookie (not the agent's API key) so the
-// action is attributed to the manager, matching every other write in the
-// app. The agent's role is to decide WHAT to do; the manager's role is to
-// be the human who actually did it.
 async function executeAction(action, callerCookie) {
   const method = action.method || 'POST';
-  const url = new URL(action.endpoint, 'http://placeholder').toString().replace(/^http:\/\/placeholder/, '');
-  // We use a relative fetch by calling the request handler directly — but
-  // it's simpler (and safer) to issue an HTTP request back to our own
-  // /api/* endpoints with the caller's cookie preserved.
-  const origin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
-  const host = origin || (process.env.AGENT_SELF_URL || 'http://localhost:3000');
-
-  const r = await fetch(`${host}${action.endpoint}`, {
+  const origin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : (process.env.AGENT_SELF_URL || 'http://localhost:3000');
+  const r = await fetch(`${origin}${action.endpoint}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -204,9 +186,11 @@ export async function POST(context) {
     parent_id: body.parent_id || null,
   });
 
-  // 2. Optimistic stub reply if no agent configured (so the UI isn't dead)
-  const cfg = getAgentConfig();
-  if (!cfg.endpoint) {
+  // 2. Optimistic stub reply if no provider is configured (Settings panel
+  //    hasn't been filled in). Lets the UI show something while the admin
+  //    sets up their AI key.
+  const cfg = await getActiveProviderConfig();
+  if (!cfg) {
     try {
       const state = await fetch(`${context.url.origin}/api/state`, { headers: { Cookie: context.request.headers.get('cookie') || '' } }).then((r) => r.json()).catch(() => ({}));
       const { content, actions } = stubReply(userMsg.content, [], state);
@@ -258,42 +242,48 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
     .map((m) => ({ role: m.role, content: (m.content || '').replace(/```json[\s\S]+?```/g, '').trim() }))
     .slice(-10);
 
-  const payload = {
-    message: {
-      id: userMsg.id,
-      role: userMsg.role,
-      content: userMsg.content,
-      user_id: userId,
-      username,
-      display_name: displayName,
-    },
-    history,
-    state: {
-      users: (state.users || []).map((u) => ({ username: u.username, display_name: u.display_name, role: u.role })),
-      shiftTemplates: state.shiftTemplates,
-      upcomingShifts: (state.shifts || []).filter((s) => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 30),
-    },
-    guide,
-    system_prompt: cfg.systemPrompt || undefined,
-  };
-
-  // Call the agent
-  let agentResult;
+  // Call the configured provider with the chat context. The provider
+  // returns plain text; we extract any JSON action block from it (same
+  // contract the old relay used) so the existing executeAction pipeline
+  // keeps working unchanged.
+  let assistantText = '';
   try {
-    agentResult = await callAgent(cfg.endpoint, cfg.extraHeaders, payload, cfg.timeoutMs);
+    const messages = [
+      ...history,
+      { role: 'user', content: userMsg.content },
+    ];
+    assistantText = await cfg.provider.chat(cfg.api_key, {
+      model: cfg.model,
+      system: SYSTEM_PROMPT + '\n\n' + guide,
+      messages,
+      max_tokens: 2048,
+    });
   } catch (err) {
-    // Save an error assistant row so the UI shows something
     const assistant = await chat.createChatMessage({
       user_id: userId,
       role: 'assistant',
-      content: `The agent at ${cfg.endpoint} failed: ${err.message}`,
+      content: `The ${cfg.provider.label || cfg.provider} agent failed: ${err.message}`,
       parent_id: userMsg.id,
     });
     await chat.updateChatMessageStatus(assistant.id, 'error');
     return;
   }
 
-  const { content, actions = [] } = agentResult;
+  // Extract any JSON action block from the assistant's reply. The provider
+  // (Claude/OpenAI/MiniMax) just returns plain text following the system
+  // prompt's instructions: a ```json``` block with the actions, then the
+  // user-facing reply. We split them so the action JSON never reaches the
+  // chat panel.
+  let content = assistantText || '';
+  let actions = [];
+  const m = content.match(/```json\s*([\s\S]+?)\s*```/);
+  if (m) {
+    try {
+      const parsed = JSON.parse(m[1]);
+      actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
+    } catch (_) { /* malformed JSON — treat whole thing as reply */ }
+    content = content.replace(/```json[\s\S]+?```/, '').trim();
+  }
 
   // Execute each action via this app's own /api/* routes (using the
   // caller's session cookie so audit attribution is correct).
