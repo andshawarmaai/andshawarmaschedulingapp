@@ -708,49 +708,78 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 /* Thinking indicator: bubble styled like a real assistant message so the
-   user sees it's the bot, with a Hermes-style moving gradient sweep
-   across the "Thinking…" text. The gradient is multi-stop (3 colors
-   with transparent bands between) on background-clip:text so the actual
-   glyphs are colored and animated by sliding background-position over
-   a 300% wide canvas — the same trick the Hermes desktop arc-border
-   uses, just on text instead of a border. The bubble body gets a soft
-   background tint that matches the accent so the moving text reads
-   even when the gradient is mid-sweep on a transparent band. */
+   user sees it's the bot. The "Warming up…" / "Thinking…" text reads in
+   the bright BASE accent color (so the bubble looks like the rest of the
+   orange send button / user bubble — same family, same hue, just toned
+   down by being a bubble instead of a button). A darker wash of the SAME
+   hue sweeps across the bubble from left to right, darkening the orange
+   field momentarily behind the text as it passes.
+
+   Architecture: the base orange is the bubble's background. The dark
+   moving band is a SEPARATE layer behind the text — implemented via a
+   `::before` pseudo-element on `.agent-chat-thinking-text` with
+   `mix-blend-mode: multiply`, so the band darkens the orange behind the
+   text rather than painting over the glyphs. The text itself is solid
+   base-color with no `background-clip: text` and no
+   `-webkit-text-fill-color: transparent` — the previous version used
+   that trick and the glyphs vanished to transparent between bands,
+   which the owner called out ("the gradient needs to be darker, I
+   don't want white being the gradient pass and I want original
+   them color" — translated: the base color stays the same, no
+   white anywhere, a dark band moves through it).
+
+   The "dark wash" reads `--color-accent-dark` so a future palette swap
+   in global.css cascades through automatically (paired with the existing
+   `--color-accent` token added in commit cf8832b). */
 .agent-chat-thinking .agent-chat-who { color: var(--color-muted); opacity: 0.85; }
+.agent-chat-thinking {
+  /* Bubble background — solid base accent. The dark wash sits ON TOP
+     of this, darkening it as it passes via mix-blend-mode below. */
+  background: var(--color-accent, #f59e0b);
+  overflow: hidden;
+}
 .agent-chat-thinking-text {
-  /* The animated sweep: 3 colored bands separated by transparent gaps,
-     painted on a 300% wide canvas so the position has somewhere to
-     travel without ever being fully blank. Color is --color-accent-dark
-     (NOT --color-accent) so the sweep reads as a muted dark variant
-     of the brand color rather than a bright eye-catching solid —
-     leaves room for future "dark mode / color panel" without re-tuning
-     this gradient. The fallback (for any browser without custom-prop
-     support, which is none in practice) is the same dark amber. */
-  background-image: linear-gradient(90deg,
-    transparent 0%,
-    var(--color-accent-dark, #92400e) 18%,
-    var(--color-accent-dark, #92400e) 28%,
-    transparent 38%,
-    transparent 50%,
-    var(--color-accent-dark, #92400e) 68%,
-    var(--color-accent-dark, #92400e) 78%,
-    transparent 88%);
-  background-size: 300% 100%;
-  background-position: 0% 50%;
-  -webkit-background-clip: text;
-          background-clip: text;
-  -webkit-text-fill-color: transparent;
-          color: transparent;
-  animation: gradient-sweep 1.2s linear infinite;
-  /* Big enough that the gradient sweep is obvious — was inheriting 0.9rem
-     from .agent-chat-msg which got lost against the assistant's full
-     bubbles. 1.35rem with the gradient is the visual focal point during
-     long multi-action turns. */
-  font-size: 1.35rem;
+  /* Text: always solid bright base color, NEVER transparent. This is the
+     half the previous version got wrong. */
+  color: var(--color-accent, #f59e0b);
+  /* Inherit background as a baseline — we'll layer the dark wash on
+     ::before so the text itself stays a flat color and the wash moves
+     behind it. */
+  background: transparent;
+  -webkit-text-fill-color: currentColor;
   font-weight: 700;
   letter-spacing: 0.01em;
   display: inline-block;
-  padding: 0.35rem 0;
+  padding: 0.1rem 0;
+  position: relative;
+  z-index: 1;
+}
+/* The moving dark band. Lives on a sibling layer behind the text
+   (the text's z-index above keeps it readable through the wash).
+   `mix-blend-mode: multiply` means the dark wash multiplies into the
+   orange background — the orange gets DARKER where the band overlaps,
+   never lighter. There's NO white stop anywhere in the gradient; the
+   "non-band" regions are simply transparent so the base orange shows
+   through unchanged. The 300% background-size + 1.6s linear infinite
+   keeps the sweep smooth across a wide bubble. */
+.agent-chat-thinking-text::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: linear-gradient(90deg,
+    transparent 0%,
+    transparent 30%,
+    var(--color-accent-dark, #92400e) 45%,
+    var(--color-accent-dark, #92400e) 55%,
+    transparent 70%,
+    transparent 100%);
+  background-size: 300% 100%;
+  background-position: 0% 50%;
+  mix-blend-mode: multiply;
+  opacity: 0.7;
+  animation: gradient-sweep 1.6s linear infinite;
 }
 @keyframes gradient-sweep {
   0%   { background-position: 0% 50%; }
@@ -758,22 +787,24 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 }
 /* Elapsed-seconds counter under the "Warming up…" / "Thinking…" label.
    Small, muted, monospace so the moving text stays the focal point but
-   the user can see real progress during the 5-15s MiniMax round-trip. */
+   the user can see real progress during the 5-15s MiniMax round-trip.
+   Layered above the dark wash too so it stays readable. */
 .agent-chat-thinking-elapsed {
   font-size: 0.7rem;
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
   margin-top: 0.15rem;
   opacity: 0.7;
+  position: relative;
+  z-index: 1;
 }
-/* Reduced-motion users get a static solid color instead of the sweep
-   so we don't violate the OS-level motion preference. */
+/* Reduced-motion users get no sweep at all (no ::before) so we don't
+   violate the OS-level motion preference. The text stays base-color,
+   the bubble stays solid base-color, the gradient simply isn't there. */
 @media (prefers-reduced-motion: reduce) {
-  .agent-chat-thinking-text {
+  .agent-chat-thinking-text::before {
     animation: none;
-    background-image: none;
-    -webkit-text-fill-color: currentColor;
-            color: var(--color-accent-dark, #92400e);
+    background: transparent;
   }
 }
 
