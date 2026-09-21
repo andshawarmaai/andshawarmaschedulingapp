@@ -53,6 +53,7 @@ function seedData() {
     actual_worked_shifts: [],
     agent_chat_messages: [],
     agent_chat_actions: [],
+    agent_chat_attachments: [],
     app_settings: [],
   };
 }
@@ -83,6 +84,7 @@ function load() {
   if (!data.actual_worked_shifts) data.actual_worked_shifts = [];
   if (!data.agent_chat_messages) data.agent_chat_messages = [];
   if (!data.agent_chat_actions) data.agent_chat_actions = [];
+  if (!data.agent_chat_attachments) data.agent_chat_attachments = [];
   if (!data.app_settings) data.app_settings = [];
   return data;
 }
@@ -1108,6 +1110,46 @@ export async function recordChatAction({ message_id, user_id, method, endpoint, 
 
 export async function getChatActionsForMessage(message_id) {
   return load().agent_chat_actions.filter((a) => a.message_id === message_id);
+}
+
+// ─── Chat attachments ───────────────────────────────────────────────────────
+
+export async function createChatAttachment({ id, message_id, user_id, filename, mime_type, byte_size, storage_path }) {
+  const d = load();
+  const row = {
+    id,
+    message_id,
+    user_id,
+    filename,
+    mime_type,
+    byte_size,
+    storage_path,
+    created_at: new Date().toISOString(),
+  };
+  d.agent_chat_attachments.push(row);
+  save(d);
+  return row;
+}
+
+export async function getChatAttachmentsForMessage(message_id) {
+  return load().agent_chat_attachments.filter((a) => a.message_id === message_id);
+}
+
+export async function getChatAttachmentsForMessages(message_ids) {
+  const ids = new Set(message_ids || []);
+  return load().agent_chat_attachments.filter((a) => ids.has(a.message_id));
+}
+
+export async function getChatAttachment(id) {
+  return load().agent_chat_attachments.find((a) => a.id === id) || null;
+}
+
+export async function deleteChatAttachment(id) {
+  const d = load();
+  const before = d.agent_chat_attachments.length;
+  d.agent_chat_attachments = d.agent_chat_attachments.filter((a) => a.id !== id);
+  if (d.agent_chat_attachments.length < before) save(d);
+  return d.agent_chat_attachments.length < before;
 }
 
 // ─── App settings (encrypted key/value) ────────────────────────────────────

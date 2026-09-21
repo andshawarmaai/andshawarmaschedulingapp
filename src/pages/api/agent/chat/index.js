@@ -54,6 +54,7 @@
 import * as chat from '../../../../lib/agentChat.js';
 import { getActiveProviderConfig } from '../../admin/settings/ai.js';
 import { getActiveChatSource } from '../../admin/settings/chat-source.js';
+import { readFile } from 'node:fs/promises';
 
 export const prerender = false;
 
@@ -177,9 +178,23 @@ function stubReply(userMessage, history, state) {
 
 export async function POST(context) {
   const me = context.locals.user;
-  const body = await context.request.json().catch(() => null);
-  if (!body || !body.content || !String(body.content).trim()) {
-    return json({ error: 'Message content is required.' }, 400);
+  // Accept either JSON { content, attachment_ids? } OR multipart/form-data
+  // for clients that want to send everything in one shot. The upload.js
+  // endpoint is the dedicated file endpoint — this handler just stitches
+  // already-uploaded attachments onto the message they belong to.
+  const contentType = context.request.headers.get('content-type') || '';
+  let body = null;
+  let attachmentIds = [];
+  if (contentType.includes('application/json')) {
+    body = await context.request.json().catch(() => null);
+  } else if (contentType.includes('multipart/form-data')) {
+    const form = await context.request.formData();
+    body = { content: form.get('content') || '' };
+    const idsField = form.getAll('attachment_ids').flatMap((v) => String(v).split(','));
+    attachmentIds = idsField.filter(Boolean);
+  }
+  if (!body || (!String(body.content || '').trim() && attachmentIds.length === 0)) {
+    return json({ error: 'Message content or at least one attachment is required.' }, 400);
   }
   // All signed-in users can chat. The AI decides what's actually
   // possible per role; the per-endpoint role gates still enforce server-side.
@@ -191,9 +206,39 @@ export async function POST(context) {
   const userMsg = await chat.createChatMessage({
     user_id: me.id,
     role: 'user',
-    content: String(body.content).trim(),
+    content: String(body.content || '').trim(),
     parent_id: body.parent_id || null,
   });
+
+  // 2. Link any attachments the client uploaded first (via /upload with
+  //    message_id null, which created a placeholder row) onto THIS message.
+  //    Verified ownership: the caller must own each attachment.
+  if (attachmentIds.length) {
+    for (const aid of attachmentIds) {
+      const att = await chat.getChatAttachment(aid);
+      if (!att) continue;
+      if (att.user_id !== me.id) continue;
+      // Move the attachment from its placeholder message to this one
+      // by re-inserting into agent_chat_attachments with the new
+      // message_id and deleting the placeholder row.
+      await chat.createChatAttachment({
+        id: aid,
+        message_id: userMsg.id,
+        user_id: att.user_id,
+        filename: att.filename,
+        mime_type: att.mime_type,
+        byte_size: att.byte_size,
+        storage_path: att.storage_path,
+      });
+      await chat.deleteChatAttachment(aid);
+      // The old placeholder user-message row (if any) is now empty +
+      // orphaned. Leave it — getChatHistory filters by user_id but the
+      // SSE/UI will hide empty user messages naturally. Cleanest fix
+      // would be DELETE FROM agent_chat_messages WHERE content='' AND
+      // id NOT IN (SELECT message_id FROM agent_chat_attachments), but
+      // that's a janitor job, not in the request path.
+    }
+  }
 
   // 2. Decide where to route the message based on the configured chat
   //    source: hermes (tunnel), cloud (provider API key), hybrid
@@ -272,6 +317,37 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
       user_id: userId,
       username,
       display_name: displayName,
+      // File paths (one per attachment) the agent should read before
+      // answering. For images this is essential — the AI can't act on
+      // "look at this photo of the schedule" without an actual path it
+      // can stat(). For PDFs / audio the agent may either transcribe or
+      // ask the user to describe. Server reads the file, passes a base64
+      // blob alongside for cloud providers that can't reach the server's
+      // disk; the local Hermes tunnel gets the raw path and reads it
+      // itself.
+      attachments: await Promise.all(
+        (await chat.getChatAttachmentsForMessage(userMsg.id)).map(async (a) => {
+          let base64 = null;
+          // Inline the bytes — agents on cloud providers can't read our
+          // server's tmpfs, so they need the actual content in the payload.
+          // For files >2MB we skip the inline base64 and just send the
+          // metadata + URL, so the cloud agent can tell the user the file
+          // is too large to inline-attach.
+          if (a.byte_size <= 2 * 1024 * 1024) {
+            try {
+              base64 = (await readFile(a.storage_path)).toString('base64');
+            } catch (_) { base64 = null; }
+          }
+          return {
+            id: a.id,
+            filename: a.filename,
+            mime_type: a.mime_type,
+            byte_size: a.byte_size,
+            storage_path: a.storage_path,
+            base64,
+          };
+        })
+      ),
     },
     history,
     state: {
@@ -417,9 +493,24 @@ export async function GET(context) {
   const ids = history.filter((m) => m.role === 'assistant').map((m) => m.id);
   const actions = {};
   for (const id of ids) actions[id] = await chat.getChatActionsForMessage(id);
+  // Include attachments for every message — chat UI renders thumbnails
+  // (images) and download chips (PDFs, audio) inline. One batch fetch
+  // rather than per-message so the history load is one round-trip.
+  const messageIds = history.map((m) => m.id);
+  const attRows = await chat.getChatAttachmentsForMessages(messageIds);
+  const attachments = {};
+  for (const a of attRows) {
+    (attachments[a.message_id] ||= []).push({
+      id: a.id,
+      filename: a.filename,
+      mime_type: a.mime_type,
+      byte_size: a.byte_size,
+      url: `/api/agent/chat/attachments/${a.id}`,
+    });
+  }
   // Include the resolved user for each message so the panel can render
   // "You: ..." vs "Hermes: ..." correctly even when seeded via the API
   // key (which acts as the manager, so role='assistant' but the message
   // is from a real person).
-  return json({ ok: true, history, actions, me: { id: me.id, display_name: me.display_name } });
+  return json({ ok: true, history, actions, attachments, me: { id: me.id, display_name: me.display_name } });
 }

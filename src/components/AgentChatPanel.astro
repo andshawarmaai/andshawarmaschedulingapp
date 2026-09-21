@@ -39,8 +39,13 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     <div id="agent-chat-history" class="agent-chat-history"></div>
 
     <form id="agent-chat-form" class="agent-chat-form" autocomplete="off">
-      <textarea id="agent-chat-input" placeholder="Schedule Jorge Friday 11-7pm, post Adnan's Saturday shift for swap, cap Friday lunch at 2…" rows="2" required></textarea>
-      <button type="submit" id="agent-chat-send" class="agent-chat-send">Send</button>
+      <div id="agent-chat-pending-attachments" class="agent-chat-pending"></div>
+      <div class="agent-chat-input-row">
+        <button type="button" id="agent-chat-attach" class="agent-chat-attach" aria-label="Attach file" title="Attach photo or file">📎</button>
+        <input type="file" id="agent-chat-file" class="agent-chat-file" accept="image/*,application/pdf,audio/*,video/*,.doc,.docx,.xls,.xlsx,.txt" multiple capture="environment" hidden>
+        <textarea id="agent-chat-input" placeholder="Schedule Jorge Friday 11-7pm, post Adnan's Saturday shift for swap, cap Friday lunch at 2…" rows="2"></textarea>
+        <button type="submit" id="agent-chat-send" class="agent-chat-send">Send</button>
+      </div>
     </form>
 
     <details class="agent-chat-help">
@@ -88,6 +93,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   let sse = null;
   let currentAssistantId = null;
   const rendered = {}; // message id -> element
+  const pendingAttachments = []; // [{ id, filename, mime_type, byte_size, url }] — uploaded but message not yet sent
 
   function open() {
     isOpen = true;
@@ -107,6 +113,105 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   fab.addEventListener('click', () => { isOpen ? close() : open(); });
   closeBtn.addEventListener('click', close);
 
+  // ─── Attachments: file picker, drag-drop, upload-before-send ─────────────
+
+  const attachBtn = document.getElementById('agent-chat-attach');
+  const fileInput = document.getElementById('agent-chat-file');
+  const pendingEl = document.getElementById('agent-chat-pending-attachments');
+  const historyEl = document.getElementById('agent-chat-history');
+
+  attachBtn.addEventListener('click', () => fileInput.click());
+
+  // Desktop: drag a file into the chat panel to attach. Mobile has no
+  // drag events so this is just a bonus, but it's the standard expected
+  // behavior on a desktop.
+  ['dragenter', 'dragover'].forEach((evt) => {
+    panel.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      panel.classList.add('agent-chat-dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach((evt) => {
+    panel.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      panel.classList.remove('agent-chat-dragover');
+    });
+  });
+  panel.addEventListener('drop', (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) uploadFiles(Array.from(files));
+  });
+
+  // File-picker path (mobile camera via capture="environment", desktop via
+  // any file type from the accept list).
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files.length) {
+      uploadFiles(Array.from(fileInput.files));
+      fileInput.value = ''; // allow re-selecting the same file later
+    }
+  });
+
+  async function uploadFiles(files) {
+    for (const file of files) {
+      const slot = renderPendingPlaceholder(file);
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch('/api/agent/chat/upload', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: fd,
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          slot.replaceWith(pendingChip(file.name, '⚠ ' + (err.error || r.status), true));
+          continue;
+        }
+        const data = await r.json();
+        // Replace placeholder with a real chip
+        const realChip = pendingChip(file.name, `${prettyBytes(file.size)}`, false, () => {
+          // Remove from pending
+          const i = pendingAttachments.findIndex((a) => a.id === data.attachment.id);
+          if (i >= 0) pendingAttachments.splice(i, 1);
+          realChip.remove();
+        });
+        slot.replaceWith(realChip);
+        pendingAttachments.push(data.attachment);
+      } catch (err) {
+        slot.replaceWith(pendingChip(file.name, '⚠ upload failed', true));
+        console.error(err);
+      }
+    }
+  }
+
+  function pendingChip(name, sub, isError = false, onRemove = null) {
+    const el = document.createElement('div');
+    el.className = 'agent-chat-pending-chip' + (isError ? ' agent-chat-pending-chip-err' : '');
+    el.innerHTML = `<span>📄 ${escapeHtml(name)}</span><span class="agent-chat-pending-sub">${escapeHtml(sub)}</span>`;
+    if (onRemove) {
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.textContent = '×';
+      x.className = 'agent-chat-pending-x';
+      x.title = 'Remove';
+      x.addEventListener('click', onRemove);
+      el.appendChild(x);
+    }
+    return el;
+  }
+
+  function renderPendingPlaceholder(file) {
+    const slot = document.createElement('div');
+    slot.className = 'agent-chat-pending-chip agent-chat-pending-uploading';
+    slot.innerHTML = `<span>📄 ${escapeHtml(file.name)}</span><span class="agent-chat-pending-sub">uploading ${escapeHtml(prettyBytes(file.size))}…</span>`;
+    pendingEl.appendChild(slot);
+    return slot;
+  }
+
+  // ─── History load ────────────────────────────────────────────────────────
+
   async function ensureLoaded() {
     try {
       const r = await fetch('/api/agent/chat', { credentials: 'same-origin' });
@@ -114,7 +219,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       const data = await r.json();
       history.innerHTML = '';
       rendered.currentAssistantId = null;
-      for (const m of (data.history || [])) render(m);
+      for (const m of (data.history || [])) render(m, data.attachments || {});
       // Render action pills under each assistant message
       for (const [msgId, acts] of Object.entries(data.actions || {})) {
         if (acts && acts.length) renderActions(msgId, acts);
@@ -126,7 +231,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     }
   }
 
-  function render(m) {
+  function render(m, attachmentsByMessage) {
     if (rendered[m.id]) {
       // Update in-place (used for streaming tokens)
       if (m.role === 'assistant') {
@@ -152,10 +257,42 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     }
     wrap.appendChild(who);
 
-    const body = document.createElement('div');
-    body.className = 'agent-chat-text';
-    body.textContent = m.content || (m.status === 'pending' ? '…' : '');
-    wrap.appendChild(body);
+    // Attachments — render images as inline thumbnails, everything else
+    // as a downloadable file chip. Pulled from the message-id-keyed map
+    // returned by GET /api/agent/chat (one batch fetch).
+    const atts = (attachmentsByMessage && attachmentsByMessage[m.id]) || [];
+    if (atts.length) {
+      const attEl = document.createElement('div');
+      attEl.className = 'agent-chat-attachments';
+      for (const a of atts) {
+        if ((a.mime_type || '').startsWith('image/')) {
+          const img = document.createElement('img');
+          img.src = a.url;
+          img.alt = a.filename;
+          img.className = 'agent-chat-thumb';
+          img.loading = 'lazy';
+          // Click → open full size in new tab
+          img.addEventListener('click', () => window.open(a.url, '_blank'));
+          attEl.appendChild(img);
+        } else {
+          const chip = document.createElement('a');
+          chip.href = a.url;
+          chip.target = '_blank';
+          chip.rel = 'noopener';
+          chip.className = 'agent-chat-file-chip';
+          chip.innerHTML = `<span class="agent-chat-file-icon">${fileEmoji(a.mime_type)}</span><span>${escapeHtml(a.filename)}</span><span class="agent-chat-file-sub">${escapeHtml(prettyBytes(a.byte_size))}</span>`;
+          attEl.appendChild(chip);
+        }
+      }
+      wrap.appendChild(attEl);
+    }
+
+    if (m.content || m.status === 'pending') {
+      const body = document.createElement('div');
+      body.className = 'agent-chat-text';
+      body.textContent = m.content || (m.status === 'pending' ? '…' : '');
+      wrap.appendChild(body);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'agent-chat-actions';
@@ -164,6 +301,29 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 
     history.appendChild(wrap);
     rendered[m.id] = wrap;
+  }
+
+  function fileEmoji(mime) {
+    if (!mime) return '📄';
+    if (mime.startsWith('image/')) return '🖼️';
+    if (mime.startsWith('audio/')) return '🎵';
+    if (mime.startsWith('video/')) return '🎬';
+    if (mime === 'application/pdf') return '📕';
+    if (mime.includes('word') || mime.includes('document')) return '📘';
+    if (mime.includes('sheet') || mime.includes('excel')) return '📗';
+    if (mime.startsWith('text/')) return '📝';
+    return '📄';
+  }
+
+  function prettyBytes(n) {
+    if (!Number.isFinite(n)) return '';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   function renderActions(messageId, acts) {
@@ -223,15 +383,31 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = input.value.trim();
-    if (!text) return;
+    const hasAttachments = pendingAttachments.length > 0;
+    if (!text && !hasAttachments) return;
     sendBtn.disabled = true;
     try {
-      const r = await fetch('/api/agent/chat', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text }),
-      });
+      // Send as multipart when there are attachments (so we can include
+      // attachment_ids as form fields cleanly); otherwise plain JSON like
+      // before. The server accepts both.
+      let r;
+      if (hasAttachments) {
+        const fd = new FormData();
+        fd.append('content', text);
+        for (const a of pendingAttachments) fd.append('attachment_ids', a.id);
+        r = await fetch('/api/agent/chat', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: fd,
+        });
+      } else {
+        r = await fetch('/api/agent/chat', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text }),
+        });
+      }
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         alert('Failed to send: ' + (err.error || r.status));
@@ -239,8 +415,39 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       }
       const data = await r.json();
       input.value = '';
+      pendingAttachments.length = 0;
+      pendingEl.innerHTML = '';
       // Render the user message immediately; SSE will pick up the assistant reply
-      render(data.message);
+      render(data.message, { [data.message.id]: [] });
+      // Optimistically render any pending attachments under this message
+      // until the SSE-driven history refresh replaces it with the
+      // server-side list.
+      const msgEl = rendered[data.message.id];
+      if (msgEl) {
+        const attEl = document.createElement('div');
+        attEl.className = 'agent-chat-attachments';
+        for (const a of (pendingAttachments || [])) {
+          if ((a.mime_type || '').startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = a.url;
+            img.alt = a.filename;
+            img.className = 'agent-chat-thumb';
+            attEl.appendChild(img);
+          } else {
+            const chip = document.createElement('a');
+            chip.href = a.url;
+            chip.target = '_blank';
+            chip.rel = 'noopener';
+            chip.className = 'agent-chat-file-chip';
+            chip.innerHTML = `<span>${fileEmoji(a.mime_type)} ${escapeHtml(a.filename)}</span>`;
+            attEl.appendChild(chip);
+          }
+        }
+        if (attEl.children.length) {
+          const who = msgEl.querySelector('.agent-chat-who');
+          if (who) msgEl.insertBefore(attEl, who.nextSibling);
+        }
+      }
       scrollToBottom();
     } finally {
       sendBtn.disabled = false;
@@ -329,10 +536,44 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 .agent-chat-form {
-  display: flex; gap: 0.5rem; padding: 0.6rem;
-  border-top: 1px solid var(--color-border);
+  display: flex; flex-direction: column;
   background: var(--color-card);
 }
+.agent-chat-pending {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  padding: 0.4rem 0.6rem 0;
+  border-top: 1px solid var(--color-border);
+}
+.agent-chat-pending:empty { display: none; }
+.agent-chat-pending-chip {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  background: var(--color-bg);
+  font-size: 0.78rem;
+}
+.agent-chat-pending-chip-err { border-color: #fca5a5; background: #fee2e2; color: #991b1b; }
+.agent-chat-pending-uploading { opacity: 0.65; font-style: italic; }
+.agent-chat-pending-sub { color: var(--color-muted); font-size: 0.72rem; }
+.agent-chat-pending-x {
+  margin-left: auto;
+  background: none; border: none; cursor: pointer;
+  color: var(--color-muted); font-size: 1rem; line-height: 1;
+  padding: 0 0.25rem;
+}
+.agent-chat-pending-x:hover { color: var(--color-foreground); }
+.agent-chat-input-row {
+  display: flex; gap: 0.5rem; padding: 0.6rem;
+  align-items: flex-end;
+}
+.agent-chat-attach {
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  border-radius: 0.4rem; padding: 0.45rem 0.55rem;
+  font-size: 1.1rem; cursor: pointer;
+  align-self: stretch;
+}
+.agent-chat-attach:hover { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
 .agent-chat-form textarea {
   flex: 1; resize: none; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border);
   border-radius: 0.4rem; font: inherit; background: var(--color-bg);
@@ -342,6 +583,36 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   padding: 0.45rem 0.9rem; border-radius: 0.4rem; cursor: pointer; font-weight: 600;
 }
 .agent-chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.agent-chat-dragover {
+  outline: 2px dashed var(--color-accent, #f59e0b);
+  outline-offset: -4px;
+}
+
+.agent-chat-attachments {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  margin: 0.25rem 0 0.4rem;
+}
+.agent-chat-thumb {
+  max-width: 7rem; max-height: 7rem;
+  border-radius: 0.4rem; cursor: pointer;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+}
+.agent-chat-thumb:hover { filter: brightness(0.92); }
+.agent-chat-file-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  background: rgba(0,0,0,0.06);
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  font-size: 0.78rem;
+  color: inherit;
+  text-decoration: none;
+}
+.agent-chat-file-chip:hover { background: rgba(0,0,0,0.1); }
+.agent-chat-file-icon { font-size: 1rem; }
+.agent-chat-file-sub { color: var(--color-muted); font-size: 0.7rem; }
 
 .agent-chat-help { padding: 0 0.75rem 0.5rem; font-size: 0.78rem; color: var(--color-muted); border-top: 1px dashed var(--color-border); background: var(--color-card); }
 .agent-chat-help summary { cursor: pointer; padding: 0.4rem 0; }

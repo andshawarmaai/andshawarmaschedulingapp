@@ -46,3 +46,28 @@ export async function recordChatAction({ message_id, user_id, method, endpoint, 
 export async function getChatActionsForMessage(message_id) {
   return dbCore.getChatActionsForMessage(message_id);
 }
+
+// ─── Attachments ────────────────────────────────────────────────────────────
+// Files uploaded into chat (photos, PDFs, audio, etc.). See
+// src/pages/api/agent/chat/upload.js for the upload endpoint and
+// src/pages/api/agent/chat/attachments/[id].js for the serve endpoint.
+
+export async function createChatAttachment({ id, message_id, user_id, filename, mime_type, byte_size, storage_path }) {
+  return dbCore.createChatAttachment({ id, message_id, user_id, filename, mime_type, byte_size, storage_path });
+}
+
+export async function getChatAttachmentsForMessage(message_id) {
+  return dbCore.getChatAttachmentsForMessage(message_id);
+}
+
+export async function getChatAttachmentsForMessages(message_ids) {
+  return dbCore.getChatAttachmentsForMessages(message_ids);
+}
+
+export async function getChatAttachment(id) {
+  return dbCore.getChatAttachment(id);
+}
+
+export async function deleteChatAttachment(id) {
+  return dbCore.deleteChatAttachment(id);
+}

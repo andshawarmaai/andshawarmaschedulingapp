@@ -836,6 +836,36 @@ export async function getChatActionsForMessage(message_id) {
   return sql`SELECT * FROM agent_chat_actions WHERE message_id = ${message_id} ORDER BY created_at ASC`;
 }
 
+// ─── Chat attachments ───────────────────────────────────────────────────────
+// Files uploaded into chat. The orchestrator and the chat UI both call into
+// these — the UI to render thumbnails/file chips for each message, the
+// orchestrator to know what file paths to put in the agent payload.
+
+export async function createChatAttachment({ id, message_id, user_id, filename, mime_type, byte_size, storage_path }) {
+  return row0(await sql`
+    INSERT INTO agent_chat_attachments (id, message_id, user_id, filename, mime_type, byte_size, storage_path)
+    VALUES (${id}, ${message_id}, ${user_id}, ${filename}, ${mime_type}, ${byte_size}, ${storage_path})
+    RETURNING *
+  `);
+}
+
+export async function getChatAttachmentsForMessage(message_id) {
+  return sql`SELECT * FROM agent_chat_attachments WHERE message_id = ${message_id} ORDER BY created_at ASC`;
+}
+
+export async function getChatAttachmentsForMessages(message_ids) {
+  if (!message_ids || message_ids.length === 0) return [];
+  return sql`SELECT * FROM agent_chat_attachments WHERE message_id = ANY(${message_ids}) ORDER BY created_at ASC`;
+}
+
+export async function getChatAttachment(id) {
+  return row0(await sql`SELECT * FROM agent_chat_attachments WHERE id = ${id}`);
+}
+
+export async function deleteChatAttachment(id) {
+  await sql`DELETE FROM agent_chat_attachments WHERE id = ${id}`;
+}
+
 // ─── App settings (encrypted key/value) ────────────────────────────────────
 
 export async function getSetting(key) {

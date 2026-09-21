@@ -405,3 +405,26 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_by      TEXT REFERENCES users(id) ON DELETE SET NULL
 );
 
+
+
+-- ─── Chat attachments (photos, PDFs, recordings sent in agent chat) ──────────
+-- Files uploaded via the chat bubble (📎 button, drag-drop, or mobile
+-- camera) are stored on the server's local filesystem under /tmp/uploads/
+-- (Vercel serverless tmpfs, ephemeral — see CHAT_ATTACHMENTS.md for the
+-- lifetime caveat) and recorded here. One row per file. Linked back to
+-- the chat message that carried it via message_id. The orchestrator
+-- includes the file path + metadata in the payload it sends to the
+-- agent (hermes tunnel or cloud provider) so the AI can actually read
+-- the file before acting on the user's instruction.
+CREATE TABLE IF NOT EXISTS agent_chat_attachments (
+  id           TEXT PRIMARY KEY,
+  message_id   TEXT NOT NULL REFERENCES agent_chat_messages(id) ON DELETE CASCADE,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  filename     TEXT NOT NULL,
+  mime_type    TEXT NOT NULL,
+  byte_size    INTEGER NOT NULL,
+  storage_path TEXT NOT NULL,           -- absolute path on the server's disk
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_chat_attachments_message ON agent_chat_attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_agent_chat_attachments_user ON agent_chat_attachments(user_id);
