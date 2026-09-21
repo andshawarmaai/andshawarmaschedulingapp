@@ -240,7 +240,24 @@ function buildPrompt(payload) {
     }
   }
 
-  parts.push(`USER (${msg.display_name || msg.username || 'manager'}): ${msg.content || ''}`);
+  // Detect explicit shift-creation intent and inject a forced hint into
+  // the prompt. CHAT_BOT_HANDOFF_V9 showed MiniMax-M3 still routed
+  // "put me down for every Saturday in October" to availability_create
+  // after Claude's strongest prompt rewrite — the model can't reliably
+  // distinguish shift-commit ("put me down", "schedule me") from
+  // availability-signaling ("I'm available"). Adding a deterministic
+  // hint at the prompt level bypasses the model's confusion without
+  // changing the model. If a future smarter model is wired in and this
+  // hint becomes redundant, remove this block — it doesn't affect
+  // messages that don't match the trigger.
+  const SHIFT_INTENT = /\b(put me (down|on|in)|schedule me|book me|i'm working|i want to work|i want to be put on|working\s+(this|next|on)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|\bput\s+\w+\s+down\s+for\s+every)/i;
+  const shiftIntent = SHIFT_INTENT.test(msg.content || '');
+
+  const userLine = `USER (${msg.display_name || msg.username || 'manager'}): ${msg.content || ''}`;
+  parts.push(userLine);
+  if (shiftIntent) {
+    parts.push('SYSTEM HINT (injected by bridge, not user): This message is a SHIFT CREATION request. Use shift_create (NOT availability_create). Do not ask whether the user wants a shift vs availability — they want a shift. The phrasings "put me down", "schedule me", "book me", "working [day]" all mean schedule-an-actual-shift, not mark-available.');
+  }
   parts.push('ASSISTANT:');
   return parts.join('\n\n');
 }
@@ -258,7 +275,7 @@ function callHermes(prompt) {
     console.error(`[${new Date().toISOString()}] spawning: ${HERMES_BIN} ${args.map((a) => (a === prompt ? '<prompt>' : a)).join(' ')}`);
     const proc = spawn(HERMES_BIN, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, HERMES_PROFILE: process.env.HERMES_PROFILE || 'scheduling' },
+      env: { ...process.env, HERMES_PROFILE: process.env.HERMES_PROFILE || 'scheduling', HERMES_MEMORY_ENABLED: 'false' },
     });
     let out = '';
     let err = '';
