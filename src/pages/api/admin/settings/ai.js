@@ -10,7 +10,7 @@
 // (after a successful POST test) lists available models so the admin can
 // pin which one to use.
 
-import * as dbCore from '../../../../lib/db/index.js';
+import dbCore from '../../../../lib/db/index.js';
 import { encryptSecret, decryptSecret } from '../../../../lib/settingsCrypto.js';
 
 export const prerender = false;
