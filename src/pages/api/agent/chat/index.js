@@ -54,6 +54,7 @@
 import * as chat from '../../../../lib/agentChat.js';
 import { getActiveProviderConfig } from '../../admin/settings/ai.js';
 import { getActiveChatSource } from '../../admin/settings/chat-source.js';
+import db from '../../../../lib/db/index.js';
 import { readFile } from 'node:fs/promises';
 import { waitUntil } from '@vercel/functions';
 
@@ -353,21 +354,55 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
     return;
   }
 
-  // Build shared context (state, history, guide) — used by both paths.
-  const [historyResp, state, guide] = await Promise.all([
-    fetch(`${origin}/api/agent/chat`, { headers: { Cookie: callerCookie } }).then((r) => r.json()).catch(() => ({ history: [] })),
-    fetch(`${origin}/api/state`, { headers: { Cookie: callerCookie } }).then((r) => r.json()).catch(() => ({})),
+  // ─── Direct DB-backed state ──────────────────────────────────────────────
+  // Read the live schedule state directly from the DB instead of going through
+  // an internal fetch('/api/state') round-trip. The fetch was returning an
+  // empty state in production (cookie issue under waitUntil / async path),
+  // which made the chat bot think the schedule was empty and reply
+  // "I don't see any upcoming shifts" while the user had 12 of them.
+  // Direct DB access is one round-trip, no auth-redirect race, and is
+  // the same data /api/state returns anyway. See CHAT_BOT_HANDOFF_V9_FOLLOWUP.md.
+  async function buildLiveState({ userId, role }) {
+    const [users, shifts, shiftTemplates] = await Promise.all([
+      db.listUsers().catch(() => []),
+      db.listShifts().catch(() => []),
+      db.listShiftTemplates().catch(() => []),
+    ]);
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      users: users.map((u) => ({ username: u.username, display_name: u.display_name, role: u.role, id: u.id })),
+      shiftTemplates: (shiftTemplates || []).map((t) => ({
+        name: t.name,
+        start_time: t.start_time,
+        end_time: t.end_time,
+        days_of_week: t.days_of_week,
+        min_staff: t.min_staff,
+        max_staff: t.max_staff,
+      })),
+      upcomingShifts: (shifts || [])
+        .filter((s) => s.date >= today)
+        .slice(0, 30)
+        .map((s) => ({ id: s.id, user_id: s.user_id, date: s.date, start_time: s.start_time, end_time: s.end_time })),
+    };
+  }
+
+// Build shared context (state, history, guide) — used by both paths.
+  const [historyResp, rawState, guide] = await Promise.all([
+    chat.getChatHistory(userId, 10).catch(() => []),
+    buildLiveState({ userId, role }),
     fetch(`${origin}/api/agent-guide/markdown`).then((r) => r.text()).catch(() => ''),
   ]);
-  // DEBUG: log what we got back from /api/state so live "bot says no
-  // shifts" bugs are one click away from diagnosed (CHAT_BOT_HANDOFF
-  // V9 follow-up).
-  console.log(`[chat-orchestrator] user=${username} state.keys=${Object.keys(state).join(',')} state.shifts=${(state.shifts||[]).length} state.users=${(state.users||[]).length} state.shiftTemplates=${(state.shiftTemplates||[]).length}`);
-
-  const history = (historyResp.history || [])
+  const state = rawState;
+  // Update the existing `history` variable below so it still maps cleanly.
+  // (historyResp is now an array of message rows, not an envelope.)
+  var history = (historyResp || [])
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({ role: m.role, content: (m.content || '').replace(/```json[\s\S]+?```/g, '').trim() }))
     .slice(-10);
+  // DEBUG: log what we got back from /api/state so live "bot says no
+  // shifts" bugs are one click away from diagnosed (CHAT_BOT_HANDOFF
+  // V9 follow-up).
+  console.log(`[chat-orchestrator] user=${username} state.keys=${Object.keys(state).join(',')} state.shifts=${(state.upcomingShifts||[]).length} state.users=${(state.users||[]).length} state.shiftTemplates=${(state.shiftTemplates||[]).length}`);
 
   const payload = {
     message: {
