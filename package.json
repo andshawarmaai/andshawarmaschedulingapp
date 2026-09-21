@@ -11,9 +11,10 @@
     "test": "node --test test/"
   },
   "dependencies": {
-    "astro": "^5.0.0",
     "@astrojs/vercel": "^8.0.0",
     "@neondatabase/serverless": "^1.0.0",
+    "@vercel/functions": "^3.9.8",
+    "astro": "^5.0.0",
     "bcryptjs": "^3.0.0"
   }
 }

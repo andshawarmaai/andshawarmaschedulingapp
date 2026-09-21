@@ -1,50 +1,83 @@
 // The registry of every action an agent (Hermes, or anything else
-// authenticating with an API key — see middleware.js's resolveApiKeyUser)
+// authenticating with an API key - see middleware.js's resolveApiKeyUser)
 // can safely call against this app. Deliberately hand-maintained code, not
-// scraped from route comments — a route's comments are for a human reading
+// scraped from route comments - a route's comments are for a human reading
 // the source, this is a contract a machine (and CLAUDE.md/AGENT-TRAINING.md)
 // both render from the same object, so the two can never drift from each
 // other. This file CAN drift from actual route behavior if a route changes
-// and this file doesn't — treat updating this file as part of changing any
+// and this file doesn't - treat updating this file as part of changing any
 // route listed below.
 //
 // `agentMayCall: false` entries are still documented (an agent needs to
-// know they exist to understand the workflow) but are marked human-only —
+// know they exist to understand the workflow) but are marked human-only -
 // approving/denying a pending availability request or time-off request, for
 // example, is the literal reason the Schedule Builder's review queue
 // exists: an admin/manager decides, from that page, on purpose. An agent
-// calling it itself — even at a manager's explicit request in
-// conversation — defeats the point; surface the pending item and let the
+// calling it itself - even at a manager's explicit request in
+// conversation - defeats the point; surface the pending item and let the
 // human do the actual approve/deny in the app.
+
+export const PERSONALITY = {
+  audience: 'Restaurant managers and staff using a scheduling app on their phone or laptop. They are NOT developers. They may not speak English as a first language. They want their shift problem solved, not a tour of the software.',
+  role: 'You are the in-app chat assistant for &Shawarma (or whatever tenant brand the white-label config says). Your job is to help the user get scheduling work done with the absolute minimum friction.',
+  voice: 'Talk like a helpful coworker sitting next to them, not like a software engineer. Short sentences. Plain words. No jargon. No markdown unless it actually helps (a bulleted list is fine for "here are the three things I did"; a code block never).',
+  hard_rules: [
+    'NEVER mention: the codebase, source code, files, functions, methods, classes, modules, repos, branches, commits, APIs as paths (no "/api/whatever"), JSON keys, URLs the user did not give you, technical names of libraries, framework names (Astro, Vercel, Postgres, Neon, SSE, EventSource, webhooks, tunnel, endpoint, server-side, client-side, payload, body, request, response, status code, etc.).',
+    'NEVER quote technical identifiers back at the user (no backtick-wrapped code, no terminal-style output, no log lines).',
+    'NEVER explain HOW something is implemented under the hood. If asked a "how does this work" question, answer in restaurant terms: "When you tap Send, the message goes through a secure connection to the assistant, who reads your schedule and writes back here."',
+    'ALWAYS speak in the user\'s frame of reference: shifts, names of staff, dates, times, days of the week. Never abstract.',
+    'When something went wrong, say what the user can DO about it in one sentence, then stop. Example: "Looks like Jorge\'s shift on Friday didn\'t save - I can try again if you want." NOT: "The create endpoint returned 500."',
+    'When you don\'t know something, say so plainly: "I don\'t have that info - try the Time Off page."',
+    'When you DO change something in the schedule, confirm in plain language: "Done - Jorge is on Friday 11–7pm." NOT: "POST /api/shifts returned 201."',
+    'Keep replies under 4 sentences unless you\'re listing things the user asked for. No walls of text.',
+    'Never apologize more than once per session. Never apologize for being an AI. Never mention being a model, an agent, a bot, a language model, or anything meta about yourself.',
+    'If the user pastes something that looks like a file (CSV, photo, PDF), just do what they asked - read it, convert it, post the shifts. Do not ask "do you want me to convert this?"',
+  ],
+  fallbacks: {
+    confused_user: 'I might be missing what you need. Tell me who, when, and what shift you\'re trying to set up.',
+    error: 'That didn\'t go through. Want me to try again, or skip it?',
+    cant_do_it: 'That one needs a manager to click approve - I\'ve left it ready for review on the schedule.',
+    ask_for_clarification: 'Quick check before I do anything: which day, who, and what time?',
+  },
+};
+
+// A short preamble prepended to every system/guide message so the agent
+// is reminded of its voice on every turn, not just the first.
+export const PERSONALITY_PREAMBLE =
+  'You are the in-app chat assistant for this restaurant\'s scheduling app. ' +
+  'Speak ONLY in plain, friendly, restaurant-floor language. Never reference ' +
+  'code, files, APIs, databases, frameworks, or any technical identifier. ' +
+  'Confirm what you did in normal words. Keep replies short and useful.\n\n' +
+  '---\n\n';
 
 export const PRINCIPLES = [
   {
     title: 'A dropped-in file is yours to convert, not the human\'s',
-    body: 'If someone hands you an actual file — a .xlsx/.csv spreadsheet, a Google Sheets export, a photo of a handwritten or printed schedule, a screenshot of a text message — read it yourself and map each row to the canonical shape below (a `shift`/`cap`/`swap`/`template` row) and POST it as JSON to /api/public/shift-imports. Do not ask the human to reformat it into CSV first, and do not just describe what the file contains — actually perform the ingestion. Converting whatever you were handed into the canonical shape IS your job here; the endpoint only ever accepts that one shape because doing the conversion is what you\'re for.',
+    body: 'If someone hands you an actual file - a .xlsx/.csv spreadsheet, a Google Sheets export, a photo of a handwritten or printed schedule, a screenshot of a text message - read it yourself and map each row to the canonical shape below (a `shift`/`cap`/`swap`/`template` row) and POST it as JSON to /api/public/shift-imports. Do not ask the human to reformat it into CSV first, and do not just describe what the file contains - actually perform the ingestion. Converting whatever you were handed into the canonical shape IS your job here; the endpoint only ever accepts that one shape because doing the conversion is what you\'re for.',
   },
   {
     title: 'Approval decisions are human-only',
-    body: "Availability requests, time-off requests, and swap claims all land pending and stay that way until a human approves or denies them from the Schedule Builder (or the Time Off / Shift Swap pages). Never call an approve/deny endpoint yourself, even if a manager says 'approve it' in conversation — tell them it's ready for their review and where to find it, or at most confirm you understand what they want before nudging them to actually click it. This is a deliberate design choice (see CLAUDE.md §4), not an oversight.",
+    body: "Availability requests, time-off requests, and swap claims all land pending and stay that way until a human approves or denies them from the Schedule Builder (or the Time Off / Shift Swap pages). Never call an approve/deny endpoint yourself, even if a manager says 'approve it' in conversation - tell them it's ready for their review and where to find it, or at most confirm you understand what they want before nudging them to actually click it. This is a deliberate design choice (see CLAUDE.md §4), not an oversight.",
   },
   {
-    title: 'Direct shift/template writes are immediate — no review queue',
-    body: 'Unlike availability, POST /api/shifts, PATCH/DELETE on an existing shift, and all shift_templates writes go live the moment you call them — there is nothing pending to approve afterward. Only call these when you are confident (a clear, specific instruction from an admin/manager), not from an inference about what someone probably meant.',
+    title: 'Direct shift/template writes are immediate - no review queue',
+    body: 'Unlike availability, POST /api/shifts, PATCH/DELETE on an existing shift, and all shift_templates writes go live the moment you call them - there is nothing pending to approve afterward. Only call these when you are confident (a clear, specific instruction from an admin/manager), not from an inference about what someone probably meant.',
   },
   {
     title: 'Never invent people, never invent templates',
-    body: 'Resolve a name against GET /api/state\'s `users` array (or the bulk-import template\'s roster comment) before referencing a user_id — match on username, exact display name, or first name, and if more than one person shares that first name, ask rather than guessing which one. Do not create a new user account (out of scope for this API entirely — that stays a human, in-app action). Creating a new shift_template changes ongoing weekly coverage rules for everyone; only do it on an explicit, specific instruction, never as a guess at what a schedule "probably" needs.',
+    body: 'Resolve a name against GET /api/state\'s `users` array (or the bulk-import template\'s roster comment) before referencing a user_id - match on username, exact display name, or first name, and if more than one person shares that first name, ask rather than guessing which one. Do not create a new user account (out of scope for this API entirely - that stays a human, in-app action). Creating a new shift_template changes ongoing weekly coverage rules for everyone; only do it on an explicit, specific instruction, never as a guess at what a schedule "probably" needs.',
   },
   {
     title: 'Idempotency is mostly your responsibility',
-    body: 'Almost nothing below has a database-enforced dedup key (day_caps upserts by date+window are the one exception). A retried or resent instruction WILL create a second shift, a second availability entry, or a second swap post if you call the same write twice — track what you\'ve already submitted for a given conversation/message yourself, the API will not catch a duplicate for you. Within /api/public/shift-imports, `cap` rows upsert by (date, window_start, window_end) and `template` rows upsert by exact name, so both are safe to resubmit — `shift` and `swap` rows have no dedup key at all and WILL duplicate on a resubmit.',
+    body: 'Almost nothing below has a database-enforced dedup key (day_caps upserts by date+window are the one exception). A retried or resent instruction WILL create a second shift, a second availability entry, or a second swap post if you call the same write twice - track what you\'ve already submitted for a given conversation/message yourself, the API will not catch a duplicate for you. Within /api/public/shift-imports, `cap` rows upsert by (date, window_start, window_end) and `template` rows upsert by exact name, so both are safe to resubmit - `shift` and `swap` rows have no dedup key at all and WILL duplicate on a resubmit.',
   },
   {
     title: 'Authentication',
-    body: 'Every call below uses an API key created via POST /api/admin/api-keys (admin session) or the Manage → API Keys card in the UI: header Authorization: Bearer shwrm_xxxxx. The key resolves to the real user who created it and acts with that user\'s exact role and identity — there is no separate "service account" concept, and a write is attributed to that real person just as if they\'d clicked it themselves. A 403 means the key\'s owner does not hold the role a given action requires — create the key from an account with sufficient role rather than trying to escalate.',
+    body: 'Every call below uses an API key created via POST /api/admin/api-keys (admin session) or the Manage → API Keys card in the UI: header Authorization: Bearer shwrm_xxxxx. The key resolves to the real user who created it and acts with that user\'s exact role and identity - there is no separate "service account" concept, and a write is attributed to that real person just as if they\'d clicked it themselves. A 403 means the key\'s owner does not hold the role a given action requires - create the key from an account with sufficient role rather than trying to escalate.',
   },
   {
-    title: 'There is no per-vendor POS/timeclock adapter — you are the adapter',
-    body: 'This platform serves many different businesses, each potentially on a different POS or timeclock system (Toast, Square, Clover, SpotOn, a paper log someone photographs...). Rather than one API endpoint per vendor maintained in this codebase, actual_shift_import (below) accepts one canonical shape, and translating whatever a specific business\'s system actually produces — a CSV export, a screenshot of a report, that system\'s own API response if you have access to it — into that shape is your job, the same "a dropped-in file is yours to convert" principle already applies to bulk shift imports. Always pass a real, honest `source` value naming where the data actually came from (e.g. "toast", "square", "manual") — never invent a generic label that hides what you don\'t actually know.',
+    title: 'There is no per-vendor POS/timeclock adapter - you are the adapter',
+    body: 'This platform serves many different businesses, each potentially on a different POS or timeclock system (Toast, Square, Clover, SpotOn, a paper log someone photographs...). Rather than one API endpoint per vendor maintained in this codebase, actual_shift_import (below) accepts one canonical shape, and translating whatever a specific business\'s system actually produces - a CSV export, a screenshot of a report, that system\'s own API response if you have access to it - into that shape is your job, the same "a dropped-in file is yours to convert" principle already applies to bulk shift imports. Always pass a real, honest `source` value naming where the data actually came from (e.g. "toast", "square", "manual") - never invent a generic label that hides what you don\'t actually know.',
   },
 ];
 
@@ -56,7 +89,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/state',
     minRole: 'staff',
     agentMayCall: true,
-    purpose: 'The single aggregate read — users, shifts, shift_requests (availability), time off, shift_templates, day_caps, swap posts/claims, and (staff-or-above) shiftImports/apiKeys, and (admin only) tiers. Call this first to resolve names to ids and see what already exists before writing anything.',
+    purpose: 'The single aggregate read - users, shifts, shift_requests (availability), time off, shift_templates, day_caps, swap posts/claims, and (staff-or-above) shiftImports/apiKeys, and (admin only) tiers. Call this first to resolve names to ids and see what already exists before writing anything.',
   },
   {
     key: 'availability_create',
@@ -65,7 +98,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/shift-requests',
     minRole: 'staff',
     agentMayCall: true,
-    purpose: "Always submitted as the API key owner (there is no way to submit on behalf of someone else through this endpoint — if you're acting for a specific staff member, the key must belong to that person, or a manager/admin should use shift_create directly instead once they've decided). Use start_time='00:00', end_time='23:59' for \"available all day\" — displayed as \"All day\", not the literal times.",
+    purpose: "Always submitted as the API key owner (there is no way to submit on behalf of someone else through this endpoint - if you're acting for a specific staff member, the key must belong to that person, or a manager/admin should use shift_create directly instead once they've decided). Use start_time='00:00', end_time='23:59' for \"available all day\" - displayed as \"All day\", not the literal times.",
     idempotency: 'None. Do not resubmit the same availability twice for the same conversation/message.',
     body: [
       { field: 'action', type: '"create"', required: true },
@@ -74,7 +107,7 @@ export const DIRECT_ACTIONS = [
       { field: 'end_time', type: 'time (HH:MM, 24h)', required: true },
       { field: 'notes', type: 'string', required: false },
     ],
-    response: '201 with the created shift_request (status: pending, or denied immediately if it exceeds the owner\'s tier limit — see tierLimits.js).',
+    response: '201 with the created shift_request (status: pending, or denied immediately if it exceeds the owner\'s tier limit - see tierLimits.js).',
   },
   {
     key: 'availability_reschedule',
@@ -83,8 +116,8 @@ export const DIRECT_ACTIONS = [
     url: '/api/shift-requests/{id}  { date?, start_time?, end_time? }  (no "status" field)',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'The calendar\'s drag-to-move: changes date/time on a request that is still pending — it stays pending either way, nothing is approved by moving it. Send only the fields you\'re changing; omitting "status" entirely is what routes this to reschedule instead of availability_review below.',
-    idempotency: 'Not applicable — safe to call again with the same values; only errors if the request is no longer pending.',
+    purpose: 'The calendar\'s drag-to-move: changes date/time on a request that is still pending - it stays pending either way, nothing is approved by moving it. Send only the fields you\'re changing; omitting "status" entirely is what routes this to reschedule instead of availability_review below.',
+    idempotency: 'Not applicable - safe to call again with the same values; only errors if the request is no longer pending.',
     body: [
       { field: 'date', type: 'date (YYYY-MM-DD)', required: false },
       { field: 'start_time', type: 'time (HH:MM)', required: false },
@@ -99,7 +132,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/shift-requests/{id}  { "status": "approved" | "denied", "denial_reason"? }',
     minRole: 'manager',
     agentMayCall: false,
-    purpose: 'Human-only — see the "Approval decisions are human-only" principle above. Approving here creates the actual `shifts` row; documented for context, not meant to be called automatically.',
+    purpose: 'Human-only - see the "Approval decisions are human-only" principle above. Approving here creates the actual `shifts` row; documented for context, not meant to be called automatically.',
   },
   {
     key: 'availability_cancel',
@@ -117,13 +150,13 @@ export const DIRECT_ACTIONS = [
     url: '/api/shifts',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Creates a real, immediately-live scheduled shift — this is the Schedule Builder\'s own write path, not a request that needs later approval. Use this when a manager/admin has already decided who works when; use availability_create instead when a staff member is only reporting when they\'re free.',
-    idempotency: 'None — every call creates a new row. Do not call this twice for the same real-world shift.',
+    purpose: 'Creates a real, immediately-live scheduled shift - this is the Schedule Builder\'s own write path, not a request that needs later approval. Use this when a manager/admin has already decided who works when; use availability_create instead when a staff member is only reporting when they\'re free.',
+    idempotency: 'None - every call creates a new row. Do not call this twice for the same real-world shift.',
     body: [
       { field: 'user_id', type: 'string', required: false, notes: 'Resolve via GET /api/state → users. Omit/null for an unassigned shift.' },
       { field: 'date', type: 'date (YYYY-MM-DD)', required: true },
       { field: 'start_time', type: 'time (HH:MM)', required: true },
-      { field: 'end_time', type: 'time (HH:MM)', required: true, notes: 'end_time <= start_time means the shift crosses midnight — do not "correct" it.' },
+      { field: 'end_time', type: 'time (HH:MM)', required: true, notes: 'end_time <= start_time means the shift crosses midnight - do not "correct" it.' },
       { field: 'department', type: '"FOH" | "BOH" | null', required: false },
       { field: 'notes', type: 'string', required: false },
     ],
@@ -136,8 +169,8 @@ export const DIRECT_ACTIONS = [
     url: '/api/shifts/{id}',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: "The calendar's drag-to-reschedule for an approved shift, or a direct correction (wrong time, wrong person assigned). Immediate — there is no separate approval step for an existing shift the way there is for a new availability entry.",
-    idempotency: 'Not applicable — send only the fields you\'re changing; omitted fields keep their current value.',
+    purpose: "The calendar's drag-to-reschedule for an approved shift, or a direct correction (wrong time, wrong person assigned). Immediate - there is no separate approval step for an existing shift the way there is for a new availability entry.",
+    idempotency: 'Not applicable - send only the fields you\'re changing; omitted fields keep their current value.',
     body: [
       { field: 'user_id', type: 'string | null', required: false },
       { field: 'date', type: 'date (YYYY-MM-DD)', required: false },
@@ -155,7 +188,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/shifts/{id}',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Immediate, no undo (short of recreating it) — only call this on an unambiguous, specific instruction ("take Jorge off Tuesday"), never from an inference.',
+    purpose: 'Immediate, no undo (short of recreating it) - only call this on an unambiguous, specific instruction ("take Jorge off Tuesday"), never from an inference.',
   },
   {
     key: 'timeoff_create',
@@ -164,7 +197,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/timeoff',
     minRole: 'staff',
     agentMayCall: true,
-    purpose: 'Always submitted as the API key owner, same constraint as availability_create. The app\'s own UI shows a non-blocking warning for a start_date within 7 days of today ("may not be approved in time due to staffing constraints") — this endpoint does NOT enforce or return that warning itself, so if you\'re submitting this on someone\'s behalf and the date is close, say so to the human yourself rather than assuming the app will.',
+    purpose: 'Always submitted as the API key owner, same constraint as availability_create. The app\'s own UI shows a non-blocking warning for a start_date within 7 days of today ("may not be approved in time due to staffing constraints") - this endpoint does NOT enforce or return that warning itself, so if you\'re submitting this on someone\'s behalf and the date is close, say so to the human yourself rather than assuming the app will.',
     idempotency: 'None.',
     body: [
       { field: 'start_date', type: 'date (YYYY-MM-DD)', required: true },
@@ -180,7 +213,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/timeoff/{id}  { start_date?, end_date?, reason? }  (no "status" field)',
     minRole: 'staff (own, pending only) or manager (any)',
     agentMayCall: true,
-    purpose: 'Corrects a still-pending request\'s own dates/reason — distinct from timeoff_review below, which decides it.',
+    purpose: 'Corrects a still-pending request\'s own dates/reason - distinct from timeoff_review below, which decides it.',
     body: [
       { field: 'start_date', type: 'date (YYYY-MM-DD)', required: false },
       { field: 'end_date', type: 'date (YYYY-MM-DD)', required: false },
@@ -195,7 +228,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/timeoff/{id}  { "status": "approved" | "denied", "denial_reason"? }',
     minRole: 'manager',
     agentMayCall: false,
-    purpose: 'Human-only — see the "Approval decisions are human-only" principle above.',
+    purpose: 'Human-only - see the "Approval decisions are human-only" principle above.',
   },
   {
     key: 'timeoff_cancel',
@@ -213,7 +246,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/shift-templates',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: "Defines an ongoing coverage block (e.g. \"Opener, 9am-3pm, Mon-Fri\") that every future date's conflict/coverage checks run against. Changes standing policy, not a one-off event — only create one on an explicit, specific instruction.",
+    purpose: "Defines an ongoing coverage block (e.g. \"Opener, 9am-3pm, Mon-Fri\") that every future date's conflict/coverage checks run against. Changes standing policy, not a one-off event - only create one on an explicit, specific instruction.",
     body: [
       { field: 'name', type: 'string', required: true },
       { field: 'days_of_week', type: 'array of 0-6 (Sun=0..Sat=6)', required: true },
@@ -231,7 +264,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/shift-templates/{id}',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Same fields as shift_template_create — send only what\'s changing.',
+    purpose: 'Same fields as shift_template_create - send only what\'s changing.',
   },
   {
     key: 'shift_template_delete',
@@ -240,7 +273,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/shift-templates/{id}',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Removes the recurring coverage rule — existing shifts are untouched, only future conflict/coverage checks stop considering it.',
+    purpose: 'Removes the recurring coverage rule - existing shifts are untouched, only future conflict/coverage checks stop considering it.',
   },
   {
     key: 'swap_post_create',
@@ -286,7 +319,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/swap/claims/{id}  { "status": "approved" | "denied" }',
     minRole: 'manager',
     agentMayCall: false,
-    purpose: 'Human-only — finalizing a swap reassigns the shift between two real people; documented for context, not meant to be called automatically. As of the peak-staffing-mix work below, approval also re-checks the claimant\'s job qualification if the shift has a job_id — a claim can now be rejected (409) at approval time even if it was valid when claimed.',
+    purpose: 'Human-only - finalizing a swap reassigns the shift between two real people; documented for context, not meant to be called automatically. As of the peak-staffing-mix work below, approval also re-checks the claimant\'s job qualification if the shift has a job_id - a claim can now be rejected (409) at approval time even if it was valid when claimed.',
   },
   {
     key: 'job_list',
@@ -295,7 +328,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/jobs',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Operational positions (e.g. "Shawarma Station", "Cashier") — distinct from a user\'s app role (staff/manager/admin). Resolve a job_id against this before calling any of the job-qualification/proficiency/requirement actions below; also returned in GET /api/state\'s `jobs` array for every role, not just manager-and-up.',
+    purpose: 'Operational positions (e.g. "Shawarma Station", "Cashier") - distinct from a user\'s app role (staff/manager/admin). Resolve a job_id against this before calling any of the job-qualification/proficiency/requirement actions below; also returned in GET /api/state\'s `jobs` array for every role, not just manager-and-up.',
   },
   {
     key: 'job_create',
@@ -304,7 +337,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/jobs',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Same "never invent" caution as shift_template_create — a job is standing operational structure everyone\'s qualification/scheduling gets checked against; only create one on an explicit, specific instruction, never a guess.',
+    purpose: 'Same "never invent" caution as shift_template_create - a job is standing operational structure everyone\'s qualification/scheduling gets checked against; only create one on an explicit, specific instruction, never a guess.',
     body: [
       { field: 'name', type: 'string', required: true },
       { field: 'department', type: 'string', required: false },
@@ -336,8 +369,8 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/employee-jobs',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Gates whether this person can be scheduled into the job at all — only \'qualified\' satisfies a hard requirement (see template_requirement_set). Relay an explicit human decision verbatim ("mark Jorge qualified for Shawarma Station") — never infer or guess someone\'s qualification yourself. Demoting below \'qualified\' automatically clears any proficiency tier already set for that job+person (see employee_role_profile_set) — mention this side effect if a human asks you to demote someone who currently has one.',
-    idempotency: 'Upserts by (user_id, job_id) — safe to resubmit the same state.',
+    purpose: 'Gates whether this person can be scheduled into the job at all - only \'qualified\' satisfies a hard requirement (see template_requirement_set). Relay an explicit human decision verbatim ("mark Jorge qualified for Shawarma Station") - never infer or guess someone\'s qualification yourself. Demoting below \'qualified\' automatically clears any proficiency tier already set for that job+person (see employee_role_profile_set) - mention this side effect if a human asks you to demote someone who currently has one.',
+    idempotency: 'Upserts by (user_id, job_id) - safe to resubmit the same state.',
     body: [
       { field: 'user_id', type: 'string', required: true, notes: 'Resolve via GET /api/state → users.' },
       { field: 'job_id', type: 'string', required: true },
@@ -353,7 +386,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/employee-jobs  { user_id, job_id }',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Different from setting qualification_state to \'not_qualified\' — this removes the record (and any proficiency profile) entirely, as if the job/person link never existed. Prefer employee_job_set with \'not_qualified\' unless a human specifically wants the record gone.',
+    purpose: 'Different from setting qualification_state to \'not_qualified\' - this removes the record (and any proficiency profile) entirely, as if the job/person link never existed. Prefer employee_job_set with \'not_qualified\' unless a human specifically wants the record gone.',
   },
   {
     key: 'employee_role_profile_set',
@@ -362,8 +395,8 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/employee-role-profiles',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Deliberately NOT a single global "good/bad employee" score — tracked per job. Requires the employee already be \'qualified\' for that job (400 otherwise: resolve with employee_job_set first). This is a performance judgment about a real person\'s scheduling opportunity — relay an explicit human assessment verbatim ("Sanaa is Advanced at Shawarma Station now"), never infer or estimate a proficiency tier yourself from indirect signals.',
-    idempotency: 'Upserts by (user_id, job_id) — safe to resubmit the same state.',
+    purpose: 'Deliberately NOT a single global "good/bad employee" score - tracked per job. Requires the employee already be \'qualified\' for that job (400 otherwise: resolve with employee_job_set first). This is a performance judgment about a real person\'s scheduling opportunity - relay an explicit human assessment verbatim ("Sanaa is Advanced at Shawarma Station now"), never infer or estimate a proficiency tier yourself from indirect signals.',
+    idempotency: 'Upserts by (user_id, job_id) - safe to resubmit the same state.',
     body: [
       { field: 'user_id', type: 'string', required: true },
       { field: 'job_id', type: 'string', required: true },
@@ -380,7 +413,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/employee-role-profiles  { user_id, job_id }',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Removes the tier without touching the underlying qualification (employee_jobs) — they remain qualified, just with no proficiency recorded.',
+    purpose: 'Removes the tier without touching the underlying qualification (employee_jobs) - they remain qualified, just with no proficiency recorded.',
   },
   {
     key: 'availability_rule_create',
@@ -389,8 +422,8 @@ export const DIRECT_ACTIONS = [
     url: '/api/availability',
     minRole: 'staff',
     agentMayCall: true,
-    purpose: 'NOT the same thing as availability_create above — that endpoint (/api/shift-requests) is a date-specific "I\'m free this one day" ask that becomes a real shift once approved. This is a standing weekly pattern ("never available Tuesdays," "free 9-5 every Wednesday") with no approval step and no direct scheduling effect by itself — it\'s read by GET /api/state\'s `availabilityMine` for the caller, and by the auto-generation optimizer in a future integration. Always submitted as the API key owner.',
-    idempotency: 'None — resubmitting creates an additional row, it does not replace one. Track what you\'ve already submitted.',
+    purpose: 'NOT the same thing as availability_create above - that endpoint (/api/shift-requests) is a date-specific "I\'m free this one day" ask that becomes a real shift once approved. This is a standing weekly pattern ("never available Tuesdays," "free 9-5 every Wednesday") with no approval step and no direct scheduling effect by itself - it\'s read by GET /api/state\'s `availabilityMine` for the caller, and by the auto-generation optimizer in a future integration. Always submitted as the API key owner.',
+    idempotency: 'None - resubmitting creates an additional row, it does not replace one. Track what you\'ve already submitted.',
     body: [
       { field: 'day_of_week', type: 'integer 0 (Sunday) - 6 (Saturday)', required: true },
       { field: 'start_time', type: 'time (HH:MM)', required: true },
@@ -407,7 +440,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/availability/{id}',
     minRole: 'staff (own) or manager (any)',
     agentMayCall: true,
-    purpose: 'Removes one weekly-pattern row (not a whole day\'s worth — a person can have several overlapping-day rules).',
+    purpose: 'Removes one weekly-pattern row (not a whole day\'s worth - a person can have several overlapping-day rules).',
   },
   {
     key: 'template_requirement_set',
@@ -416,8 +449,8 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/shift-templates/{id}/requirements',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'E.g. "Friday dinner needs at least one Advanced Shawarma Station person and three Proficient-or-better." min_count is the plain headcount for that job on that template; the other two are layered minimums within that headcount (advanced counts toward proficient-or-better too, not as a separate bucket). Changes standing weekly policy, like shift_template_create — only on an explicit, specific instruction.',
-    idempotency: 'Upserts by (shift_template_id, job_id) — safe to resubmit the same state.',
+    purpose: 'E.g. "Friday dinner needs at least one Advanced Shawarma Station person and three Proficient-or-better." min_count is the plain headcount for that job on that template; the other two are layered minimums within that headcount (advanced counts toward proficient-or-better too, not as a separate bucket). Changes standing weekly policy, like shift_template_create - only on an explicit, specific instruction.',
+    idempotency: 'Upserts by (shift_template_id, job_id) - safe to resubmit the same state.',
     body: [
       { field: 'job_id', type: 'string', required: true },
       { field: 'min_count', type: 'integer >= 0', required: false, notes: 'Defaults to 0.' },
@@ -442,7 +475,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/shift-templates/{id}/coverage-check?date=YYYY-MM-DD',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Read-only. Returns, per job requirement, actual vs. required headcount/advanced/proficient-plus counts and any gaps (REQUIRED_COVERAGE_GAP, MIN_PROFICIENCY_MIX_GAP) — useful context before telling a human a Friday is fully covered, or isn\'t.',
+    purpose: 'Read-only. Returns, per job requirement, actual vs. required headcount/advanced/proficient-plus counts and any gaps (REQUIRED_COVERAGE_GAP, MIN_PROFICIENCY_MIX_GAP) - useful context before telling a human a Friday is fully covered, or isn\'t.',
   },
   {
     key: 'schedule_generate',
@@ -451,7 +484,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/schedule/generate',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Read-only in effect — writes only an audit snapshot of the proposal (schedule_generations), never a real shift. Derives ShiftSlots from that date\'s shift_templates × their peak-staffing-mix requirements (falling back to a job-agnostic slot sized to min_staff for a template with none configured), then runs the optimizer: hard eligibility/availability/no-double-booking first, then mandatory proficiency mix, then generic fill favoring whoever has fewer hours already this week. Present the result (assignments + any unfilled gaps) to a manager — do not describe it as already scheduled, nothing is live yet.',
+    purpose: 'Read-only in effect - writes only an audit snapshot of the proposal (schedule_generations), never a real shift. Derives ShiftSlots from that date\'s shift_templates × their peak-staffing-mix requirements (falling back to a job-agnostic slot sized to min_staff for a template with none configured), then runs the optimizer: hard eligibility/availability/no-double-booking first, then mandatory proficiency mix, then generic fill favoring whoever has fewer hours already this week. Present the result (assignments + any unfilled gaps) to a manager - do not describe it as already scheduled, nothing is live yet.',
     body: [{ field: 'date', type: 'date (YYYY-MM-DD)', required: true }],
     response: '200 with { generation_id, slots, assignments, unfilled }. Each assignment includes reason_codes explaining why that person was picked.',
   },
@@ -462,7 +495,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/schedule/apply',
     minRole: 'manager',
     agentMayCall: false,
-    purpose: 'Human-only — this is the actual publish step that turns a proposal into real, live shifts (potentially many at once). The PRD this feature implements is explicit that the optimizer/AI never publishes autonomously; a manager reviews the schedule_generate proposal and applies it themselves from the app, or gives you an unambiguous, specific instruction to do so for a proposal they\'ve already seen and named ("apply generation X exactly as shown") — never apply a proposal on your own initiative or from a vague "go ahead and schedule Friday."',
+    purpose: 'Human-only - this is the actual publish step that turns a proposal into real, live shifts (potentially many at once). The PRD this feature implements is explicit that the optimizer/AI never publishes autonomously; a manager reviews the schedule_generate proposal and applies it themselves from the app, or gives you an unambiguous, specific instruction to do so for a proposal they\'ve already seen and named ("apply generation X exactly as shown") - never apply a proposal on your own initiative or from a vague "go ahead and schedule Friday."',
   },
   {
     key: 'schedule_generations_list',
@@ -471,7 +504,7 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/schedule/generations?date=YYYY-MM-DD',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Read-only history of what the optimizer has proposed and what was actually applied, by whom, and when — useful context, not itself a write.',
+    purpose: 'Read-only history of what the optimizer has proposed and what was actually applied, by whom, and when - useful context, not itself a write.',
   },
   {
     key: 'actual_shift_import',
@@ -480,22 +513,22 @@ export const DIRECT_ACTIONS = [
     url: '/api/public/actual-shifts',
     minRole: 'staff (any valid API key)',
     agentMayCall: true,
-    purpose: 'See the "you are the adapter" principle above — translate whatever the business\'s actual POS/timeclock report contains into this shape yourself. Kept separate from the `shifts` table on purpose: this records what actually happened, `shifts` records what was scheduled, and reliability_read (below) compares the two. shift_id is optional — omit it rather than guessing if you\'re not confident which scheduled shift a punch corresponds to; the reliability calculation falls back to same-date matching on its own.',
-    idempotency: 'Pass external_ref (the source system\'s own id for that punch) when it has one — the pair (source, external_ref) is deduplicated at the database level, so resubmitting the same batch is safe. A source with no stable per-punch id has no dedup protection; note that to whoever asked you to submit it.',
+    purpose: 'See the "you are the adapter" principle above - translate whatever the business\'s actual POS/timeclock report contains into this shape yourself. Kept separate from the `shifts` table on purpose: this records what actually happened, `shifts` records what was scheduled, and reliability_read (below) compares the two. shift_id is optional - omit it rather than guessing if you\'re not confident which scheduled shift a punch corresponds to; the reliability calculation falls back to same-date matching on its own.',
+    idempotency: 'Pass external_ref (the source system\'s own id for that punch) when it has one - the pair (source, external_ref) is deduplicated at the database level, so resubmitting the same batch is safe. A source with no stable per-punch id has no dedup protection; note that to whoever asked you to submit it.',
     body: [
-      { field: 'source', type: 'string', required: true, notes: 'e.g. "toast", "square", "clover", "manual" — name what it actually is.' },
+      { field: 'source', type: 'string', required: true, notes: 'e.g. "toast", "square", "clover", "manual" - name what it actually is.' },
       { field: 'rows', type: 'array (max 1000)', required: true, notes: 'Each: { user_id, date, clock_in, clock_out?, shift_id?, external_ref? }.' },
     ],
-    response: '201 with { created, skippedDuplicate, import_id }. 400 with rowErrors (all-or-nothing — nothing is written if any row fails validation) if a user_id/date/time is missing or malformed.',
+    response: '201 with { created, skippedDuplicate, import_id }. 400 with rowErrors (all-or-nothing - nothing is written if any row fails validation) if a user_id/date/time is missing or malformed.',
   },
   {
     key: 'self_checkin',
     label: 'GPS-verified self check-in / check-out',
     method: 'POST',
     url: '/api/checkin  { "action": "in" | "out", "lat", "lng", "date", "time" }',
-    minRole: 'staff (own session only — not reachable with an API key at all; not under /api/public or /api/admin)',
+    minRole: 'staff (own session only - not reachable with an API key at all; not under /api/public or /api/admin)',
     agentMayCall: false,
-    purpose: 'Human-only, deliberately excluded from API-key access entirely — this proves a real person\'s phone was physically at the restaurant at this exact moment (server-side haversine distance check against the location\'s stored geofence, src/lib/geo.js). An agent calling this on someone\'s behalf, even with honestly-relayed coordinates, defeats the entire point of the feature — there is no legitimate agent use case here, unlike availability_review above (which at least has a real human decision behind it an agent could theoretically relay). Writes to actual_worked_shifts with source=\'self_checkin\', alongside the raw lat/lng/distance for audit. Documented here only so an agent understands why "just check me in" from a person in conversation must be declined and redirected to the app.',
+    purpose: 'Human-only, deliberately excluded from API-key access entirely - this proves a real person\'s phone was physically at the restaurant at this exact moment (server-side haversine distance check against the location\'s stored geofence, src/lib/geo.js). An agent calling this on someone\'s behalf, even with honestly-relayed coordinates, defeats the entire point of the feature - there is no legitimate agent use case here, unlike availability_review above (which at least has a real human decision behind it an agent could theoretically relay). Writes to actual_worked_shifts with source=\'self_checkin\', alongside the raw lat/lng/distance for audit. Documented here only so an agent understands why "just check me in" from a person in conversation must be declined and redirected to the app.',
   },
   {
     key: 'reliability_read',
@@ -504,6 +537,6 @@ export const DIRECT_ACTIONS = [
     url: '/api/admin/reliability?user_id=&date_from=&date_to=',
     minRole: 'manager',
     agentMayCall: true,
-    purpose: 'Read-only. Returns named counts (on_time_count, late_count, no_show_count, on_time_pct) computed from scheduled shifts vs. actual_shift_import data — deliberately not a single score (PRD section 4.2). Useful context before answering a question like "has Jorge been reliable lately," but relay the actual numbers, don\'t summarize them into your own good/bad verdict.',
+    purpose: 'Read-only. Returns named counts (on_time_count, late_count, no_show_count, on_time_pct) computed from scheduled shifts vs. actual_shift_import data - deliberately not a single score (PRD section 4.2). Useful context before answering a question like "has Jorge been reliable lately," but relay the actual numbers, don\'t summarize them into your own good/bad verdict.',
   },
 ];

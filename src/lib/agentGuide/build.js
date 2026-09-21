@@ -1,7 +1,7 @@
 // Assembles the single object both the JSON endpoint and the Markdown
 // endpoint render from — one source of truth so the two formats can't say
 // different things about the same API.
-import { PRINCIPLES, DIRECT_ACTIONS } from './registry.js';
+import { PRINCIPLES, DIRECT_ACTIONS, PERSONALITY, PERSONALITY_PREAMBLE } from './registry.js';
 
 // The bulk-import row types src/lib/shiftImport.js accepts — kept here
 // (not re-derived from shiftImport.js's internals) since its TYPES set and
@@ -32,7 +32,17 @@ const BULK_IMPORT_ROW_TYPES = [
 ];
 
 export function buildAgentGuide() {
+  const personalityBlock = {
+    audience: PERSONALITY.audience,
+    role: PERSONALITY.role,
+    voice: PERSONALITY.voice,
+    hard_rules: PERSONALITY.hard_rules,
+    fallbacks: PERSONALITY.fallbacks,
+    preamble: PERSONALITY_PREAMBLE,
+  };
+
   return {
+    personality: personalityBlock,
     principles: PRINCIPLES,
     authentication: {
       scheme: 'API key',

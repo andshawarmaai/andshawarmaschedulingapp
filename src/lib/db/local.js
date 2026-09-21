@@ -85,6 +85,7 @@ function load() {
   if (!data.agent_chat_messages) data.agent_chat_messages = [];
   if (!data.agent_chat_actions) data.agent_chat_actions = [];
   if (!data.agent_chat_attachments) data.agent_chat_attachments = [];
+    if (!data.chat_security_log) data.chat_security_log = [];
   if (!data.app_settings) data.app_settings = [];
   return data;
 }
@@ -1174,6 +1175,37 @@ export async function clearChatForUser(user_id) {
     (beforeAtt - d.agent_chat_attachments.length);
   if (deleted > 0) save(d);
   return deleted;
+}
+
+
+// ─── Chat security log ────────────────────────────────────────────────────
+// Every suspicious / off-topic / prompt-injection event in the chat is
+// recorded here for admin review. Admin/manager can list recent events
+// via /api/admin/agent-chat/security.
+export async function createChatSecurityEvent({ user_id, kind, message_excerpt, agent_reply, request_id }) {
+  const d = load();
+  if (!d.chat_security_log) d.chat_security_log = [];
+  const row = {
+    id: request_id || crypto.randomUUID(),
+    user_id,
+    kind,
+    message_excerpt: (message_excerpt || '').slice(0, 500),
+    agent_reply: (agent_reply || '').slice(0, 500),
+    created_at: new Date().toISOString(),
+  };
+  d.chat_security_log.push(row);
+  // Cap log size so a flood can't blow out the JSON file
+  if (d.chat_security_log.length > 5000) {
+    d.chat_security_log = d.chat_security_log.slice(-5000);
+  }
+  save(d);
+  return row;
+}
+
+export async function listChatSecurityEvents({ limit = 200 } = {}) {
+  const d = load();
+  const all = d.chat_security_log || [];
+  return all.slice(-limit).reverse();
 }
 
 // ─── App settings (encrypted key/value) ────────────────────────────────────

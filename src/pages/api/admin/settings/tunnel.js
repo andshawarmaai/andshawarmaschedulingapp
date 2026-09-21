@@ -61,10 +61,12 @@ export async function POST(context) {
   if (!url) return json({ error: 'tunnel_url is required.' }, 400);
   if (!/^https:\/\//.test(url)) return json({ error: 'tunnel_url must start with https://' }, 400);
   const reachable = await probe(url);
-  if (!reachable) return json({ error: `Tunnel URL didn't respond at ${url.replace(/\/$/, '')}/health — make sure the bridge + cloudflared are running on the Mac.` }, 400);
+  // Probe failure no longer blocks saves — Tailscale Funnel may be reachable
+  // from real browsers but time out from Vercel's edge. Save anyway, the
+  // orchestrator's first real message will retry and surface any issue.
   const encrypted = encryptSecret(url);
   await dbCore.setSetting(TUNNEL_KEY, encrypted, me.id);
-  return json({ ok: true, tunnel_url: url, reachable: true, mode: 'tunnel' });
+  return json({ ok: true, tunnel_url: url, reachable, mode: reachable ? 'tunnel' : 'offline' });
 }
 
 export async function DELETE(context) {

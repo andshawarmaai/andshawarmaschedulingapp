@@ -66,6 +66,120 @@ const user = Astro.locals.user;
     <p class="card-sub" id="geo-status" style="margin-top:0.5rem;"></p>
   </div>
 
+  {user.role === 'admin' && (
+  <div class="card" id="chat-bot-card">
+    <h2>Chat Bot</h2>
+    <p class="card-sub">The floating chat bubble in the bottom-right of every page. Turn it off entirely, or pick where the AI runs and provide its dependency.</p>
+
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-top:1rem;">
+      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+        <input type="checkbox" id="chat-enabled-toggle" style="width:1.1rem;height:1.1rem;" />
+        <span><strong>Chat Bot is on</strong> &mdash; turn off to hide the chat bubble everywhere</span>
+      </label>
+    </div>
+    <p class="card-sub" id="chat-enabled-status" style="margin-top:0.5rem;"></p>
+
+    <hr style="margin:1.25rem 0;border:none;border-top:1px solid var(--color-border);" />
+
+    <h3 style="margin:0 0 0.5rem;font-size:1rem;">Source</h3>
+    <p class="card-sub">Where the AI runs.</p>
+    <div class="field-row">
+      <div class="field" style="flex:2;">
+        <select id="chat-source-mode" class="input">
+          <option value="hermes">Hermes &mdash; local, runs on your Mac, free</option>
+          <option value="cloud">Cloud API &mdash; Anthropic / OpenAI / MiniMax, paid per message</option>
+          <option value="hybrid">Hybrid &mdash; Hermes first, cloud as fallback</option>
+        </select>
+      </div>
+      <button type="button" class="btn-primary" id="chat-source-save">Save source</button>
+    </div>
+    <p class="card-sub" id="chat-source-status" style="margin-top:0.5rem;"></p>
+
+    <div id="chat-tunnel-section" style="margin-top:1.25rem;">
+      <h3 style="margin:0 0 0.5rem;font-size:1rem;">Hermes tunnel URL <span style="font-weight:normal;color:var(--color-muted);">&mdash; needed for Hermes + Hybrid</span></h3>
+      <p class="card-sub">Public URL of the Hermes bridge on your Mac. Run <code>scripts/hermes-bridge.mjs</code> + a tunnel (Tailscale Funnel, Cloudflare, ngrok) on the Mac.</p>
+      <div class="field-row">
+        <input type="url" id="chat-tunnel-url" class="input" placeholder="https://your-tunnel.example.com" style="flex:1;" />
+        <button type="button" class="btn-primary" id="chat-tunnel-save">Save &amp; Test</button>
+        <button type="button" class="btn-secondary" id="chat-tunnel-clear">Remove</button>
+      </div>
+      <p class="card-sub" id="chat-tunnel-status" style="margin-top:0.5rem;"></p>
+    </div>
+
+    <div id="chat-identity-section" style="margin-top:1.25rem;">
+      <h3 style="margin:0 0 0.5rem;font-size:1rem;">Chat Bot name &amp; avatar <span style="font-weight:normal;color:var(--color-muted);">&mdash; shown to everyone in the chat panel</span></h3>
+      <p class="card-sub">Customize the bot's display name and avatar image. Defaults to "Chat Bot" with no avatar. Admins only.</p>
+
+      <div class="field">
+        <label for="chat-identity-name">Display name (max 40 chars)</label>
+        <input type="text" id="chat-identity-name" class="input" placeholder="Chat Bot" maxlength="40" />
+      </div>
+
+      <div class="field">
+        <label>Avatar (optional, square image, ≤30KB)</label>
+        <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+          <div id="chat-identity-avatar-preview" style="width:48px;height:48px;border-radius:50%;background:var(--color-surface);border:1px solid var(--color-border);display:flex;align-items:center;justify-content:center;color:var(--color-muted);font-size:1.25rem;overflow:hidden;flex-shrink:0;">
+            <span id="chat-identity-avatar-placeholder">?</span>
+          </div>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <input type="file" id="chat-identity-avatar-file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none;" />
+            <button type="button" class="btn-secondary" id="chat-identity-upload-btn">Upload image</button>
+            <button type="button" class="btn-secondary" id="chat-identity-remove-avatar" style="display:none;">Remove</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+        <button type="button" class="btn-primary" id="chat-identity-save">Save</button>
+      </div>
+      <p class="card-sub" id="chat-identity-status" style="margin-top:0.5rem;"></p>
+    </div>
+
+    </div>
+
+    <div id="chat-ai-section" style="margin-top:1.25rem;">
+      <h3 style="margin:0 0 0.5rem;font-size:1rem;">Cloud AI provider <span style="font-weight:normal;color:var(--color-muted);">&mdash; needed for Cloud + Hybrid fallback</span></h3>
+      <p class="card-sub">Provider + API key. Encrypted at rest, never sent back to the browser.</p>
+      <div class="field">
+        <label for="chat-ai-provider">Provider</label>
+        <select id="chat-ai-provider" class="input">
+          <option value="">Loading&hellip;</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="chat-ai-model">Model (optional)</label>
+        <input type="text" id="chat-ai-model" class="input" placeholder="e.g. claude-sonnet-4-5" />
+      </div>
+      <div class="field">
+        <label for="chat-ai-key">API key (leave blank to keep current)</label>
+        <input type="password" id="chat-ai-key" class="input" autocomplete="off" placeholder="sk-... or your provider's key format" />
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button type="button" class="btn-primary" id="chat-ai-save">Save &amp; Test</button>
+        <button type="button" class="btn-secondary" id="chat-ai-clear">Remove key</button>
+      </div>
+      <p class="card-sub" id="chat-ai-status" style="margin-top:0.5rem;"></p>
+      <details style="margin-top:0.75rem;">
+        <summary style="cursor:pointer;color:var(--color-muted);font-size:0.85rem;">How to get a key</summary>
+        <ul style="margin-top:0.5rem;padding-left:1.25rem;font-size:0.9rem;">
+          <li><strong>Anthropic:</strong> console.anthropic.com &rarr; Settings &rarr; API Keys</li>
+          <li><strong>OpenAI:</strong> platform.openai.com &rarr; API keys</li>
+          <li><strong>MiniMax:</strong> MiniMax console &rarr; API Keys</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+  )}
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h2 style="margin-top:0;">Chat security log</h2>
+    <p class="card-sub">Off-topic refusals, prompt-injection attempts, and credential-phishing messages from the in-app chat bot. Newest first.</p>
+    <div id="chat-security-log" style="max-height:24rem;overflow-y:auto;border:1px solid var(--color-border);border-radius:0.5rem;padding:0.5rem;background:var(--color-surface);font-size:0.9rem;">
+      <p style="color:var(--color-muted);margin:0.5rem;">Loading…</p>
+    </div>
+    <button type="button" class="btn-secondary" id="chat-security-refresh" style="margin-top:0.75rem;">Refresh</button>
+  </div>
+
   <div class="card">
     <h2>API Keys</h2>
     <p class="card-sub">
@@ -810,5 +924,283 @@ const user = Astro.locals.user;
     loadGeofence();
 
     refreshAndRender();
+
+    // ─── Chat Bot card ─────────────────────────────────────────────────
+    // Master on/off + source picker + matching dependency section (tunnel
+    // URL or AI provider). All three were separate cards in /settings;
+    // they're consolidated here under Manage for clarity.
+    const chatToggle = document.getElementById('chat-enabled-toggle');
+    const chatEnabledStatus = document.getElementById('chat-enabled-status');
+    const chatSourceMode = document.getElementById('chat-source-mode');
+    const chatSourceStatus = document.getElementById('chat-source-status');
+    const chatTunnelSection = document.getElementById('chat-tunnel-section');
+    const chatTunnelUrl = document.getElementById('chat-tunnel-url');
+    const chatTunnelStatus = document.getElementById('chat-tunnel-status');
+    const chatAiSection = document.getElementById('chat-ai-section');
+    const chatAiProvider = document.getElementById('chat-ai-provider');
+    const chatAiModel = document.getElementById('chat-ai-model');
+    const chatAiKey = document.getElementById('chat-ai-key');
+    const chatAiStatus = document.getElementById('chat-ai-status');
+
+    async function loadChatEnabled() {
+      try {
+        const r = await fetch('/api/admin/settings/chat-toggle', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        chatToggle.checked = !!cfg.enabled;
+        chatEnabledStatus.textContent = cfg.enabled
+          ? 'Chat bubble is visible on every page.'
+          : 'Chat bubble is hidden everywhere. Turn the toggle on to bring it back.';
+      } catch (_) { /* ignore */ }
+    }
+
+    chatToggle.addEventListener('change', async () => {
+      chatToggle.disabled = true;
+      try {
+        const r = await fetch('/api/admin/settings/chat-toggle', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: chatToggle.checked }),
+        });
+        if (!r.ok) { window.shawarmaToast('Save failed.'); chatToggle.checked = !chatToggle.checked; return; }
+        window.shawarmaToast(chatToggle.checked ? 'Chat Bot enabled.' : 'Chat Bot disabled.');
+        await loadChatEnabled();
+      } finally {
+        chatToggle.disabled = false;
+      }
+    });
+
+    async function loadChatSource() {
+      try {
+        const r = await fetch('/api/admin/settings/chat-source', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        if (cfg.mode) chatSourceMode.value = cfg.mode;
+        chatSourceStatus.textContent = `Current source: ${cfg.mode || 'hermes'}.`;
+        updateChatDependencyVisibility(cfg.mode);
+      } catch (_) { chatSourceStatus.textContent = 'Failed to load source.'; }
+    }
+
+    function updateChatDependencyVisibility(mode) {
+      // Hermes + Hybrid need the tunnel URL. Cloud + Hybrid need the AI provider.
+      chatTunnelSection.hidden = !(mode === 'hermes' || mode === 'hybrid');
+      chatAiSection.hidden = !(mode === 'cloud' || mode === 'hybrid');
+    }
+    chatSourceMode.addEventListener('change', () => updateChatDependencyVisibility(chatSourceMode.value));
+
+    document.getElementById('chat-source-save').addEventListener('click', async () => {
+      const r = await window.shawarmaApi('POST', '/api/admin/settings/chat-source', { mode: chatSourceMode.value });
+      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed.'); return; }
+      window.shawarmaToast('Source saved.');
+      await loadChatSource();
+    });
+    
+    // === Chat Bot identity (name + avatar) — admin only ===
+    function loadChatIdentity() {
+      const nameInput = document.getElementById('chat-identity-name');
+      const preview = document.getElementById('chat-identity-avatar-preview');
+      const placeholder = document.getElementById('chat-identity-avatar-placeholder');
+      const removeBtn = document.getElementById('chat-identity-remove-avatar');
+      const status = document.getElementById('chat-identity-status');
+      const isAdmin = (window.__appUser && window.__appUser.role === 'admin');
+      if (!isAdmin) {
+        // Hide the entire card for non-admins
+        const section = document.getElementById('chat-identity-section');
+        if (section) section.style.display = 'none';
+        return;
+      }
+      fetch('/api/admin/settings/chat-identity', { credentials: 'same-origin' })
+        .then((r) => r.json())
+        .then((data) => {
+          if (!data.ok) return;
+          if (data.name) nameInput.value = data.name;
+          if (data.avatar) {
+            preview.style.backgroundImage = `url(${data.avatar})`;
+            preview.style.backgroundSize = 'cover';
+            preview.style.backgroundPosition = 'center';
+            if (placeholder) placeholder.style.display = 'none';
+            removeBtn.style.display = '';
+          }
+        })
+        .catch(() => {});
+    }
+
+    document.getElementById('chat-identity-upload-btn')?.addEventListener('click', () => {
+      document.getElementById('chat-identity-avatar-file').click();
+    });
+
+    document.getElementById('chat-identity-avatar-file')?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 30 * 1024) {
+        alert('Image must be 30KB or smaller. Try a smaller PNG or use the WebP format.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUri = reader.result;
+        const r = await window.shawarmaApi('POST', '/api/admin/settings/chat-identity', { avatar: dataUri });
+        const status = document.getElementById('chat-identity-status');
+        if (!r.ok) { if (status) status.textContent = r.error || 'Upload failed.'; return; }
+        if (status) status.textContent = 'Avatar saved.';
+        // Refresh preview
+        const preview = document.getElementById('chat-identity-avatar-preview');
+        const placeholder = document.getElementById('chat-identity-avatar-placeholder');
+        const removeBtn = document.getElementById('chat-identity-remove-avatar');
+        preview.style.backgroundImage = `url(${dataUri})`;
+        preview.style.backgroundSize = 'cover';
+        preview.style.backgroundPosition = 'center';
+        if (placeholder) placeholder.style.display = 'none';
+        removeBtn.style.display = '';
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('chat-identity-remove-avatar')?.addEventListener('click', async () => {
+      const r = await window.shawarmaApi('POST', '/api/admin/settings/chat-identity', { avatar: null });
+      const status = document.getElementById('chat-identity-status');
+      if (!r.ok) { if (status) status.textContent = r.error || 'Remove failed.'; return; }
+      if (status) status.textContent = 'Avatar removed.';
+      const preview = document.getElementById('chat-identity-avatar-preview');
+      const placeholder = document.getElementById('chat-identity-avatar-placeholder');
+      const removeBtn = document.getElementById('chat-identity-remove-avatar');
+      preview.style.backgroundImage = '';
+      if (placeholder) placeholder.style.display = '';
+      removeBtn.style.display = 'none';
+    });
+
+    document.getElementById('chat-identity-save')?.addEventListener('click', async () => {
+      const name = document.getElementById('chat-identity-name').value.trim();
+      const r = await window.shawarmaApi('POST', '/api/admin/settings/chat-identity', { name });
+      const status = document.getElementById('chat-identity-status');
+      if (!r.ok) { if (status) status.textContent = r.error || 'Save failed.'; return; }
+      if (status) status.textContent = `Saved. Bot name is now "${r.name || name}".`;
+    });
+
+    loadChatIdentity();
+
+// === Chat security log ===
+    async function loadChatSecurityLog() {
+      const el = document.getElementById('chat-security-log');
+      if (!el) return;
+      el.innerHTML = '<p style="color:var(--color-muted);margin:0.5rem;">Loading…</p>';
+      try {
+        const r = await fetch('/api/admin/agent-chat/security', { credentials: 'same-origin' });
+        if (!r.ok) {
+          el.innerHTML = `<p style="color:var(--color-muted);margin:0.5rem;">Failed to load (${r.status}).</p>`;
+          return;
+        }
+        const data = await r.json();
+        const events = data.events || [];
+        if (events.length === 0) {
+          el.innerHTML = '<p style="color:var(--color-muted);margin:0.5rem;">No security events yet — this log will fill up if anyone tries to abuse the chat.</p>';
+          return;
+        }
+        const KIND_LABEL = {
+          off_topic_refusal: 'off-topic',
+          prompt_injection: 'injection attempt',
+          credential_phish: 'credential phish',
+          abuse: 'abuse',
+        };
+        el.innerHTML = events.map((e) => {
+          const label = KIND_LABEL[e.kind] || e.kind;
+          const when = new Date(e.created_at).toLocaleString();
+          const msg = (e.message_excerpt || '').slice(0, 200) || '(empty)';
+          const reply = (e.agent_reply || '').slice(0, 200);
+          return `<div style="padding:0.5rem 0.25rem;border-bottom:1px solid var(--color-border);">
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+              <span class="badge badge-denied">${escapeHtml(label)}</span>
+              <strong>${escapeHtml(e.user_display_name || e.user_id)}</strong>
+              <span style="color:var(--color-muted);font-size:0.85rem;">${escapeHtml(when)}</span>
+            </div>
+            <div style="margin-top:0.25rem;color:var(--color-muted);font-size:0.85rem;"><strong>asked:</strong> ${escapeHtml(msg)}</div>
+            ${reply ? `<div style="margin-top:0.25rem;color:var(--color-muted);font-size:0.85rem;"><strong>bot replied:</strong> ${escapeHtml(reply)}</div>` : ''}
+          </div>`;
+        }).join('');
+      } catch (e) {
+        el.innerHTML = `<p style="color:var(--color-muted);margin:0.5rem;">Failed to load: ${escapeHtml(String(e.message || e))}</p>`;
+      }
+    }
+    document.getElementById('chat-security-refresh')?.addEventListener('click', loadChatSecurityLog);
+    loadChatSecurityLog();
+
+
+    async function loadChatTunnel() {
+      try {
+        const r = await fetch('/api/admin/settings/tunnel', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        if (cfg.tunnel_url) chatTunnelUrl.value = cfg.tunnel_url;
+        if (cfg.reachable) {
+          chatTunnelStatus.textContent = `Connected to ${cfg.tunnel_url}.`;
+        } else if (cfg.tunnel_url) {
+          chatTunnelStatus.textContent = `Saved URL: ${cfg.tunnel_url}, but it's not responding right now.`;
+        } else {
+          chatTunnelStatus.textContent = 'No tunnel URL set.';
+        }
+      } catch (_) { chatTunnelStatus.textContent = 'Failed to load tunnel config.'; }
+    }
+
+    document.getElementById('chat-tunnel-save').addEventListener('click', async () => {
+      if (!chatTunnelUrl.value.trim()) { window.shawarmaToast('Paste a tunnel URL.'); return; }
+      const r = await window.shawarmaApi('POST', '/api/admin/settings/tunnel', { tunnel_url: chatTunnelUrl.value.trim() });
+      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed.'); return; }
+      window.shawarmaToast('Tunnel saved.');
+      await loadChatTunnel();
+    });
+
+    document.getElementById('chat-tunnel-clear').addEventListener('click', async () => {
+      if (!confirm('Remove the tunnel URL?')) return;
+      const r = await window.shawarmaApi('DELETE', '/api/admin/settings/tunnel');
+      if (!r.ok) { window.shawarmaToast('Failed.'); return; }
+      window.shawarmaToast('Removed.');
+      chatTunnelUrl.value = '';
+      await loadChatTunnel();
+    });
+
+    async function loadChatAi() {
+      try {
+        const r = await fetch('/api/admin/settings/ai', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        chatAiProvider.innerHTML = '<option value="">— Select —</option>' +
+          (cfg.providers || []).map((p) => `<option value="${p.id}">${p.label}</option>`).join('');
+        if (cfg.provider) chatAiProvider.value = cfg.provider;
+        if (cfg.model) chatAiModel.value = cfg.model;
+        if (cfg.has_key && cfg.provider) {
+          chatAiStatus.textContent = `Connected to ${cfg.provider}${cfg.model ? ' · ' + cfg.model : ''}.`;
+        } else {
+          chatAiStatus.textContent = 'No provider key set.';
+        }
+      } catch (_) { chatAiStatus.textContent = 'Failed to load AI settings.'; }
+    }
+
+    document.getElementById('chat-ai-save').addEventListener('click', async () => {
+      if (!chatAiProvider.value) { window.shawarmaToast('Pick a provider.'); return; }
+      if (!chatAiKey.value) { window.shawarmaToast('Paste an API key.'); return; }
+      const r = await window.shawarmaApi('POST', '/api/admin/settings/ai', {
+        provider: chatAiProvider.value,
+        api_key: chatAiKey.value,
+        model: chatAiModel.value.trim() || undefined,
+      });
+      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed.'); return; }
+      window.shawarmaToast('AI provider saved.');
+      chatAiKey.value = '';
+      await loadChatAi();
+    });
+
+    document.getElementById('chat-ai-clear').addEventListener('click', async () => {
+      if (!confirm('Remove the AI key?')) return;
+      const r = await window.shawarmaApi('DELETE', '/api/admin/settings/ai');
+      if (!r.ok) { window.shawarmaToast('Failed to remove.'); return; }
+      window.shawarmaToast('Removed.');
+      await loadChatAi();
+    });
+
+    loadChatEnabled();
+    loadChatSource();
+    loadChatTunnel();
+    loadChatAi();
   </script>
 </Layout>

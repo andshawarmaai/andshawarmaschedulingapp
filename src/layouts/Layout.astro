@@ -21,6 +21,9 @@ import Icon from '../components/Icon.astro';
 import LangToggle from '../components/LangToggle.astro';
 import AgentChatPanel from '../components/AgentChatPanel.astro';
 import { getLang, t } from '../lib/i18n.js';
+import { getChatEnabled } from '../pages/api/admin/settings/chat-toggle.js';
+import { getActiveChatSource } from '../pages/api/admin/settings/chat-source.js';
+import { getActiveProviderConfig } from '../pages/api/admin/settings/ai.js';
 
 interface Props {
   title?: string;
@@ -33,6 +36,23 @@ const { title = '&Shawarma', active = '' } = Astro.props as Props;
 const user = Astro.locals.user;
 const isStaffOrAbove = user.role === 'admin' || user.role === 'manager';
 const lang = getLang(Astro);
+
+// Master switch + source/AI detection, runs once per page render on the
+// server. Hides the chat bubble entirely when disabled, when the source
+// is missing its dependency, or when no source is configured at all —
+// no point shipping the FAB + panel HTML/CSS/JS to a deployment that
+// isn't using the chat.
+const chatEnabled = await getChatEnabled();
+let chatVisible = false;
+if (chatEnabled) {
+  const source = await getActiveChatSource();
+  const cloudCfg = await getActiveProviderConfig();
+  const hasTunnel = !!source.tunnelUrl;
+  const hasProvider = !!cloudCfg && !!cloudCfg.api_key;
+  if (source.mode === 'hermes') chatVisible = hasTunnel;
+  else if (source.mode === 'cloud') chatVisible = hasProvider;
+  else if (source.mode === 'hybrid') chatVisible = hasTunnel || hasProvider;
+}
 
 const navItems = [
   { href: '/', key: 'home', label: t(lang, 'nav.home'), icon: 'home' },
@@ -178,5 +198,5 @@ const showLangToggle = active !== 'manage' && active !== 'schedule-builder';
     };
   </script>
 
-  <AgentChatPanel userId={user.id} userRole={user.role} userDisplayName={user.display_name || user.username} />
+  {chatVisible && <AgentChatPanel userId={user.id} userRole={user.role} userDisplayName={user.display_name || user.username} />}
 </body>

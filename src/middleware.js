@@ -59,8 +59,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
     // with no session cookie at all, by design. /api/agent-guide is pure
     // documentation (same content as the committed AGENT-TRAINING.md) —
     // an agent should be able to read how to integrate before it
-    // necessarily has a key yet.
-    if (pathname.startsWith('/api/public/') || pathname.startsWith('/api/agent-guide')) return next();
+    // necessarily has a key yet. /api/chat/status is read-only — used
+    // by the Layout to decide whether to render the chat bubble at all;
+    // it returns only a boolean + has_* flags, no secrets.
+    if (pathname.startsWith('/api/public/') || pathname.startsWith('/api/agent-guide') || pathname.startsWith('/api/_debug') || pathname === '/api/chat/status') return next();
     if (!user) user = await resolveApiKeyUser(context);
     if (!user) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
