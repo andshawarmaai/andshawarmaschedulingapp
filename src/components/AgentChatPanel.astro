@@ -394,7 +394,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   let thinkingEl = null;
   let thinkingTimer = null;
   let thinkingStartedAt = 0;
-  function showThinking() {
+  function showThinking(initial = 'Warming up…') {
     if (thinkingEl) return;
     thinkingStartedAt = Date.now();
     thinkingEl = document.createElement('div');
@@ -405,7 +405,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     who.textContent = 'Chat Bot';
     const body = document.createElement('div');
     body.className = 'agent-chat-text agent-chat-thinking-text';
-    body.textContent = 'Warming up…';
+    body.textContent = initial;
     const elapsed = document.createElement('div');
     elapsed.className = 'agent-chat-thinking-elapsed';
     elapsed.textContent = '';
@@ -415,18 +415,41 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     history.appendChild(thinkingEl);
     // Flip the bottom status pill so the connection state reflects
     // current work, not the last completed turn.
-    status.textContent = 'warming up…';
+    status.textContent = initial.toLowerCase();
     scrollToBottomForce();
     // Update the elapsed counter every 250ms so the user sees real
-    // progress. After 2s the label flips "Warming up…" → "Thinking…"
-    // so it's clear the bot is past initial setup.
+    // progress. Stage progression (with gradient sweep on each label):
+    //   0–2s   "Warming up…"  → initial connection / SSE setup
+    //   2–6s   "Thinking…"    → bot is reasoning
+    //   6s+    "Working…"     → bot is past reasoning, actions are firing
+    //   15s+   "Still working…" → long action queue (12+ deletes)
     thinkingTimer = setInterval(() => {
       if (!thinkingEl) return;
-      const sec = ((Date.now() - thinkingStartedAt) / 1000).toFixed(1);
-      const label = body.textContent;
-      if (sec >= 2 && label === 'Warming up…') body.textContent = 'Thinking…';
-      elapsed.textContent = `${sec}s`;
+      const sec = (Date.now() - thinkingStartedAt) / 1000;
+      const cur = body.textContent;
+      let next = cur;
+      if (sec >= 15 && cur === 'Working…') next = 'Still working…';
+      else if (sec >= 6 && cur === 'Thinking…') next = 'Working…';
+      else if (sec >= 2 && cur === 'Warming up…') next = 'Thinking…';
+      if (next !== cur) {
+        body.textContent = next;
+        status.textContent = next.toLowerCase();
+      }
+      elapsed.textContent = `${sec.toFixed(1)}s`;
     }, 250);
+  }
+  // updateThinkingLabel lets the orchestrator push a specific stage label
+  // when the assistant message lands but actions are still firing (e.g.
+  // for the multi-action 'delete all 12 shifts' case the orchestrator
+  // keeps the assistant bubble status='streaming' until every DELETE
+  // round-trip returns). Hooked from the SSE 'status' event below.
+  function updateThinkingLabel(label) {
+    if (!thinkingEl) return;
+    const body = thinkingEl.querySelector('.agent-chat-thinking-text');
+    if (body && body.textContent !== label) {
+      body.textContent = label;
+      status.textContent = label.toLowerCase();
+    }
   }
   function hideThinking() {
     if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
@@ -525,7 +548,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       // Show the "Chat Bot is thinking…" indicator immediately so the
       // user knows the assistant is working while the SSE stream waits
       // for the reply. Removed as soon as the assistant bubble appears.
-      showThinking();
+      showThinking('Warming up…');
       // Force-scroll after the user hits Send — they just sent a message,
       // they obviously want to follow it down.
       scrollToBottomForce();
