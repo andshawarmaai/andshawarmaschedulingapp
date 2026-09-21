@@ -35,7 +35,7 @@ const lang = getLang(Astro);
   </script>
 
   <div class="card" id="ai-card" hidden>
-    <h2>AI Assistant</h2>
+    <h2>Chat Bot</h2>
     <p class="card-sub">Connect an AI service so the chat panel on the Schedule Builder can answer questions and make changes for you. Pick a provider and paste your key — it's encrypted and stored in the database. <strong>Only admins/managers see this card.</strong></p>
 
     <div id="ai-status" class="card-sub" style="margin-top:0.75rem;"></div>
@@ -121,7 +121,7 @@ const lang = getLang(Astro);
   </script>
 
   <script>
-    // AI Assistant section — only visible to admin/manager. Loads current
+    // Chat Bot section — only visible to admin/manager. Loads current
     // config (provider + has_key, never the raw key) and lets the user
     // change provider or rotate the key. POST tests the key before storing.
     const aiCard = document.getElementById('ai-card');

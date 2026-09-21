@@ -19,6 +19,7 @@
 import '../styles/global.css';
 import Icon from '../components/Icon.astro';
 import LangToggle from '../components/LangToggle.astro';
+import AgentChatPanel from '../components/AgentChatPanel.astro';
 import { getLang, t } from '../lib/i18n.js';
 
 interface Props {
@@ -176,5 +177,6 @@ const showLangToggle = active !== 'manage' && active !== 'schedule-builder';
       return { ok: true, status: res.status, ...(data || {}) };
     };
   </script>
+
+  <AgentChatPanel userId={user.id} userRole={user.role} userDisplayName={user.display_name || user.username} />
 </body>
-</html>
