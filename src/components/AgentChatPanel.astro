@@ -467,9 +467,25 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       // message in the DB. Fetch the full message and render its
       // bubble — without this, the 'status' and 'token' updates
       // have no element to write to and the reply never appears.
-      hideThinking();
+      //
+      // The `rendered[data.id]` check must run BEFORE hideThinking(), not
+      // after. The server side (stream.js) resets its `lastAssistantId`
+      // to null on every fresh SSE connection/reconnect, then immediately
+      // re-announces whatever the last assistant message already is as
+      // 'new' on its first poll tick — Vercel's function execution limit
+      // forces exactly this kind of reconnect periodically for any chat
+      // session left open a while. When that false 'new' event landed
+      // during a real turn (user just sent a message, thinking indicator
+      // showing, real reply still in flight), calling hideThinking()
+      // unconditionally here killed the indicator for an OLD message,
+      // well before the actual reply arrived — the bug behind "I don't
+      // see the Thinking text". Checking `rendered[data.id]` first and
+      // bailing out on an already-rendered message (which is exactly what
+      // a reconnect's false 'new' event refers to) fixes it without
+      // touching the server side.
       const data = JSON.parse(e.data);
       if (rendered[data.id]) return;
+      hideThinking();
       const r = await fetch('/api/agent/chat', { credentials: 'same-origin' });
       if (!r.ok) return;
       const history = (await r.json()).history || [];

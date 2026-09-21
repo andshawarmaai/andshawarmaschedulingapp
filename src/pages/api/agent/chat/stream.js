@@ -75,6 +75,28 @@ export async function GET(context) {
         }
       };
 
+      // Prime the baseline from whatever already exists BEFORE the first
+      // tick runs, so a reconnect never re-announces an already-existing
+      // assistant message as 'new'. Vercel's edge closes this connection
+      // after ~5min on the hobby plan (see comment below) and the client
+      // auto-reconnects — each reconnect is a fresh function instance
+      // where lastAssistantId starts back at null, so without priming,
+      // the very first tick always treated the last-known message as
+      // brand new and fired 'new'/'status'/'token' for it even though the
+      // client already rendered it ages ago. On the client, that spurious
+      // 'new' event called hideThinking() for an unrelated OLD message
+      // while a real new turn's reply was still in flight — the bug
+      // behind "the Thinking… indicator doesn't show up."
+      try {
+        const primingHistory = await chat.getChatHistory(me.id, 5);
+        const primingLast = primingHistory.filter((m) => m.role === 'assistant').slice(-1)[0];
+        if (primingLast) {
+          lastAssistantId = primingLast.id;
+          lastSeenContent = primingLast.content;
+          lastSeenStatus = primingLast.status;
+        }
+      } catch (_) { /* fall through — the first real tick just starts from null again */ }
+
       // Initial tick + interval. ~600ms keeps token updates feeling live
       // without hammering the DB.
       await tick();
