@@ -1,0 +1,45 @@
+# Vercel deploy-time excludes. Without this file, Vercel uploads
+# everything not in .gitignore, which means it tries to ship
+# node_modules/, .vercel/output/ (previous build artifacts), etc.
+# Each of those is 20-200MB and the upload alone can take 5-10
+# minutes over residential connections.
+#
+# Keep this list synced with .gitignore but keep deploy-only
+# directories here even if they're already gitignored, because
+# .gitignore is for git, not for Vercel's pre-build file walker.
+node_modules/
+.vercel/
+dist/
+.astro/
+db/.local-data.json
+db/backups/
+.env
+.env.local
+.env.*
+training-data/adapters/
+training-data/fused-model/
+.mlx-venv/
+.agents/
+.claude/skills/
+.claude/scheduled_tasks.lock
+skills-lock.json
+CHAT_BOT_HANDOFF_*
+CHATBOT-TRAINING.md
+AGENT-SKILL.md
+AGENT-TRAINING.md
+CHAT_BOT*.md
+CHAT_BOT_DEBUG_HANDOFF.md
+CHAT_BOT_HANDOFF_TO_HERMES_DEPLOY_VERIFIED.md
+CHAT_BOT_HANDOFF_TO_HERMES_HYBRID_PAUSED.md
+CHAT_BOT_HANDOFF_TO_HERMES_MATCHER_SHIPPED.md
+CHAT_BOT_HANDOFF_V2.md
+CHAT_BOT_HANDOFF_V3.md
+CHAT_BOT_HANDOFF_V4.md
+CHAT_BOT_HANDOFF_V5.md
+CHAT_BOT_HANDOFF_V6.md
+CHAT_BOT_HANDOFF_V7.md
+CHAT_BOT_HANDOFF_V8_TEST_RESULTS.md
+CHAT_BOT_HANDOFF_V9_FOLLOWUP.md
+CHAT_BOT_HANDOFF_V9_TEST_RESULTS.md
+scripts/create-staff.mjs
+seed-conn.mjs
