@@ -363,12 +363,17 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
   // Direct DB access is one round-trip, no auth-redirect race, and is
   // the same data /api/state returns anyway. See CHAT_BOT_HANDOFF_V9_FOLLOWUP.md.
   async function buildLiveState({ userId }) {
+    // Don't silently swallow errors here — if shifts list fails we WANT to
+    // know, otherwise the bot tells the user "you have no shifts" when
+    // the DB just threw an exception. Log + rethrow so the orchestrator's
+    // outer catch shows it.
     const [users, shifts, shiftTemplates] = await Promise.all([
-      db.listUsers().catch(() => []),
-      db.listShifts().catch(() => []),
-      db.listShiftTemplates().catch(() => []),
+      db.listUsers(),
+      db.listShifts(),
+      db.listShiftTemplates(),
     ]);
     const today = new Date().toISOString().slice(0, 10);
+    console.log(`[buildLiveState] userId=${userId} users=${users.length} shifts=${shifts.length} templates=${shiftTemplates.length} today=${today}`);
     return {
       users: users.map((u) => ({ username: u.username, display_name: u.display_name, role: u.role, id: u.id })),
       shiftTemplates: (shiftTemplates || []).map((t) => ({
