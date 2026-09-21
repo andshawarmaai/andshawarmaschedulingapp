@@ -451,9 +451,10 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
     },
     history,
     state: {
-      users: (state.users || []).map((u) => ({ username: u.username, display_name: u.display_name, role: u.role })),
-      shiftTemplates: state.shiftTemplates,
-      upcomingShifts: (state.shifts || []).filter((s) => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 30),
+      users: (state.users || []).map((u) => ({ username: u.username, display_name: u.display_name, role: u.role, id: u.id })),
+      shiftTemplates: state.shiftTemplates || [],
+      // buildLiveState already filters to today+ and slices to 30, so just pass it through.
+      upcomingShifts: state.upcomingShifts || [],
     },
     guide,
   };
