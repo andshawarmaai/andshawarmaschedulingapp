@@ -322,3 +322,39 @@ explicit complaint that the staff Schedule and the admin Schedule Builder
 3. If you touched anything in `src/lib/db/*`: sanity-check the change makes sense against **both** `local.js` and `neon.js` — a partial-update bug in one backend and not the other is exactly how both bugs in §7 shipped.
 4. For a UI change: run the dev server, actually click/drag/right-click the feature, check the browser console for errors — don't rely on a clean build alone.
 5. For a bulk-import change: hit the endpoint with a real payload (a handful of `shift`/`cap`/`swap` rows) and check `/api/state` reflects it, plus at least one deliberately-bad row to confirm the all-or-nothing validation still rejects cleanly.
+
+## 11. Cloudflare Tunnel + local Hermes bridge (added 2026-09-21)
+
+The Vercel-hosted app talks to a local node bridge running on the owner's Mac (`scripts/hermes-bridge.mjs`) over a Cloudflare quick tunnel. The owner wanted to use a local LLM API key (their own subscription) instead of paying per-message to a cloud provider. The full plumbing:
+
+- **`scripts/hermes-bridge.mjs`** listens on `127.0.0.1:7890`. POST `/` (or `/chat`) accepts the orchestrator's payload `{ message, history, state, guide }`, logs it to stdout, and writes a stub reply back via the Vercel relay endpoints (`POST /api/admin/agent-chat/reply`). Currently a STUB - the real Hermes session is supposed to replace this with intelligent processing. To swap in real Hermes: replace the body of `processMessage()` with `agent.process(payload)` and write the actual reply content.
+- **`/api/admin/settings/tunnel.js`** stores the tunnel URL in `app_settings` (AES-256-GCM encrypted), GETs return `{ tunnel_url, reachable, mode: 'tunnel'|'cloud'|'offline' }` based on a 2-second `/health` probe, POST validates by probing before saving, DELETE clears it.
+- **`/api/admin/settings/chat-source.js`** decides the routing mode (`hermes` / `cloud` / `hybrid` / `offline`). `hybrid` tries tunnel first, falls back to cloud on failure.
+- **`/api/agent/chat`** orchestrator reads both settings and dispatches the message accordingly. Cloud mode calls `cloudCfg.provider.chat()` with `messages + system prompt + guide` and parses the ` ```json { actions: [...] } ``` ` block out of the reply text. Tunnel mode POSTs the JSON payload to the tunnel URL and expects `{ content, actions: [] }` back.
+- **Tunnel auto-restart + URL sync on the Mac.** Two LaunchAgents keep the system alive:
+  - `~/Library/LaunchAgents/com.shawarma.cloudflared.plist` - runs `cloudflared tunnel --url http://127.0.0.1:7890 --no-autoupdate`, `KeepAlive=true`, restarts on crash/reboot.
+  - `~/Library/LaunchAgents/com.shawarma.tunnel-watcher.plist` - runs `~/.cloudflared/auto-update-app.sh`, polls `/tmp/cf-tunnel.err.log` for new `*.trycloudflare.com` URLs every 10s, POSTs each new URL to `/api/admin/settings/tunnel` so the app picks it up automatically.
+- **`~/.cloudflared/`** holds the tunnel runner (note: `/tmp/cloudflared` is the actual binary, `/usr/local/bin/cloudflared` is a stub - Hermes copies `/tmp` over `/usr/local` if needed). Bridge script lives at `scripts/hermes-bridge.mjs`; bring it up with `cd /Users/testuser/andshawarma-scheduling && { node scripts/hermes-bridge.mjs & } ;`.
+- **Quick tunnel caveat.** `cloudflared tunnel --url` gives a random `https://<random>.trycloudflare.com` URL that changes on every restart. The watcher handles this transparently - the URL the customer sees (the Vercel domain) never changes; only the back-end tunnel URL rotates. To get a permanent URL would require a Cloudflare domain + a named tunnel (`cloudflared tunnel create <name>`), but the owner has not purchased one yet.
+
+## 12. Chat attachments (photos + PDFs + text docs; added 2026-09-21)
+
+The chat bot lets staff and managers send **photos**, **PDFs**, and **text/doc documents** (no audio, no video, no spreadsheets - owner confirmed this scope). All UI uses inline SVGs, no emoji. Drag-drop on desktop, native camera (`capture="environment"`) on mobile, paperclip button opens the file picker.
+
+- **Schema.** `agent_chat_attachments` table: `id, message_id (FK->agent_chat_messages), user_id, filename, mime_type, byte_size, storage_path, created_at`. Indexed on `message_id` and `user_id`.
+- **Storage.** Files written to `os.tmpdir()/chat-uploads/<uuid>__<safe-filename>` - the server's local `/tmp`. On Vercel this is tmpfs: survives within a single warm instance but NOT across cold starts. The GET endpoint returns `410 Gone` if the file vanished so the UI shows a clean "file no longer available" chip instead of a stack trace. For long-lived storage, move to Cloudflare R2 (free 10GB egress/month on the same account).
+- **Upload endpoint** (`POST /api/agent/chat/upload`). Multipart form-data, field name `file`. Optional `message_id` to attach directly to an existing message; otherwise creates a placeholder user-message row so the FK is satisfied, then the chat POST re-links the attachment to the real message. Max 10 MB per file (matches Cloudflare tunnel free-tier body cap).
+- **Serve endpoint** (`GET /api/agent/chat/attachments/[id]`). Streams the file from disk. Auth: uploader OR any admin/manager. Sets `Content-Disposition: inline` for browser preview + click-to-download.
+- **Chat POST** (`/api/agent/chat`). Accepts either JSON `{ content, attachment_ids? }` or multipart. When attachments are linked, the orchestrator's payload to the agent now includes `message.attachments = [{ id, filename, mime_type, byte_size, storage_path, base64 }]`. Files ≤2 MB get the base64 inlined; larger files send metadata only (cloud provider can't reach server tmpfs, so it tells the user the file is too large to inline-attach).
+- **UI** (`src/components/AgentChatPanel.astro`). All icons are inline SVGs (Feather Icons-style) - no emoji. Paperclip button on the textarea opens the file picker (`accept="image/*,application/pdf,text/*,.doc,.docx,.txt"`, `capture="environment"`, `multiple`). Drag-drop on the chat panel highlights with a dashed outline. Pending uploads show as chips above the textarea with a remove × button. Sent messages render image MIME types as inline thumbnails (click -> full size in new tab), everything else as file chips with SVG icon + filename + size.
+
+## 13. Deployment topology - current (corrected 2026-09-21)
+
+The repo is pushed to **one** GitHub repo (`andshawarmaai/andshawarmaschedulingapp`, remote `origin`), deploying to **one** Vercel project (`andshawarmaschedulingapp`, id `prj_myeSrvOqeHDVKRTuZNm7UdpWPHw6`), with **one** Neon database. Live URL: `https://andshawarmaschedulingapp.vercel.app`.
+
+The earlier "two repos / two Vercel projects / two Neon databases" model documented in §2 of this file is **stale and incorrect**. The orphan `therayally/andshawarmatest` remote will 403 on push (the GitHub account `andshawarmaai` lacks write access), so do NOT `git push customer`. Push to `origin` only.
+
+Deploy command:
+```bash
+cd /Users/testuser/andshawarma-scheduling && /Users/testuser/.local/node_modules/.bin/vercel deploy --prod --yes --token "$VERCEL_TOKEN"
+```

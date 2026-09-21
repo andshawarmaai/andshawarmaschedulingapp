@@ -2,9 +2,21 @@
 
 A staff scheduling app for a single restaurant: shifts, time-off requests,
 shift swaps, and an admin panel — with a bulk CSV importer and an
-API-key-authenticated endpoint so an external AI assistant (e.g. Hermes,
-reached over Telegram on its own end) can update the schedule without
-anyone opening the UI.
+API-key-authenticated endpoint so an external AI assistant (Hermes,
+reached over a Cloudflare Tunnel from the owner's Mac) can update the
+schedule without anyone opening the UI. Also includes a floating chat
+bot on every page that lets staff and managers ask in plain English
+("schedule Jorge Friday 11-7pm", "who's working Thursday lunch?") and
+attach photos, PDFs, and text documents.
+
+Live at `https://andshawarmaschedulingapp.vercel.app` (one Vercel
+project, one Neon database, one GitHub repo at
+`andshawarmaai/andshawarmaschedulingapp`).
+
+For architecture, data model, business rules, deployment, tunnel setup,
+and integration details, see **`CLAUDE.md`** (the agent reference) and
+**`HANDOFF.md`** (the handoff brief). CLAUDE.md is the living source
+of truth — keep it current in the same commit as any change.
 
 This doc is written so a developer **or an AI coding agent** can deploy
 this from a completely empty state with no prior context. Every command
