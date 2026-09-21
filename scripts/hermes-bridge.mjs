@@ -25,7 +25,15 @@ import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.PORT || 7890);
 const HERMES_BIN = process.env.HERMES_BIN || '/Users/testuser/.local/bin/hermes';
-const REQUEST_TIMEOUT_MS = 55_000;
+const REQUEST_TIMEOUT_MS = 58_000;
+// Just below Vercel's hobby-plan maxDuration cap (60s as of writing —
+// see astro.config.mjs / src/pages/api/agent/chat/index.js comment).
+// Was 55s which gave the LLM ~5s of headroom. MiniMax-M3 + a non-trivial
+// prompt occasionally needs the full 60s; 55 → 58 buys ~3 more seconds
+// before SIGTERM, still safely under the platform cutoff so this isn't
+// taking the user past the moment Vercel would force-kill the function
+// anyway. If MiniMax genuinely needs longer than this, the orchestrator
+// surfaces a "slow LLM" status rather than letting the fetch hang.
 // Set once scripts/mcp-server.mjs is registered (`hermes mcp add shawarma
 // --command "node /path/to/mcp-server.mjs"`). Confirm the exact toolset
 // name with `hermes mcp list` after adding it — it may not be exactly

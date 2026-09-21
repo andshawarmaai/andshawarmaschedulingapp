@@ -20,6 +20,14 @@
   --color-success: #16a34a;
   --color-warning: #ea580c;
   --color-pending: #ca8a04;
+  /* Chat accent palette. `--color-accent` is the bright solid (send
+     button, user bubble, attach hover). `--color-accent-dark` is the
+     very-dark variant reserved for animated text gradients (the
+     "Thinking…" sweep), so it stays muted against any panel
+     background. When swapping colors later, change BOTH here and the
+     rest of the chat panel picks up the new dark gradient automatically. */
+  --color-accent: #f59e0b;
+  --color-accent-dark: #92400e;
   --font-heading: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 10px 24px -8px rgba(0, 0, 0, 0.16);
   --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.08), 0 20px 44px -12px rgba(0, 0, 0, 0.28);
