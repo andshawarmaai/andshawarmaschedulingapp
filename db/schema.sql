@@ -428,3 +428,19 @@ CREATE TABLE IF NOT EXISTS agent_chat_attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_chat_attachments_message ON agent_chat_attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_agent_chat_attachments_user ON agent_chat_attachments(user_id);
+
+-- ─── Chat security log ────────────────────────────────────────────────────
+-- Every suspicious / off-topic / prompt-injection / credential-phishing
+-- event in the in-app chat bot is recorded here for admin review. Written
+-- by /api/agent/chat's orchestrator after it inspects the message and the
+-- agent's reply. Read by /api/admin/agent-chat/security.
+CREATE TABLE IF NOT EXISTS chat_security_log (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind            TEXT NOT NULL,  -- 'off_topic_refusal' | 'prompt_injection' | 'credential_phish' | 'abuse'
+  message_excerpt TEXT NOT NULL,
+  agent_reply     TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_security_log_user ON chat_security_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_security_log_created ON chat_security_log(created_at DESC);

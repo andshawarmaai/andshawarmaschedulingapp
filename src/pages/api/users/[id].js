@@ -24,7 +24,7 @@ export async function PATCH(context) {
   }
   if (body.disabled !== undefined) updates.disabled = !!body.disabled;
   if (body.password) {
-    if (String(body.password).length < 4) return json({ error: 'Password must be at least 4 characters.' }, 400);
+    if (String(body.password).length < 3) return json({ error: 'Password must be at least 3 characters.' }, 400);
     updates.password = String(body.password);
   }
   if (body.tier_id !== undefined) {

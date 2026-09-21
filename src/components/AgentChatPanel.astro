@@ -48,7 +48,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
           <span class="agent-chat-attach-label">Attach</span>
         </label>
         <input type="file" id="agent-chat-file" class="agent-chat-file" accept="image/*,application/pdf,text/*,.doc,.docx,.txt" multiple capture="environment" hidden>
-        <textarea id="agent-chat-input" placeholder="Schedule Jorge Friday 11-7pm, post Adnan's Saturday shift for swap, cap Friday lunch at 2..." rows="2"></textarea>
+        <textarea id="agent-chat-input" placeholder="" rows="2"></textarea>
         <button type="submit" id="agent-chat-send" class="agent-chat-send">Send</button>
       </div>
     </form>
@@ -361,8 +361,47 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     }
   }
 
+  // Only auto-scroll if the user is already near the bottom (within 80px).
+  // If they've scrolled up to read history, leave their scroll position
+  // alone — otherwise it jumps around while they're trying to read.
   function scrollToBottom() {
+    const distanceFromBottom = history.scrollHeight - history.scrollTop - history.clientHeight;
+    if (distanceFromBottom < 80) {
+      history.scrollTop = history.scrollHeight;
+    }
+  }
+
+  // Force-scroll regardless (used after the user clicks Send — we just
+  // appended a message so they obviously want to follow it).
+  function scrollToBottomForce() {
     history.scrollTop = history.scrollHeight;
+  }
+
+  // === THINKING INDICATOR ===
+  // A small "Chat Bot is thinking…" bubble shown right after the user
+  // hits Send, removed as soon as the assistant's bubble appears (via
+  // SSE 'new' or 'status'). Shows a triple-dot animation so the user
+  // knows the bot is working, not stuck.
+  let thinkingEl = null;
+  function showThinking() {
+    if (thinkingEl) return;
+    thinkingEl = document.createElement('div');
+    thinkingEl.className = 'agent-chat-msg agent-chat-msg-assistant agent-chat-thinking';
+    thinkingEl.id = 'agent-chat-thinking';
+    const who = document.createElement('div');
+    who.className = 'agent-chat-who';
+    who.innerHTML = 'Chat Bot <span class="agent-chat-thinking-dots"><span></span><span></span><span></span></span>';
+    const body = document.createElement('div');
+    body.className = 'agent-chat-text';
+    body.textContent = 'Thinking…';
+    thinkingEl.appendChild(who);
+    thinkingEl.appendChild(body);
+    history.appendChild(thinkingEl);
+    scrollToBottomForce();
+  }
+  function hideThinking() {
+    if (thinkingEl && thinkingEl.parentNode) thinkingEl.parentNode.removeChild(thinkingEl);
+    thinkingEl = null;
   }
 
   function connectSSE() {
@@ -375,6 +414,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       // message in the DB. Fetch the full message and render its
       // bubble — without this, the 'status' and 'token' updates
       // have no element to write to and the reply never appears.
+      hideThinking();
       const data = JSON.parse(e.data);
       if (rendered[data.id]) return;
       const r = await fetch('/api/agent/chat', { credentials: 'same-origin' });
@@ -452,6 +492,13 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       pendingEl.innerHTML = '';
       // Render the user message immediately; SSE will pick up the assistant reply
       render(data.message, { [data.message.id]: [] });
+      // Show the "Chat Bot is thinking…" indicator immediately so the
+      // user knows the assistant is working while the SSE stream waits
+      // for the reply. Removed as soon as the assistant bubble appears.
+      showThinking();
+      // Force-scroll after the user hits Send — they just sent a message,
+      // they obviously want to follow it down.
+      scrollToBottomForce();
       // Optimistically render any pending attachments under this message
       // until the SSE-driven history refresh replaces it with the
       // server-side list.
@@ -485,6 +532,11 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     } finally {
       sendBtn.disabled = false;
       input.focus();
+      // If the request failed before the SSE 'new' fired (network error,
+      // 500 response, etc.), the thinking indicator would otherwise stay
+      // forever. The submit handler's catch block already shows an alert;
+      // here we just make sure the spinner is gone.
+      hideThinking();
     }
   });
 

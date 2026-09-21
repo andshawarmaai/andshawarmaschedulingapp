@@ -80,3 +80,15 @@ export async function deleteChatAttachment(id) {
 export async function clearChatForUser(user_id) {
   return dbCore.clearChatForUser(user_id);
 }
+
+
+// ─── Security log ──────────────────────────────────────────────────────────
+// Records suspicious / off-topic / prompt-injection events from the chat
+// orchestrator. Read back by /api/admin/agent-chat/security for review.
+export async function createChatSecurityEvent({ user_id, kind, message_excerpt, agent_reply, request_id }) {
+  return dbCore.createChatSecurityEvent({ user_id, kind, message_excerpt, agent_reply, request_id });
+}
+
+export async function listChatSecurityEvents({ limit } = {}) {
+  return dbCore.listChatSecurityEvents({ limit });
+}

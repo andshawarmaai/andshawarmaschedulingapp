@@ -65,8 +65,8 @@ export async function POST(context) {
   if (!isStaffOrAbove(me.role)) return json({ error: 'Forbidden' }, 403);
   const body = await context.request.json().catch(() => null);
   const mode = body?.mode;
-  if (!['hermes', 'cloud', 'hybrid', 'stub'].includes(mode)) {
-    return json({ error: 'mode must be one of: hermes, cloud, hybrid, stub.' }, 400);
+  if (!['hermes', 'cloud', 'hybrid'].includes(mode)) {
+    return json({ error: 'mode must be one of: hermes, cloud, hybrid.' }, 400);
   }
   const encrypted = encryptSecret(JSON.stringify({ mode }));
   await dbCore.setSetting(SETTINGS_KEY, encrypted, me.id);
@@ -77,11 +77,11 @@ export async function POST(context) {
 // is included so the orchestrator doesn't need to make a second DB call.
 export async function getActiveChatSource() {
   const raw = await dbCore.getSetting(SETTINGS_KEY);
-  let mode = 'stub';
+  let mode = 'hermes';
   if (raw) {
     try {
       const v = JSON.parse(decryptSecret(raw));
-      mode = v.mode || 'stub';
+      mode = v.mode || 'hermes';
     } catch (_) { /* corrupt */ }
   }
   // Lazily import to avoid a circular dep

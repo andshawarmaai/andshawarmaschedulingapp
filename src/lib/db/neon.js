@@ -885,6 +885,58 @@ export async function clearChatForUser(user_id) {
   return result.length;
 }
 
+
+// Lazy self-healing: the chat_security_log table is created on first
+// use if it doesn't already exist. Cheaper than a manual migration step
+// (db/apply-schema.mjs), and survives both fresh DBs and ones that
+// already have the table from a prior schema run. Module-level flag
+// means we only attempt this once per server lifetime — never on the
+// hot path.
+let _chatSecuritySchemaEnsured = false;
+async function ensureChatSecuritySchema() {
+  if (_chatSecuritySchemaEnsured) return;
+  await sql`
+    CREATE TABLE IF NOT EXISTS chat_security_log (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind            TEXT NOT NULL,
+      message_excerpt TEXT NOT NULL,
+      agent_reply     TEXT NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_chat_security_log_user ON chat_security_log(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_chat_security_log_created ON chat_security_log(created_at DESC)`;
+  _chatSecuritySchemaEnsured = true;
+}
+
+// ─── Chat security log ────────────────────────────────────────────────────
+// Every suspicious / off-topic / prompt-injection event in the chat is
+// recorded here for admin review. Admin/manager can list recent events
+// via /api/admin/agent-chat/security.
+export async function createChatSecurityEvent({ user_id, kind, message_excerpt, agent_reply, request_id }) {
+  await ensureChatSecuritySchema();
+  const id = request_id || crypto.randomUUID();
+  await sql`
+    INSERT INTO chat_security_log (id, user_id, kind, message_excerpt, agent_reply, created_at)
+    VALUES (${id}, ${user_id}, ${kind},
+            ${(message_excerpt || '').slice(0, 500)},
+            ${(agent_reply || '').slice(0, 500)},
+            now())
+  `;
+  return { id, user_id, kind, message_excerpt, agent_reply };
+}
+
+export async function listChatSecurityEvents({ limit = 200 } = {}) {
+  await ensureChatSecuritySchema();
+  return sql`
+    SELECT id, user_id, kind, message_excerpt, agent_reply, created_at
+    FROM chat_security_log
+    ORDER BY created_at DESC
+    LIMIT ${Math.min(Math.max(Number(limit) || 200, 1), 1000)}
+  `;
+}
+
 // ─── App settings (encrypted key/value) ────────────────────────────────────
 
 export async function getSetting(key) {

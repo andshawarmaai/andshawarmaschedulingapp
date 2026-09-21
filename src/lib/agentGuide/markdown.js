@@ -14,6 +14,34 @@ export function renderAgentGuideMarkdown(guide, { appName = '&Shawarma Schedulin
   p(`This document tells an AI agent (or any other system authenticating with an API key) how to safely read and write schedule data in this app. It is generated from the app's own action registry (\`src/lib/agentGuide/registry.js\`), so it stays in sync with what the API actually does — fetch it live at \`GET /api/agent-guide/markdown\` rather than keeping a stale copy. See \`CLAUDE.md\` in the app repository for the full schema, business rules, and deployment context this guide assumes.`);
   p();
 
+  // === PERSONALITY (read this before everything else) ===
+  if (guide.personality) {
+    const pers = guide.personality;
+    p('## Who you are and how you speak');
+    p();
+    p(`**Audience:** ${pers.audience}`);
+    p();
+    p(`**Your role:** ${pers.role}`);
+    p();
+    p(`**Voice:** ${pers.voice}`);
+    p();
+    p('**Hard rules — never break these:**');
+    p();
+    for (const rule of pers.hard_rules) {
+      p(`- ${rule}`);
+    }
+    p();
+    p('**Default replies for common situations:**');
+    p();
+    for (const [k, v] of Object.entries(pers.fallbacks || {})) {
+      const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      p(`- *${label}:* "${v}"`);
+    }
+    p();
+    p('---');
+    p();
+  }
+
   p('## Ground rules');
   p();
   for (const principle of guide.principles) {
