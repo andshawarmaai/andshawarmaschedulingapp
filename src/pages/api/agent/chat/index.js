@@ -437,6 +437,16 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
   // instructions: a ```json``` block with the actions, then the reply.
   let content = '';
   let actions = [];
+  // Set by hermes-bridge.mjs only when its scheduling MCP toolset was
+  // enabled for this call — meaning Hermes already executed any real
+  // actions itself, directly against this app's API (see
+  // scripts/mcp-server.mjs). An empty `actions` array in that case is
+  // correct and expected, not a sign anything was skipped: there is
+  // nothing left for this orchestrator to execute, and no missing-block
+  // retry to attempt (that heuristic exists for the OLD text-plus-JSON
+  // approach this replaces — firing it here would just waste a second
+  // Hermes call on every single successful MCP turn).
+  const mcpExecuted = typeof assistantText === 'object' && assistantText !== null && !!assistantText.mcp_executed;
   if (typeof assistantText === 'object' && assistantText !== null) {
     content = assistantText.content || '';
     actions = Array.isArray(assistantText.actions) ? assistantText.actions : [];
@@ -461,7 +471,7 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
   // is never shown to the user, so there's no cost to asking the model to
   // try again. Retry once, only when the user's own message plausibly
   // asked for a real change (not e.g. "hello" or "who's working Thursday").
-  const impliesAction = actions.length === 0 && /\b(schedul|assign|add|mov|delet|remov|swap|post|creat|updat|cancel|chang|book|put)\w*\b/i.test(userMsg.content);
+  const impliesAction = !mcpExecuted && actions.length === 0 && /\b(schedul|assign|add|mov|delet|remov|swap|post|creat|updat|cancel|chang|book|put)\w*\b/i.test(userMsg.content);
   if (impliesAction) {
     const reminder = '\n\n[SYSTEM REMINDER] Your previous reply did not include the required ```json {"actions":[...]}``` block, so nothing was actually done — a plain-English confirmation alone never performs the action. That block is never shown to the user, only your one-sentence reply is, so there is no downside to including it. If the user asked for a real schedule change, emit the block now in the exact format instructed, followed by your plain-English reply.';
     let retryText = null;
