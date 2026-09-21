@@ -528,20 +528,21 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     const hasAttachments = pendingAttachments.length > 0;
     if (!text && !hasAttachments) return;
     sendBtn.disabled = true;
-    let sentOk = false; // see the finally block — don't kill the indicator on success
+    let sentOk = false;
+    // 60s hard cap on the chat fetch. Hermes/MiniMax can take 5-15s
+    // worst case; matcher <50ms; the bridge times out at 58s. Without
+    // a signal, the browser's default fetch timeout (~30s) was cancelling
+    // legitimate LLM calls mid-flight (CHAT-ABORT user-visible bug).
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
     try {
-      // Send as multipart when there are attachments (so we can include
-      // attachment_ids as form fields cleanly); otherwise plain JSON like
-      // before. The server accepts both.
       let r;
       if (hasAttachments) {
         const fd = new FormData();
         fd.append('content', text);
         for (const a of pendingAttachments) fd.append('attachment_ids', a.id);
         r = await fetch('/api/agent/chat', {
-          method: 'POST',
-          credentials: 'same-origin',
-          body: fd,
+          method: 'POST', credentials: 'same-origin', body: fd, signal: ctrl.signal,
         });
       } else {
         r = await fetch('/api/agent/chat', {
@@ -549,6 +550,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: text }),
+          signal: ctrl.signal,
         });
       }
       if (!r.ok) {
@@ -561,8 +563,51 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       input.value = '';
       pendingAttachments.length = 0;
       pendingEl.innerHTML = '';
-      // Render the user message immediately; SSE will pick up the assistant reply
+      // Render the user's bubble immediately; SSE will deliver the bot reply.
       render(data.message, { [data.message.id]: [] });
+      // Show the thinking indicator — kept up until the real reply arrives
+      // (via SSE 'new' / 'token' events). The bridge takes 5-15s on LLM
+      // calls; the matcher <50ms. Old code hid this on success immediately,
+      // making the indicator flicker and vanish. (953b00e.)
+      showThinking('Warming up…');
+      scrollToBottomForce();
+      // Optimistic attachment rendering on the user's bubble until the
+      // SSE-driven history refresh replaces it with the server-side list.
+      const msgEl = rendered[data.message.id];
+      if (msgEl) {
+        const attEl = document.createElement('div');
+        attEl.className = 'agent-chat-attachments';
+        for (const a of (pendingAttachments || [])) {
+          if ((a.mime_type || '').startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = a.url;
+            img.alt = a.filename;
+            img.className = 'agent-chat-thumb';
+            attEl.appendChild(img);
+          } else {
+            const chip = document.createElement('a');
+            chip.href = a.url;
+            chip.target = '_blank';
+            chip.rel = 'noopener';
+            chip.className = 'agent-chat-file-chip';
+            chip.innerHTML = `<span>${fileIcon(a.mime_type)}</span><span>${escapeHtml(a.filename)}</span>`;
+            attEl.appendChild(chip);
+          }
+        }
+        if (attEl.children.length) {
+          const who = msgEl.querySelector('.agent-chat-who');
+          if (who) msgEl.insertBefore(attEl, who.nextSibling);
+        }
+      }
+      scrollToBottom();
+    } finally {
+      clearTimeout(timer);
+      sendBtn.disabled = false;
+      input.focus();
+      // If the request failed before SSE 'new' fired, the indicator
+      // would otherwise stay forever. The submit handler's catch shows
+      // an alert; here we just make sure the spinner is gone.
+      if (!sentOk) hideThinking();
       // Show the "Chat Bot is thinking…" indicator immediately so the
       // user knows the assistant is working while the SSE stream waits
       // for the reply. Removed ONLY when the assistant bubble appears
