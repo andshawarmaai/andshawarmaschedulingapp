@@ -5,7 +5,7 @@
 // managers/admins additionally get write-side actions ("schedule Jorge
 // Friday 11-7", "approve pending requests"). Mounted globally via
 // Layout.astro so it follows the user everywhere. Role gating of every
-// actual write is enforced server-side by middleware.js — this panel
+// actual write is enforced server-side by middleware.js  -  this panel
 // just shows/hides affordances and the AI is told the user's role.
 //
 // Architecture: messages go to POST /api/agent/chat → persisted as
@@ -31,9 +31,11 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     <header class="agent-chat-header">
       <div>
         <strong>Chat Bot</strong>
-        <span class="agent-chat-status" id="agent-chat-status">connecting…</span>
+        <span class="agent-chat-status" id="agent-chat-status">connecting...</span>
       </div>
-      <button type="button" id="agent-chat-close" class="agent-chat-close" aria-label="Close">×</button>
+      <button type="button" id="agent-chat-close" class="agent-chat-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </header>
 
     <div id="agent-chat-history" class="agent-chat-history"></div>
@@ -41,9 +43,11 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     <form id="agent-chat-form" class="agent-chat-form" autocomplete="off">
       <div id="agent-chat-pending-attachments" class="agent-chat-pending"></div>
       <div class="agent-chat-input-row">
-        <button type="button" id="agent-chat-attach" class="agent-chat-attach" aria-label="Attach file" title="Attach photo or file">📎</button>
-        <input type="file" id="agent-chat-file" class="agent-chat-file" accept="image/*,application/pdf,audio/*,video/*,.doc,.docx,.xls,.xlsx,.txt" multiple capture="environment" hidden>
-        <textarea id="agent-chat-input" placeholder="Schedule Jorge Friday 11-7pm, post Adnan's Saturday shift for swap, cap Friday lunch at 2…" rows="2"></textarea>
+        <button type="button" id="agent-chat-attach" class="agent-chat-attach" aria-label="Attach photo or document" title="Attach photo or document">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <input type="file" id="agent-chat-file" class="agent-chat-file" accept="image/*,application/pdf,text/*,.doc,.docx,.txt" multiple capture="environment" hidden>
+        <textarea id="agent-chat-input" placeholder="Schedule Jorge Friday 11-7pm, post Adnan's Saturday shift for swap, cap Friday lunch at 2..." rows="2"></textarea>
         <button type="submit" id="agent-chat-send" class="agent-chat-send">Send</button>
       </div>
     </form>
@@ -51,13 +55,13 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     <details class="agent-chat-help">
       <summary>What can I ask?</summary>
       <ul id="agent-chat-help-list">
-        <li><b>When am I working?</b> — "what's my schedule this week?"</li>
-        <li><b>Request time off</b> — "I need next Friday off"</li>
-        <li><b>Submit availability</b> — "I'm free Mon-Wed next week 9-5"</li>
-        <li><b>Post a shift for swap</b> — "put my Saturday shift up for swap"</li>
-        <li><b>Volunteer for a swap</b> — "I'll take Bhanu's Sunday shift"</li>
+        <li><b>When am I working?</b>  -  "what's my schedule this week?"</li>
+        <li><b>Request time off</b>  -  "I need next Friday off"</li>
+        <li><b>Submit availability</b>  -  "I'm free Mon-Wed next week 9-5"</li>
+        <li><b>Post a shift for swap</b>  -  "put my Saturday shift up for swap"</li>
+        <li><b>Volunteer for a swap</b>  -  "I'll take Bhanu's Sunday shift"</li>
       </ul>
-      <p class="agent-chat-help-foot">Hermes acts as you — it can only do what your role allows, and approving requests stays human-only.</p>
+      <p class="agent-chat-help-foot">Hermes acts as you  -  it can only do what your role allows, and approving requests stays human-only.</p>
     </details>
   </div>
 </div>
@@ -68,15 +72,15 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   if (!root) return;
   // Add role-specific help items so managers see schedule-builder actions,
   // staff sees their own request actions. Server enforces role on every
-  // endpoint — this just makes the panel's suggestions match what the
+  // endpoint  -  this just makes the panel's suggestions match what the
   // user can actually do.
   const helpList = document.getElementById('agent-chat-help-list');
   if (helpList && (userRole === 'admin' || userRole === 'manager')) {
     const extras = [
-      ['<li><b>Add/move/delete a shift</b> — "schedule Jorge Friday 11-7pm"</li>'],
-      ['<li><b>Edit shift templates</b> — "make Mid AM require 4 people"</li>'],
-      ['<li><b>Day caps</b> — "cap Friday lunch at 2 people"</li>'],
-      ['<li><b>Bulk operations</b> — paste a CSV or describe a whole week</li>'],
+      ['<li><b>Add/move/delete a shift</b>  -  "schedule Jorge Friday 11-7pm"</li>'],
+      ['<li><b>Edit shift templates</b>  -  "make Mid AM require 4 people"</li>'],
+      ['<li><b>Day caps</b>  -  "cap Friday lunch at 2 people"</li>'],
+      ['<li><b>Bulk operations</b>  -  paste a CSV or describe a whole week</li>'],
     ];
     for (const [html] of extras) helpList.insertAdjacentHTML('beforeend', html);
   }
@@ -93,7 +97,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   let sse = null;
   let currentAssistantId = null;
   const rendered = {}; // message id -> element
-  const pendingAttachments = []; // [{ id, filename, mime_type, byte_size, url }] — uploaded but message not yet sent
+  const pendingAttachments = []; // [{ id, filename, mime_type, byte_size, url }]  -  uploaded but message not yet sent
 
   function open() {
     isOpen = true;
@@ -166,7 +170,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
         });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
-          slot.replaceWith(pendingChip(file.name, '⚠ ' + (err.error || r.status), true));
+          slot.replaceWith(pendingChip(file.name, (err.error || r.status), true));
           continue;
         }
         const data = await r.json();
@@ -180,20 +184,46 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
         slot.replaceWith(realChip);
         pendingAttachments.push(data.attachment);
       } catch (err) {
-        slot.replaceWith(pendingChip(file.name, '⚠ upload failed', true));
+        slot.replaceWith(pendingChip(file.name, 'upload failed', true));
         console.error(err);
       }
     }
   }
 
+  // ─── Inline SVG icons (no emoji  -  consistent rendering everywhere) ──────
+  // All SVGs share viewBox=0 0 24 24, currentColor stroke, sized via CSS.
+  // Scope: photos + PDFs + text documents only. Audio/video are not part
+  // of the scheduling app's chat use case, so no icons for them.
+  const SVG = {
+    file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+    pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><text x="7" y="18" font-size="6" fill="currentColor" stroke="none" font-weight="bold">PDF</text></svg>',
+    doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>',
+    text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
+  };
+
+  // Map MIME type → SVG icon. Falls back to generic file icon.
+  function fileIcon(mime) {
+    if (!mime) return SVG.file;
+    if (mime.startsWith('image/')) return SVG.image;
+    if (mime === 'application/pdf') return SVG.pdf;
+    if (mime.startsWith('text/')) return SVG.text;
+    if (mime.includes('word') || mime.includes('document') || mime === 'application/msword') return SVG.doc;
+    return SVG.file;
+  }
+
   function pendingChip(name, sub, isError = false, onRemove = null) {
     const el = document.createElement('div');
     el.className = 'agent-chat-pending-chip' + (isError ? ' agent-chat-pending-chip-err' : '');
-    el.innerHTML = `<span>📄 ${escapeHtml(name)}</span><span class="agent-chat-pending-sub">${escapeHtml(sub)}</span>`;
+    el.innerHTML = `<span class="agent-chat-pending-icon">${isError ? SVG.alert : SVG.file}</span><span class="agent-chat-pending-name">${escapeHtml(name)}</span><span class="agent-chat-pending-sub">${escapeHtml(sub)}</span>`;
     if (onRemove) {
       const x = document.createElement('button');
       x.type = 'button';
-      x.textContent = '×';
+      x.setAttribute('aria-label', 'Remove attachment');
+      x.innerHTML = SVG.close;
       x.className = 'agent-chat-pending-x';
       x.title = 'Remove';
       x.addEventListener('click', onRemove);
@@ -205,7 +235,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   function renderPendingPlaceholder(file) {
     const slot = document.createElement('div');
     slot.className = 'agent-chat-pending-chip agent-chat-pending-uploading';
-    slot.innerHTML = `<span>📄 ${escapeHtml(file.name)}</span><span class="agent-chat-pending-sub">uploading ${escapeHtml(prettyBytes(file.size))}…</span>`;
+    slot.innerHTML = `<span class="agent-chat-pending-icon">${SVG.file}</span><span class="agent-chat-pending-name">${escapeHtml(file.name)}</span><span class="agent-chat-pending-sub">uploading ${escapeHtml(prettyBytes(file.size))}...</span>`;
     pendingEl.appendChild(slot);
     return slot;
   }
@@ -257,7 +287,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     }
     wrap.appendChild(who);
 
-    // Attachments — render images as inline thumbnails, everything else
+    // Attachments  -  render images as inline thumbnails, everything else
     // as a downloadable file chip. Pulled from the message-id-keyed map
     // returned by GET /api/agent/chat (one batch fetch).
     const atts = (attachmentsByMessage && attachmentsByMessage[m.id]) || [];
@@ -280,7 +310,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
           chip.target = '_blank';
           chip.rel = 'noopener';
           chip.className = 'agent-chat-file-chip';
-          chip.innerHTML = `<span class="agent-chat-file-icon">${fileEmoji(a.mime_type)}</span><span>${escapeHtml(a.filename)}</span><span class="agent-chat-file-sub">${escapeHtml(prettyBytes(a.byte_size))}</span>`;
+          chip.innerHTML = `<span class="agent-chat-file-icon">${fileIcon(a.mime_type)}</span><span>${escapeHtml(a.filename)}</span><span class="agent-chat-file-sub">${escapeHtml(prettyBytes(a.byte_size))}</span>`;
           attEl.appendChild(chip);
         }
       }
@@ -290,7 +320,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
     if (m.content || m.status === 'pending') {
       const body = document.createElement('div');
       body.className = 'agent-chat-text';
-      body.textContent = m.content || (m.status === 'pending' ? '…' : '');
+      body.textContent = m.content || (m.status === 'pending' ? '...' : '');
       wrap.appendChild(body);
     }
 
@@ -301,18 +331,6 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 
     history.appendChild(wrap);
     rendered[m.id] = wrap;
-  }
-
-  function fileEmoji(mime) {
-    if (!mime) return '📄';
-    if (mime.startsWith('image/')) return '🖼️';
-    if (mime.startsWith('audio/')) return '🎵';
-    if (mime.startsWith('video/')) return '🎬';
-    if (mime === 'application/pdf') return '📕';
-    if (mime.includes('word') || mime.includes('document')) return '📘';
-    if (mime.includes('sheet') || mime.includes('excel')) return '📗';
-    if (mime.startsWith('text/')) return '📝';
-    return '📄';
   }
 
   function prettyBytes(n) {
@@ -335,8 +353,8 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       pill.className = 'agent-chat-pill';
       const ok = a.response_status && a.response_status >= 200 && a.response_status < 300;
       pill.classList.add(ok ? 'agent-chat-pill-ok' : 'agent-chat-pill-err');
-      pill.textContent = (ok ? '✓ ' : '⚠ ') + a.summary;
-      pill.title = a.method + ' ' + a.endpoint + '\n' + (a.response_status || '?') + ' — ' + (a.summary || '');
+      pill.innerHTML = `<span class="agent-chat-pill-icon">${ok ? SVG.check : SVG.alert}</span><span>${escapeHtml(a.summary)}</span>`;
+      pill.title = a.method + ' ' + a.endpoint + '\n' + (a.response_status || '?') + '  -  ' + (a.summary || '');
       slot.appendChild(pill);
     }
   }
@@ -347,7 +365,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 
   function connectSSE() {
     if (sse) try { sse.close(); } catch (_) {}
-    status.textContent = 'connecting…';
+    status.textContent = 'connecting...';
     sse = new EventSource('/api/agent/chat/stream', { withCredentials: true });
     sse.addEventListener('hello', () => { status.textContent = 'connected'; });
     sse.addEventListener('status', (e) => {
@@ -357,7 +375,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
         const dot = el.querySelector('.agent-chat-dot');
         if (dot) dot.dataset.status = data.status;
       }
-      if (data.status === 'streaming') status.textContent = 'typing…';
+      if (data.status === 'streaming') status.textContent = 'typing...';
       if (data.status === 'complete') status.textContent = 'connected';
       if (data.status === 'error') status.textContent = 'error';
     });
@@ -374,7 +392,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
       if (data.actions && data.actions.length) renderActions(data.id, data.actions);
       scrollToBottom();
     });
-    sse.addEventListener('error', () => { status.textContent = 'reconnecting…'; });
+    sse.addEventListener('error', () => { status.textContent = 'reconnecting...'; });
     sse.onerror = () => {
       // Browser auto-reconnects EventSource on close
     };
@@ -439,7 +457,7 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
             chip.target = '_blank';
             chip.rel = 'noopener';
             chip.className = 'agent-chat-file-chip';
-            chip.innerHTML = `<span>${fileEmoji(a.mime_type)} ${escapeHtml(a.filename)}</span>`;
+            chip.innerHTML = `<span>${fileIcon(a.mime_type)}</span><span>${escapeHtml(a.filename)}</span>`;
             attEl.appendChild(chip);
           }
         }
