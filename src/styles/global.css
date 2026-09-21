@@ -775,3 +775,14 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
    instead of the wall-of-text paragraph it replaced. */
 .help-list { margin:0; padding-left:1.25rem; display:flex; flex-direction:column; gap:0.625rem; font-size:0.875rem; line-height:1.5; }
 .help-list li { padding-left:0.125rem; }
+
+/* Hide Vercel Toolbar injection — only renders for project owners
+   on production URLs, sits on top of the chat FAB at z-index 999999 and
+   eats clicks. Disabling from project settings is on hold until the
+   24h deploy quota resets. */
+vercel-toolbar, vercel-toolbar-launcher,
+#vercel-toolbar, [data-vercel-toolbar] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
