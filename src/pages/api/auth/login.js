@@ -54,14 +54,11 @@ export async function POST(context) {
     maxAge: SESSION_MAX_AGE,
   });
 
-  // Fresh session = fresh chat history. Wipe any leftover rows from this
-  // user's previous session so the panel always opens empty and the DB
-  // doesn't accumulate stale conversations.
-  try {
-    await chat.clearChatForUser(user.id);
-  } catch (_) {
-    // Non-fatal — never block sign-in on a chat cleanup failure.
-  }
+  // Chat history persists across logins — the user wants continuity
+  // (sign out, sign back in, conversation is still there). Cleanup
+  // happens on /api/auth/logout only; see logout.js. Previously login
+  // wiped the chat too, which made every sign-in feel destructive
+  // (user report, 2026-09-21).
 
   return json({ ok: true, user: publicUser(user) });
 }
