@@ -103,28 +103,64 @@ When you want to actually DO something in the schedule, return a JSON block like
 
 Followed by your plain-English reply (NOT inside the JSON block). The summary strings will appear as small confirmation pills in the chat, so make them human.`;
 
-// ─── Action execution: re-call this app's own /api/* with the caller's cookie ───
-
-async function executeAction(action, callerCookie, origin) {
-  const method = action.method || 'POST';
-  const r = await fetch(`${origin}${action.endpoint}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      Cookie: callerCookie || '',
-    },
-    body: method === 'GET' ? undefined : JSON.stringify(action.body || {}),
-  });
-  let body;
-  try { body = await r.json(); } catch { body = await r.text().catch(() => ''); }
-  return {
-    method,
-    endpoint: action.endpoint,
-    request_body: action.body || {},
-    response_status: r.status,
-    response_body: body,
-    summary: action.summary || `${method} ${action.endpoint}`,
-  };
+// ─── Action execution ──────────────────────────────────────────────────────
+// Translates an action the bot emitted (POST /api/shifts etc.) into a direct
+// DB call, avoiding the previous self-fetch loop which was 1) slow because
+// each /api/* call cold-starts a fresh serverless instance and 2) limited
+// to Vercel's 60s function timeout even with waitUntil.
+//
+// Mapping is hand-maintained. If you add a new endpoint to the bot's
+// action set, add its handler here too. Keep in sync with the LEGACY_ACTION_BLOCK
+// examples in scripts/hermes-bridge.mjs.
+async function executeAction(action) {
+  const method = (action.method || 'POST').toUpperCase();
+  const endpoint = action.endpoint || '';
+  const body = action.body || {};
+  try {
+    // POST /api/shifts — create a shift
+    if (method === 'POST' && endpoint === '/api/shifts') {
+      const created = await db.createShift(body);
+      return { method, endpoint, request_body: body, response_status: 200, response_body: created, summary: action.summary || 'Created shift.' };
+    }
+    // POST /api/shift-requests — availability_create
+    if (method === 'POST' && endpoint === '/api/shift-requests') {
+      const created = await db.createShiftRequest(body);
+      return { method, endpoint, request_body: body, response_status: 200, response_body: created, summary: action.summary || 'Submitted availability.' };
+    }
+    // POST /api/timeoff — timeoff_create
+    if (method === 'POST' && endpoint === '/api/timeoff') {
+      const created = await db.createTimeOff(body);
+      return { method, endpoint, request_body: body, response_status: 200, response_body: created, summary: action.summary || 'Submitted time off.' };
+    }
+    // POST /api/swap/posts — swap_post_create
+    if (method === 'POST' && endpoint === '/api/swap/posts') {
+      const created = await db.createSwapPost(body);
+      return { method, endpoint, request_body: body, response_status: 200, response_body: created, summary: action.summary || 'Posted shift for swap.' };
+    }
+    // DELETE /api/shifts/:id — shift_delete (and shift_update via PATCH)
+    if (method === 'DELETE' && endpoint.startsWith('/api/shifts/')) {
+      const id = endpoint.replace('/api/shifts/', '');
+      await db.deleteShift(id);
+      return { method, endpoint, request_body: body, response_status: 200, response_body: { ok: true, id }, summary: action.summary || 'Removed shift.' };
+    }
+    if (method === 'PATCH' && endpoint.startsWith('/api/shifts/')) {
+      const id = endpoint.replace('/api/shifts/', '');
+      const updated = await db.updateShift(id, body);
+      return { method, endpoint, request_body: body, response_status: 200, response_body: updated, summary: action.summary || 'Updated shift.' };
+    }
+    // Anything else: fall back to the legacy self-fetch path. Kept for
+    // forward compatibility with new endpoints the bot might emit.
+    const r = await fetch(`${endpoint.startsWith('http') ? endpoint : origin}${endpoint}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', Cookie: callerCookie || '' },
+      body: method === 'GET' ? undefined : JSON.stringify(body),
+    });
+    let respBody;
+    try { respBody = await r.json(); } catch { respBody = await r.text().catch(() => ''); }
+    return { method, endpoint, request_body: body, response_status: r.status, response_body: respBody, summary: action.summary || `${method} ${endpoint}` };
+  } catch (err) {
+    return { method, endpoint, request_body: body, response_status: 500, response_body: { error: String(err.message || err) }, summary: action.summary || `${method} ${endpoint}` };
+  }
 }
 
 // ─── Fast-path: pure greetings skip the LLM entirely ───
@@ -615,7 +651,7 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
   const executed = await Promise.all(
     (actions || [])
       .filter((action) => action && action.endpoint)
-      .map((action) => executeAction(action, callerCookie, origin))
+      .map((action) => executeAction(action))
   );
 
   // The model wrote `content` (e.g. "Done — Jorge's on Friday 4-10pm")
