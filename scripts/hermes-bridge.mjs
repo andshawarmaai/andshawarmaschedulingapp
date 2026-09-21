@@ -425,6 +425,579 @@ async function runHermes(payload, prompt) {
   return { content, actions, mcp_executed: !!HERMES_MCP_TOOLSET };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Hybrid action matcher
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Deterministic pattern-matcher for common write-action phrases. Pairs
+// with `answerFromState` (read-only short-circuit, above) so the bridge
+// can short-circuit both read AND write phrases WITHOUT an LLM call,
+// which dodges MiniMax-M3's slowness (5-15s) and its known instruction-
+// following holes (off-topic refusal, shift-vs-availability routing per
+// CHAT_BOT_HANDOFF_V8_TEST_RESULTS).
+//
+// SAFETY MODEL
+// ------------
+// 1. Pure: no I/O, no DB, no network. Inputs are text + payload + opts.
+//    All date math is via ISO strings; no `new Date('10-3')` ambiguity.
+// 2. Self-only: the orchestrator's payload sends `state.users` WITHOUT an
+//    `id` field (see `src/pages/api/agent/chat/index.js` line 35) so
+//    resolving a named other person deterministically would silently
+//    schedule/un-schedule the wrong person when two Jorges exist. We
+//    ONLY resolve the sender (`message.user_id`) and let the LLM handle
+//    named-other-person actions unchanged. Documented in
+//    `CHAT_BOT_HANDOFF_CLAUDE_HYBRID.md`.
+// 3. Testable: `opts.today = 'YYYY-MM-DD'` overrides the clock so tests
+//    can pin "what Tuesday means" precisely.
+// 4. Fast-fail: if anything is genuinely ambiguous, returns `null` and
+//    the caller falls through to the normal LLM path with no information
+//    loss.
+// 5. Defer-not-refuse: the matcher returns `null` (= LLM handles) for
+//    anything it can't confidently produce an action array for. That is
+//    distinct from the off-topic refusal pre-filter, which ONLY returns
+//    the canned refusal text for clearly-non-scheduling phrases.
+//
+// EXPORTED for the test harness (`test/chat-hybrid.test.mjs`).
+// ─────────────────────────────────────────────────────────────────────────
+
+// -- Date helpers (pinned to opts.today, never trust the wall clock) --
+
+const WEEKDAY_NAMES_LONG  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+const WEEKDAY_NAMES_SHORT = ['sun','mon','tue','wed','thu','fri','sat'];
+const MONTH_NAMES = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+
+function isoDay(todayIso, offset) {
+  // offset in days; positive or negative. Uses UTC math to avoid DST drift.
+  const d = new Date(todayIso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+function weekdayOf(todayIso, isoDate) {
+  // Returns 0..6 (Sun..Sat) for an ISO date string, computed in UTC.
+  const d = new Date(isoDate + 'T00:00:00Z');
+  return d.getUTCDay();
+}
+
+function nextWeekdayOccurrence(todayIso, weekday) {
+  // First occurrence of `weekday` (0-6) at-or-after todayIso.
+  const today = weekdayOf(todayIso, todayIso);
+  const delta = (weekday - today + 7) % 7;
+  return isoDay(todayIso, delta);
+}
+
+function secondWeekdayOccurrence(todayIso, weekday) {
+  // "next Tuesday" => first the week after next week's first.
+  return isoDay(todayIso, ((weekday - weekdayOf(todayIso, todayIso) + 7) % 7) + 7);
+}
+
+function datesMatchingWeekdayInRange(todayIso, startIso, endIso, weekday) {
+  // inclusive of both ends
+  const out = [];
+  let cur = nextWeekdayOccurrence(startIso, weekday);
+  // bump cur to be >= todayIso
+  while (cur < todayIso) cur = isoDay(cur, 7);
+  while (cur <= endIso) {
+    out.push(cur);
+    cur = isoDay(cur, 7);
+  }
+  return out;
+}
+
+function lastDayOfMonth(year, month0) {
+  // month0 = 0..11. Returns 'YYYY-MM-DD' for the last day.
+  return new Date(Date.UTC(year, month0 + 1, 0)).toISOString().slice(0, 10);
+}
+
+function currentMonthBounds(todayIso) {
+  // Returns {start, end} for today's calendar month (UTC).
+  const d = new Date(todayIso + 'T00:00:00Z');
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  const end = lastDayOfMonth(y, m);
+  return { start, end };
+}
+
+function monthBounds(year, month0) {
+  const start = `${year}-${String(month0 + 1).padStart(2, '0')}-01`;
+  const end = lastDayOfMonth(year, month0);
+  return { start, end };
+}
+
+function isoWeekStart(todayIso) {
+  // ISO week starts Monday. Returns the YYYY-MM-DD of the Monday of the
+  // ISO week containing todayIso.
+  const d = new Date(todayIso + 'T00:00:00Z');
+  const day = d.getUTCDay(); // 0=Sun..6=Sat
+  const delta = (day === 0) ? -6 : 1 - day; // shift to Monday
+  return isoDay(todayIso, delta);
+}
+
+// -- Time parsing --
+
+function parseClockToMinutes(s) {
+  // "9", "9am", "9 AM", "9:30pm", "noon", "midnight", "morning", "evening"
+  const str = s.trim().toLowerCase();
+  if (str === 'noon') return 12 * 60;
+  if (str === 'midnight') return 0;
+  if (str === 'morning') return 9 * 60;
+  if (str === 'evening') return 17 * 60;
+  let m = str.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  let mm = m[2] ? Number(m[2]) : 0;
+  const ampm = m[3];
+  if (ampm === 'pm' && h < 12) h += 12;
+  if (ampm === 'am' && h === 12) h = 0;
+  if (h < 0 || h > 23 || mm < 0 || mm > 59) return null;
+  return h * 60 + mm;
+}
+
+function fmtHHMM(mins) {
+  // 0-1439 (or 0-1439 + N*1440 for cross-midnight; we never wrap)
+  const h = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// Find a time range in text. Returns {start, end, span} where span is
+// the [start, end] index in the text — used by the caller to strip the
+// time portion when checking the rest of the phrase. Pure, no globals.
+function extractTimeRange(text) {
+  // Patterns we recognize, in priority order:
+  //   "9-5", "9 to 5", "9am-5pm", "9am to 5pm"
+  //   "9:30-5:30", "9:30am-5:30pm"
+  //   "from 4 to 10", "from 4pm to 1am"
+  //   "9am", "9:30pm" (single, treated as default)
+  //   "morning", "evening", "noon", "midnight"
+  const re = /\b(?:from\s+)?(\d{1,2}(?::\d{2})?\s*(am|pm)?)\s*(?:-|to|until)\s*(\d{1,2}(?::\d{2})?\s*(am|pm)?)(?:\s|$|[,.?!])/i;
+  let m = text.match(re);
+  if (m) {
+    const aHasAmPm = !!m[2];
+    const bHasAmPm = !!m[4];
+    const a = parseClockToMinutes(m[1]);
+    const b = parseClockToMinutes(m[3]);
+    if (a != null && b != null && a !== b) {
+      let bFixed = b;
+      // Default heuristic: if NEITHER has am/pm and end < start,
+      // assume AM to PM (e.g. "9-5" → 09:00-17:00, NOT 09:00-05:00).
+      // Only treat as cross-midnight if at least one component has am/pm.
+      if (!aHasAmPm && !bHasAmPm && b < a) {
+        bFixed = b + 12 * 60;
+        if (bFixed >= 24 * 60) bFixed = b; // fall back to raw if overflow
+      }
+      return { start: fmtHHMM(a), end: fmtHHMM(bFixed), span: [m.index, m.index + m[0].length] };
+    }
+  }
+  // Single time word/clock without a range — treated as a soft default,
+  // not a hard range. Caller picks the duration.
+  const singleRe = /\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?|morning|evening|noon|midnight)\b/i;
+  const ms = text.match(singleRe);
+  if (ms) {
+    const mm = parseClockToMinutes(ms[1]);
+    if (mm != null) return { start: fmtHHMM(mm), end: null, span: [ms.index, ms.index + ms[0].length] };
+  }
+  return null;
+}
+
+// Matches a US-style numeric date (M-D or M/D, with optional year).
+// Two flavors to avoid colliding with time ranges like "9-5":
+//   A) preceded by a date-marker word (on / from / for / in / at)
+//   B) preceded by a non-alnum boundary, BUT rejected if the next
+//      token is "am"/"pm" (clock range — handled by extractTimeRange).
+// Both branches place the M, D, and optional year into groups 1, 2, 3.
+function findNumericDate(norm) {
+  const A = /(?:^|on\s+|from\s+|for\s+|in\s+|at\s+)(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?(?=\s|$)/i;
+  let m = norm.match(A);
+  if (m) return m;
+  const B = /(?:^|[^a-z0-9])(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?(?=\s)/i;
+  m = norm.match(B);
+  if (!m) return null;
+  // Reject if next non-space token is am/pm — that's a clock range.
+  const afterIdx = m.index + m[0].length;
+  const after = norm.slice(afterIdx, afterIdx + 6).trim();
+  if (/^([ap]m)\b/i.test(after)) return null;
+  return m;
+}
+
+// -- Date parsing --
+// Returns {start, end} (ISO YYYY-MM-DD, inclusive both ends) covering
+// the date RANGE the phrase targets. The matcher then filters
+// `state.upcomingShifts` to those dates. Returns null if no date
+// phrase recognized → caller falls back to "no time" semantics.
+//
+// All returned ranges are inclusive and span >= 1 day.
+function extractDateRange(text, todayIso) {
+  const norm = text.toLowerCase().replace(/\bboth\b/g, '').replace(/\s+/g, ' ').trim();
+
+  // 0) Weekday check FIRST. If the text contains a weekday name, prefer
+  //    weekday resolution over ambiguous numeric dates ("Tuesday 9-5"
+  //    must NOT parse "9-5" as September 5th).
+  for (let w = 0; w < 7; w++) {
+    const reNext = new RegExp(`\\bnext\\s+${WEEKDAY_NAMES_LONG[w]}\\b`, 'i');
+    const reThis = new RegExp(`\\bthis\\s+${WEEKDAY_NAMES_LONG[w]}\\b`, 'i');
+    const reBare = new RegExp(`\\b${WEEKDAY_NAMES_LONG[w]}\\b`, 'i');
+    if (reNext.test(norm)) {
+      return { start: secondWeekdayOccurrence(todayIso, w), end: secondWeekdayOccurrence(todayIso, w) };
+    }
+    if (reThis.test(norm)) {
+      return { start: nextWeekdayOccurrence(todayIso, w), end: nextWeekdayOccurrence(todayIso, w) };
+    }
+    if (reBare.test(norm)) {
+      return { start: nextWeekdayOccurrence(todayIso, w), end: nextWeekdayOccurrence(todayIso, w) };
+    }
+  }
+
+  // 1) Exact ISO date: 2026-10-03
+  let m = norm.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (m) return { start: m[1], end: m[1] };
+
+  // 2) US-style numeric date, M-D or M/D with optional year. Uses
+  //    findNumericDate (defined just below) to disambiguate from time
+  //    ranges like "9-5" by requiring either a date-marker word OR a
+  //    word-boundary preceding position with no following am/pm.
+  m = findNumericDate(norm);
+  if (m) {
+    // The "B" branch of findNumericDate captures an extra leading
+    // non-alnum char into group 0 that we ignore — groups 1-3 are the
+    // real date components. Because group numbering differs between
+    // branches, find what was captured by checking which branch hit.
+    // Branch A uses groups [1,2,3]; branch B may use [1,2,3] as well,
+    // with the leading char captured by group 0 instead.
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    const y = m[3] ? Number(m[3].length === 2 ? `20${m[3]}` : m[3]) : Number(todayIso.slice(0, 4));
+    let mo, d;
+    if (a > 12 && b <= 12) { mo = b; d = a; }
+    else if (b > 12 && a <= 12) { mo = a; d = b; }
+    else { mo = a; d = b; } // default US: M-D
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    const iso = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    return { start: iso, end: iso };
+  }
+
+  // 3) Named month + day: "October 3", "Oct 3rd", "Oct 3"
+  m = norm.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (m) {
+    const monthName = m[1].slice(0, 3);
+    const monthIdx = MONTH_NAMES.findIndex((mn) => mn.startsWith(monthName));
+    const day = Number(m[2]);
+    const y = Number(todayIso.slice(0, 4));
+    const iso = `${y}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { start: iso, end: iso };
+  }
+
+  // 4) Named month only: "October", "in October", "from October"
+  m = norm.match(/\b(?:in|from|for|during)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/);
+  if (m) {
+    const monthIdx = MONTH_NAMES.findIndex((mn) => mn.startsWith(m[1].slice(0, 3)));
+    const y = Number(todayIso.slice(0, 4));
+    return monthBounds(y, monthIdx);
+  }
+  m = norm.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/);
+  if (m) {
+    const monthIdx = MONTH_NAMES.findIndex((mn) => mn.startsWith(m[1].slice(0, 3)));
+    const y = Number(todayIso.slice(0, 4));
+    return monthBounds(y, monthIdx);
+  }
+
+  // 5) "today" / "tomorrow"
+  if (/\btoday\b/i.test(norm)) return { start: todayIso, end: todayIso };
+  if (/\btomorrow\b/i.test(norm)) return { start: isoDay(todayIso, 1), end: isoDay(todayIso, 1) };
+
+  // 6) "next week" — ISO next calendar week (Mon..Sun)
+  if (/\bnext\s+week\b/i.test(norm)) {
+    const start = isoDay(isoWeekStart(todayIso), 7);
+    const end = isoDay(start, 6);
+    return { start, end };
+  }
+  // 7) "this week" — current ISO week (Mon..Sun)
+  if (/\bthis\s+week\b/i.test(norm)) {
+    const start = isoWeekStart(todayIso);
+    const end = isoDay(start, 6);
+    return { start, end };
+  }
+  // 8) "this month" — current calendar month, capped to today end if mid-month
+  if (/\bthis\s+month\b/i.test(norm)) {
+    const { start, end } = currentMonthBounds(todayIso);
+    const endCap = end < todayIso ? end : todayIso;
+    return { start, end: endCap };
+  }
+  return null;
+}
+
+// "every <weekday> [this month|in <month>]" → array of ISO dates.
+function extractWeekdaySeries(text, todayIso) {
+  const norm = text.toLowerCase();
+  // Capture weekday and optional month
+  const re = /\bevery\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b(?:\s+(?:in|of|for)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?))?(?:\s+this\s+month)?/i;
+  const m = norm.match(re);
+  if (!m) return null;
+  const w = WEEKDAY_NAMES_LONG.indexOf(m[1]);
+  if (w < 0) return null;
+
+  let startIso, endIso;
+  const monthName = m[2];
+  if (monthName) {
+    const monthIdx = MONTH_NAMES.findIndex((mn) => mn.startsWith(monthName.slice(0, 3)));
+    const y = Number(todayIso.slice(0, 4));
+    ({ start: startIso, end: endIso } = monthBounds(y, monthIdx));
+    // skip past dates for current-month series, but include all for
+    // future-month series regardless of position
+    if (currentMonthBounds(todayIso).end === endIso) {
+      endIso = endIso < todayIso ? endIso : todayIso;
+    }
+  } else {
+    // "every Saturday" with no month = current month, capped to today
+    ({ start: startIso, end: endIso } = currentMonthBounds(todayIso));
+    if (endIso > todayIso) endIso = todayIso;
+  }
+  const dates = datesMatchingWeekdayInRange(todayIso, startIso, endIso, w);
+  return dates;
+}
+
+// "the schedule" / "the roster" / bare upcoming-future phrasing → no
+// specific date range, all upcoming shifts.
+function isAllUpcoming(text) {
+  const norm = text.toLowerCase();
+  return /\b(the schedule|the roster|all (my )?(shifts|work|hours)|both months|upcoming)\b/i.test(norm)
+    || /^\s*remove\s+me\s*$/i.test(norm);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Main matcher entry point. Exported.
+// ─────────────────────────────────────────────────────────────────────────
+//
+// text:    user message (string, possibly empty)
+// payload: orchestrator payload (message, state)
+// opts:    { today?: 'YYYY-MM-DD' } — optional pin for tests / determinism
+//
+// Returns:
+//   null                       → defer to LLM
+//   { content, actions: [] }   → answer without actions (e.g. "no shifts")
+//   { content, actions: [...] } → short-circuit an action array
+function match(text, payload, opts = {}) {
+  if (!text || !payload || !payload.message) return null;
+  const todayIso = opts.today || new Date().toISOString().slice(0, 10);
+  const norm = text.toLowerCase().replace(/[?!.,]+$/g, '').trim();
+  if (!norm) return null;
+
+  const msg = payload.message;
+  const meId = msg.user_id || '';
+  if (!meId) return null; // can't safely resolve sender → defer
+
+  // Detect other-person intent EARLY. If the phrase names someone other
+  // than the sender, we MUST defer (state.users has no id).
+  // Simple heuristic: a name-ish word that isn't the sender's username or
+  // display_name. The orchestrator's payload doesn't carry id for users,
+  // so we can't be sure "Jorge" is one person.
+  const otherPersonNames = extractOtherPersonNames(norm, msg);
+  if (otherPersonNames.length > 0) {
+    return null; // defer to LLM (intentionally)
+  }
+
+  const state = payload.state || {};
+  const upcoming = state.upcomingShifts || [];
+  const myShifts = upcoming.filter((s) => s.user_id === meId);
+  const dates = extractWeekdaySeries(norm, todayIso);
+  const dr = dates ? null : extractDateRange(norm, todayIso); // series takes priority
+  const tr = extractTimeRange(norm);
+
+  // === REMOVE-ME ===
+  const isRemove = /\bremove\s+(me|my\s+shift)|take\s+me\s+(off|out)|cancel\s+my\b|\bdelete\s+my\b/i.test(norm);
+
+  if (isRemove) {
+    if (myShifts.length === 0) {
+      return { content: `You're not on the schedule — no upcoming shifts to remove. Want to put one on instead?`, actions: [] };
+    }
+
+    let targets = myShifts;
+    if (dates && dates.length > 0) {
+      // weekday series
+      const set = new Set(dates);
+      targets = targets.filter((s) => set.has(s.date));
+    } else if (dr) {
+      targets = targets.filter((s) => s.date >= dr.start && s.date <= dr.end);
+    } else if (!isAllUpcoming(norm)) {
+      // ambiguous "remove me" with no date + not "the schedule" → ask
+      return { content: `Which shifts? Say "remove me from Tuesday", "remove me from October", or "remove me from the schedule" to remove everything.`, actions: [] };
+    }
+
+    if (targets.length === 0) {
+      return { content: `No upcoming shifts match that to remove. Want me to check the full schedule?`, actions: [] };
+    }
+    const actions = targets.map((s) => ({
+      method: 'DELETE',
+      endpoint: `/api/shifts/${s.id}`,
+      body: {},
+      summary: `Removing ${prettyDate(s.date)} shift (${s.start_time}\u2013${s.end_time}).`,
+    }));
+    const verb = isAllUpcoming(norm) ? 'all upcoming shifts' : (dr ? `${prettyDate(dr.start)}${dr.start !== dr.end ? ` through ${prettyDate(dr.end)}` : ''}` : 'those shifts');
+    return {
+      content: `Done — cleared ${verb} (${actions.length} shift${actions.length === 1 ? '' : 's'}).`,
+      actions,
+    };
+  }
+
+  // === SCHEDULE-ME (shift_create) ===
+  // Identifier: any of the SHIFT_INTENT shapes (mirrors the bridge's
+  // own SHIFT_INTENT regex so the matcher and the LLM-fallback agree
+  // on what counts as a shift request vs availability).
+  const SHIFT_INTENT = /\b(put me (down|on|in)|schedule me|book me|put me down for|working\s+(this|next|on)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|i want to work|i want to be put on|i'm working|i want to be put down)\b/i;
+  const isSchedule = SHIFT_INTENT.test(norm);
+
+  if (isSchedule) {
+    // "every <weekday> in <month>" series → multiple shifts
+    if (dates && dates.length > 0) {
+      // For series, target weekday is the weekday of the first date.
+      // That way deriveTimeDefaults can find a prior shift on that weekday.
+      const targetDateIso = dates[0];
+      const { start, end } = deriveTimeDefaults(tr, norm, myShifts, targetDateIso);
+      if (!start || !end) {
+        return { content: `When? Try "every Saturday in October 4-10" or "every Saturday in October morning".`, actions: [] };
+      }
+      const actions = dates.map((d) => ({
+        method: 'POST',
+        endpoint: '/api/shifts',
+        body: { user_id: meId, date: d, start_time: start, end_time: end },
+        summary: `Scheduled you for ${prettyDate(d)} ${start}\u2013${end}.`,
+      }));
+      const weekdayMatch = norm.match(/\b(saturday|sunday|monday|tuesday|wednesday|thursday|friday)\b/i);
+      return {
+        content: `Done — scheduled you for ${actions.length} ${weekdayMatch ? weekdayMatch[1] : 'shift'}${actions.length === 1 ? '' : 's'}.`,
+        actions,
+      };
+    }
+
+    if (!dr && !tr) {
+      return { content: `Which day and time? Try "schedule me Tuesday 9-5" or "schedule me October 5 4pm to 10pm".`, actions: [] };
+    }
+
+    // Single date (dr is a single date when there's a named weekday/
+    // iso/named-month-and-day), or "today"/"tomorrow".
+    const date = dr ? dr.start : todayIso;
+    // For named-weekday series without "every", we already have `dates`
+    // = 1 element; fall back to dr.
+    let start, end;
+    if (tr && tr.end != null) {
+      start = tr.start; end = tr.end;
+    } else if (tr && tr.end == null) {
+      // single time word/clock → default to a 4-hour window starting at
+      // that time.
+      const mins = (parseInt(tr.start.slice(0, 2)) * 60) + parseInt(tr.start.slice(3, 5));
+      start = tr.start; end = fmtHHMM(mins + 240);
+    } else {
+      // no time → reuse last-known weekday's times, or fall back to
+      // template-based defaults (a single matching template → use its
+      // times; multiple → ask the user with a numbered list), or a
+      // generic 4-hour morning default.
+      ({ start, end } = deriveTimeDefaults(null, norm, myShifts, dr ? dr.start : todayIso));
+      if (!start || !end) {
+        // Try to pick a template that contains the target date + time.
+        // Without an explicit time, prefer the first template that runs
+        // on the target weekday.
+        const targetDow = weekdayOf(todayIso, dr ? dr.start : todayIso);
+        const tmplMatch = (state.shiftTemplates || []).find((t) => {
+          let days = t.days_of_week;
+          if (typeof days === 'string') days = days.split(',').map((s) => s.trim()).filter(Boolean);
+          if (!Array.isArray(days)) days = [];
+          // days are stored as '0'..'6' strings
+          return days.includes(String(targetDow));
+        });
+        if (tmplMatch) {
+          start = String(tmplMatch.start_time).slice(0, 5);
+          end = String(tmplMatch.end_time).slice(0, 5);
+        } else if (/morning/i.test(norm)) { start = '09:00'; end = '13:00'; }
+        else if (/evening/i.test(norm)) { start = '17:00'; end = '21:00'; }
+        else {
+          return { content: `No prior shift on that day to copy times from. Try a time like "9-5" or "4pm to 10pm".`, actions: [] };
+        }
+      }
+    }
+    const actions = [{
+      method: 'POST',
+      endpoint: '/api/shifts',
+      body: { user_id: meId, date, start_time: start, end_time: end },
+      summary: `Scheduled you for ${prettyDate(date)} ${start}\u2013${end}.`,
+    }];
+    return {
+      content: `Done — ${prettyDate(date)} ${start}\u2013${end}.`,
+      actions,
+    };
+  }
+
+  return null; // everything else → LLM
+}
+
+// -- helpers used only by match() --
+
+function extractOtherPersonNames(norm, msg) {
+  const meNames = new Set([
+    (msg.username || '').toLowerCase(),
+    (msg.display_name || '').toLowerCase(),
+    'me', 'myself', 'i', 'my', 'mine',
+  ].filter(Boolean));
+  // Known non-name tokens. Anything matching `[a-z]+` that ISN'T one of
+  // these could plausibly be a name — BUT only if it appears adjacent to
+  // a name-slot verb (handled below). Compound suffix tokens like "am",
+  // "pm", "st", "nd", "rd", "th" are NEVER names.
+  const STOP = new Set([
+    'the','a','an','on','at','to','from','for','of','in','this','next','today','tomorrow',
+    'schedule','shift','shifts','availability','time','off','swap','swaps','template','templates','roster',
+    'put','remove','take','cancel','delete','add','create','make','book',
+    'me','down','my','i','im','i\'m','work','working','works','worked','booked',
+    'morning','evening','noon','midnight','night','day','days',
+    'monday','mon','tuesday','tue','wednesday','wed','thursday','thu','friday','fri','saturday','sat','sunday','sun',
+    'january','february','march','april','may','june','july','august','september','october','november','december',
+    'jan','feb','mar','apr','jun','jul','aug','sep','sept','oct','nov','dec',
+    'week','weeks','month','months','year','years','every','all','both','and','or',
+    'please','can','you','could','would','will','should','want','need','have','has','had',
+    'is','are','was','were','be','been',
+    'am','pm','no','yes',
+    'st','nd','rd','th', // ordinal suffixes ("3rd" → "3" + "rd")
+    'hi','hey','hello','yo','sup','thanks','ok','okay','got','yes','yeah','sure',
+    'one','two','three','four','five','six','seven','eight','nine','ten',
+    'use','using','do','does','doing','did',
+  ]);
+  // Also reject numeric-only tokens (already excluded by `[a-z]+` regex
+  // but be paranoid) and "from" / "for" already in STOP.
+  const words = (norm.match(/[a-z]+/g) || [])
+    .filter((w) => w.length >= 2 && !STOP.has(w) && !meNames.has(w));
+  return words;
+}
+
+function deriveTimeDefaults(tr, norm, myShifts, targetDateIso) {
+  // If tr has explicit start+end, use that
+  if (tr && tr.end != null) return { start: tr.start, end: tr.end };
+
+  // Otherwise, look for prior shift on the same weekday
+  let targetWeekday = -1;
+  if (targetDateIso) targetWeekday = weekdayOf(targetDateIso, targetDateIso);
+  let prior = null;
+  for (const s of myShifts) {
+    if (weekdayOf(s.date, s.date) === targetWeekday) {
+      if (!prior || s.date > prior.date) prior = s;
+    }
+  }
+  if (prior) return { start: prior.start_time, end: prior.end_time };
+
+  // Soft defaults from "morning" / "evening" words
+  if (/\bevening\b/i.test(norm)) return { start: '17:00', end: '21:00' };
+  if (/\bmorning\b/i.test(norm)) return { start: '09:00', end: '13:00' };
+
+  return { start: null, end: null };
+}
+
+function prettyDate(iso) {
+  // 'YYYY-MM-DD' → 'Mon Oct 3'
+  const d = new Date(iso + 'T00:00:00Z');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+export { match, extractDateRange, extractTimeRange, extractWeekdaySeries, extractOtherPersonNames, parseClockToMinutes };
+// end of match()
+
 function buildPrompt(payload) {
   const msg = payload.message || {};
   const parts = [];
@@ -602,6 +1175,18 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { content: directAnswer, actions: [], mcp_executed: !!HERMES_MCP_TOOLSET, served_by: 'direct' });
       }
 
+      // Hybrid action matcher. Deterministic write-action short-circuit
+      // for the common phrasing ("remove me from the schedule", "schedule
+      // me Tuesday 9-5", "put me down for every Saturday in October").
+      // Skips the 5-15s MiniMax-M3 round-trip and its known shift-vs-
+      // availability and routing failures (CHAT_BOT_HANDOFF_V8_TEST_RESULTS).
+      // Returns null → fall through to the normal LLM path.
+      const hybridAction = match(userMsg, payload);
+      if (hybridAction !== null) {
+        console.log(`[${new Date().toISOString()}] hybrid-action short-circuit for: ${userMsg.slice(0, 80)} (${hybridAction.actions.length} action${hybridAction.actions.length === 1 ? '' : 's'})`);
+        return json(res, 200, { content: hybridAction.content, actions: hybridAction.actions, mcp_executed: false, served_by: 'hybrid' });
+      }
+
       const prompt = buildPrompt(payload);
 
       // DEBUG: write prompt to file. (Previously referenced `prompt`
@@ -665,7 +1250,21 @@ const server = http.createServer(async (req, res) => {
   res.end('not found\n');
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`hermes-bridge listening on http://127.0.0.1:${PORT}`);
-  console.log(`Will spawn: ${HERMES_BIN} chat --oneshot -Q --query ...`);
-});
+// Only start the server when invoked directly. When this file is
+// imported (e.g. by `node --test test/chat-hybrid.test.mjs`),
+// `import.meta.url` differs from the resolved argv[1] path, so the
+// server doesn't bind to 7890 and EADDRINUSE-under-test.
+const isDirectRun = (() => {
+  try {
+    return process.argv[1] && new URL(import.meta.url).pathname === process.argv[1];
+  } catch (_) {
+    return false;
+  }
+})();
+
+if (isDirectRun) {
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`hermes-bridge listening on http://127.0.0.1:${PORT}`);
+    console.log(`Will spawn: ${HERMES_BIN} chat --oneshot -Q --query ...`);
+  });
+}
