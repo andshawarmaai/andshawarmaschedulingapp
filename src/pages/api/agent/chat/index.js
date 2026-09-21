@@ -359,6 +359,10 @@ async function orchestrateReply({ userMsg, userId, username, displayName, caller
     fetch(`${origin}/api/state`, { headers: { Cookie: callerCookie } }).then((r) => r.json()).catch(() => ({})),
     fetch(`${origin}/api/agent-guide/markdown`).then((r) => r.text()).catch(() => ''),
   ]);
+  // DEBUG: log what we got back from /api/state so live "bot says no
+  // shifts" bugs are one click away from diagnosed (CHAT_BOT_HANDOFF
+  // V9 follow-up).
+  console.log(`[chat-orchestrator] user=${username} state.keys=${Object.keys(state).join(',')} state.shifts=${(state.shifts||[]).length} state.users=${(state.users||[]).length} state.shiftTemplates=${(state.shiftTemplates||[]).length}`);
 
   const history = (historyResp.history || [])
     .filter((m) => m.role === 'user' || m.role === 'assistant')
