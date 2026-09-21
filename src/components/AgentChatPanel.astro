@@ -707,47 +707,25 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
 .agent-chat-dot[data-status="error"] { background: #ef4444; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-/* Thinking indicator: the WORD ITSELF is the gradient — no bubble.
-   The "Warming up…" / "Thinking…" / "Working…" / "Still working…"
-   text glyphs are painted via background-clip:text with a moving
-   3-stop gradient that reads as: dark band → base color → dark band
-   → base color sliding across the word. Glyphs disappear mid-stop
-   because that's how the gradient lands — between stops the gradient
-   shows the base color (so the word is FULLY legible at all times),
-   and during the dark stop the glyphs read as the dark band sweeping
-   through the base-colored word. NO white anywhere — only the base
-   color and the dark variant of the base color.
-
-   --color-accent and --color-accent-dark are the pair; a future
-   palette swap via global.css cascades through automatically. The
-   fallback hexes match current values so the CSS still looks
-   correct on browsers without custom-prop support (none in practice). */
+/* Thinking indicator. Word-as-gradient: glyphs themselves carry
+   the moving color, no bubble. */
 .agent-chat-thinking .agent-chat-who { color: var(--color-muted); opacity: 0.85; }
 .agent-chat-thinking-text {
-  /* The gradient is painted HERE, then clipped to glyph shape via
-     background-clip:text + transparent text-fill. The gradient stops
-     are arranged so the word reads as base color most of the time,
-     with a darker band sweeping through it. Critically, NO white stop
-     anywhere — only the base color (#f59e0b) and its dark variant
-     (#92400e). */
-  background-image: linear-gradient(90deg,
+  background: linear-gradient(90deg,
     var(--color-accent, #f59e0b) 0%,
-    var(--color-accent, #f59e0b) 18%,
-    var(--color-accent-dark, #92400e) 28%,
-    var(--color-accent-dark, #92400e) 38%,
-    var(--color-accent, #f59e0b) 48%,
-    var(--color-accent, #f59e0b) 68%,
-    var(--color-accent-dark, #92400e) 78%,
-    var(--color-accent-dark, #92400e) 88%,
+    var(--color-accent, #f59e0b) 30%,
+    var(--color-accent-dark, #92400e) 50%,
+    var(--color-accent, #f59e0b) 70%,
     var(--color-accent, #f59e0b) 100%);
-  background-size: 300% 100%;
+  background-size: 200% 100%;
   background-position: 0% 50%;
   -webkit-background-clip: text;
           background-clip: text;
   -webkit-text-fill-color: transparent;
           color: transparent;
-  animation: gradient-sweep 1.6s linear infinite;
+  animation: gradient-sweep 1.4s linear infinite;
   font-weight: 700;
+  font-size: 1rem;
   letter-spacing: 0.01em;
   display: inline-block;
   padding: 0.1rem 0;
@@ -756,8 +734,6 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   0%   { background-position: 0% 50%; }
   100% { background-position: 100% 50%; }
 }
-/* Elapsed-seconds counter under the "Warming up…" / "Thinking…" label.
-   Small, muted, monospace so the moving word stays the focal point. */
 .agent-chat-thinking-elapsed {
   font-size: 0.7rem;
   color: var(--color-muted);
@@ -765,8 +741,6 @@ const { userId, userRole, userDisplayName } = Astro.props as Props;
   margin-top: 0.15rem;
   opacity: 0.7;
 }
-/* Reduced-motion: gradient pauses on a flat base-color text so the
-   word is still legible, just static. */
 @media (prefers-reduced-motion: reduce) {
   .agent-chat-thinking-text {
     animation: none;
