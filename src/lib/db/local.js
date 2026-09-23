@@ -142,6 +142,12 @@ export async function updateUser(userId, updates) {
   if (updates.role !== undefined) u.role = updates.role;
   if (updates.disabled !== undefined) u.disabled = updates.disabled;
   if (updates.tier_id !== undefined) u.tier_id = updates.tier_id;
+  if (updates.theme_pref !== undefined) {
+    // NULL/empty clears the per-user pref (back to system default);
+    // 'light'/'dark' sets it.
+    const v = updates.theme_pref;
+    u.theme_pref = (v === 'light' || v === 'dark') ? v : null;
+  }
   if (updates.password) u.password_hash = bcrypt.hashSync(updates.password, 10);
   save(d);
   return u;

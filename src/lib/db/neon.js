@@ -60,8 +60,16 @@ export async function updateUser(userId, updates) {
     // Explicit null (un-assigning a tier) must stick — ?? would fall back
     // to the old value since null is nullish too.
     tier_id: updates.tier_id !== undefined ? updates.tier_id : u.tier_id,
+    // theme_pref follows the same rule — explicit null/empty clears it,
+    // 'light'/'dark' sets it. Constraint enforces valid values at the DB.
+    theme_pref: updates.theme_pref !== undefined ? updates.theme_pref : u.theme_pref,
     password_hash: updates.password ? bcrypt.hashSync(updates.password, 10) : u.password_hash,
   };
+  // Lazy idempotent migration: production's `users` table predates the
+  // theme_pref column this flow relies on.
+  try {
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS theme_pref TEXT CHECK (theme_pref IN ('light', 'dark'))`;
+  } catch (_) { /* ignore — IF NOT EXISTS in older PG versions throws */ }
   return row0(await sql`
     UPDATE users SET
       display_name = ${merged.display_name},
@@ -70,6 +78,7 @@ export async function updateUser(userId, updates) {
       role = ${merged.role},
       disabled = ${merged.disabled},
       tier_id = ${merged.tier_id},
+      theme_pref = ${merged.theme_pref},
       password_hash = ${merged.password_hash}
     WHERE id = ${userId}
     RETURNING *

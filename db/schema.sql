@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   email         TEXT,
   phone         TEXT,
   disabled      BOOLEAN NOT NULL DEFAULT FALSE,
+  theme_pref    TEXT CHECK (theme_pref IN ('light', 'dark')), -- per-user light/dark; NULL means follow the device / system default
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

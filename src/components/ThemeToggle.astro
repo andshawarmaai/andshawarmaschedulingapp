@@ -1,16 +1,12 @@
 ---
-// Light/dark mode toggle. A row with three parts: a sun icon + "Light"
-// label on the left, a small iOS-style switch in the middle (round
-// knob sliding over a pill track), and a "Dark" + moon icon label on
-// the right. The icons/labels stay visible regardless of state; the
-// switch alone indicates the current mode. This mirrors the layout
-// of the LangToggle so the two read as a matched pair.
-//
-// Stores the choice in localStorage, writes `data-theme="dark"` on
-// <html>, and ALSO swaps the inline --color-* variables between the
-// admin-configured light and dark palettes (read from
-// `data-theme-light-vars` / `data-theme-dark-vars` written by
-// Layout.astro on every page).
+// Light/dark mode toggle — plain "Light" word on the left, a small
+// iOS-style switch in the middle (round knob sliding over a pill
+// track), plain "Dark" word on the right.
+// Per-user preference lives in the DB (users.theme_pref). Login page
+// (no session yet) and unauthenticated visitors fall back to
+// localStorage. The server-rendered HTML already sets the right
+// data-theme attribute on <html> when a session exists, so first paint
+// matches the user's saved pref with no flash.
 ---
 <span class="theme-switch-row">
   <span class="theme-switch-side theme-switch-side-light">Light</span>
@@ -23,19 +19,28 @@
 </span>
 
 <script is:inline>
-  // Apply theme as early as possible — set both the data-theme attribute
-  // AND swap the inline CSS variables so dark mode uses the admin-
-  // configured dark palette, not the CSS file's hardcoded fallback.
+  // Apply theme as early as possible. Order of preference:
+  //   1. localStorage (allows per-device override and covers the login
+  //      page where there's no user yet)
+  //   2. The data-theme attribute the server already wrote onto <html>
+  //      (this carries the per-user DB preference, when there is a user)
+  //   3. System prefers-color-scheme
   (function () {
     try {
       var stored = localStorage.getItem('shawarma_theme');
-      var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      var theme = stored || (sysDark ? 'dark' : 'light');
       var html = document.documentElement;
+      var server = html.getAttribute('data-theme');
+      var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var theme = stored || server || (sysDark ? 'dark' : 'light');
       html.setAttribute('data-theme', theme);
       var darkVars = html.getAttribute('data-theme-dark-vars');
-      if (theme === 'dark' && darkVars) html.setAttribute('style', darkVars);
-    } catch (_) { /* localStorage blocked — fall back to light */ }
+      var lightVars = html.getAttribute('data-theme-light-vars');
+      if (theme === 'dark' && darkVars) {
+        html.setAttribute('style', darkVars);
+      } else if (lightVars) {
+        html.setAttribute('style', lightVars);
+      }
+    } catch (_) { /* localStorage blocked — fall back to whatever the server set */ }
   })();
 </script>
 
@@ -59,12 +64,27 @@
     });
   }
   paintTheme(document.documentElement.getAttribute('data-theme') || 'light');
+
+  // Click handler: write to both localStorage (immediate, covers
+  // cross-tab sync) AND the per-user DB endpoint so the choice
+  // follows the user across devices when they're signed in.
   document.querySelectorAll('.theme-switch').forEach((sw) => {
-    sw.addEventListener('click', () => {
+    sw.addEventListener('click', async () => {
       var current = sw.getAttribute('data-theme-state') || 'light';
       var next = current === 'light' ? 'dark' : 'light';
       try { localStorage.setItem('shawarma_theme', next); } catch (_) {}
       paintTheme(next);
+      try {
+        await fetch('/api/me/theme', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme_pref: next }),
+        });
+      } catch (_) {
+        // Anonymous visitor (login page) — endpoint returns 401; that's
+        // expected; localStorage is the source of truth for that case.
+      }
     });
   });
 </script>
