@@ -670,6 +670,7 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 .modal-close { background: none; border: none; cursor: pointer; color: var(--color-muted); line-height: 1; padding: 0.25rem; display: flex; }
 .modal-close:hover { color: var(--color-ink); }
 .modal-body { padding: 1.25rem; overflow-y: auto; flex: 1; }
+#modal-actions { margin: 0 0 1rem 0; display: flex; justify-content: flex-start; }
 .modal-footer { display: flex; gap: 0.5rem; justify-content: flex-end; padding: 0.75rem 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-bg-soft); }
 
 /* ----- View toggle ----- */

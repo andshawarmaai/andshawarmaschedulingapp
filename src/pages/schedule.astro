@@ -62,8 +62,8 @@ const lang = getLang(Astro);
         <button class="modal-close" id="modal-close" aria-label="Close" type="button">&times;</button>
       </div>
       <div class="modal-body">
-        <div id="modal-shifts"></div>
         <div id="modal-actions"></div>
+        <div id="modal-shifts"></div>
       </div>
     </div>
   </div>
@@ -167,10 +167,10 @@ const lang = getLang(Astro);
         const iso = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(viewDay).padStart(2, '0')}`;
         label.textContent = formatDate(iso, { lang });
         const shifts = shiftsForDate(iso);
-        const addBtn = `<button class="btn-primary" id="day-add" style="margin-top:0.5rem;">${ctx.canEdit ? t(lang, 'schedule.addShift') : t(lang, 'schedule.requestShift')}</button>`;
-        container.innerHTML = (shifts.length === 0
+        const addBtn = `<button class="btn-primary" id="day-add" style="margin-bottom:0.75rem;">${ctx.canEdit ? t(lang, 'schedule.addShift') : t(lang, 'schedule.requestShift')}</button>`;
+        container.innerHTML = addBtn + (shifts.length === 0
           ? `<p class="empty">${t(lang, 'schedule.noShiftsOnDay')}</p>`
-          : `<div class="day-columns">${renderDayColumns(iso, shifts)}</div>`) + addBtn;
+          : `<div class="day-columns">${renderDayColumns(iso, shifts)}</div>`);
         wireDayView(iso, shifts);
         return;
       }
