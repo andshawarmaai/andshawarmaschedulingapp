@@ -113,31 +113,35 @@ html, body {
 [data-theme="dark"] .req-chip { background-color: #232327 !important; color: #f5f5f4 !important; }
 [data-theme="dark"] .time-off-bar { background: repeating-linear-gradient(45deg, #2e2e33, #2e2e33 4px, #3f3f46 4px 8px) !important; color: #f5f5f4 !important; }
 
-/* Theme switch — a row with three parts: Light label (sun + "Light"),
-   a small iOS-style switch in the middle (fixed-width pill track with
-   a perfectly circular knob), Dark label (moon + "Dark"). Mirrors
-   LangToggle's row layout so they read as a matched pair. */
+/* Theme switch — plain "Light" word on the left, a small iOS-style
+   switch in the middle (small fixed-width track + perfectly circular
+   thumb), plain "Dark" word on the right. Words render as inline
+   text (no pill backgrounds, no borders); only the switch itself
+   has any chrome. */
 .theme-switch-row {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  width: auto;
+  max-width: 100%;
 }
 .theme-switch-side {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--color-ink-light);
   transition: color 0.15s ease, opacity 0.15s ease;
   user-select: none;
   white-space: nowrap;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  flex-shrink: 0;
 }
-.theme-switch-side-icon { flex-shrink: 0; }
 .theme-switch-row[data-theme-state="light"] .theme-switch-side-light { color: var(--color-ink); }
-.theme-switch-row[data-theme-state="light"] .theme-switch-side-dark { opacity: 0.5; }
+.theme-switch-row[data-theme-state="light"] .theme-switch-side-dark { opacity: 0.45; }
 .theme-switch-row[data-theme-state="dark"] .theme-switch-side-dark { color: var(--color-ink); }
-.theme-switch-row[data-theme-state="dark"] .theme-switch-side-light { opacity: 0.5; }
+.theme-switch-row[data-theme-state="dark"] .theme-switch-side-light { opacity: 0.45; }
 .theme-switch {
   display: inline-flex;
   background: none;
@@ -147,8 +151,6 @@ html, body {
   font-family: inherit;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
-  margin-left: auto;
-  margin-right: auto;
 }
 .theme-switch-track {
   position: relative;
@@ -391,10 +393,10 @@ a:hover { text-decoration: underline; }
 /* Language toggle — see components/LangToggle.astro. .on-dark exists for
    any future dark-background placement; every current spot (login's white
    card, the sidebar) uses the plain light variant. */
-.lang-toggle { display: inline-flex; align-self: flex-start; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; }
+.lang-toggle { display: inline-flex; align-self: flex-start; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; flex-shrink: 0; }
 .lang-toggle button {
   border: none; background: none; font-family: inherit; font-size: 0.75rem; font-weight: 600;
-  padding: 0.375rem 0.75rem; cursor: pointer; color: var(--color-ink-light);
+  padding: 0.375rem 0.625rem; cursor: pointer; color: var(--color-ink-light);
   white-space: nowrap;
 }
 .lang-toggle button.active { background: var(--color-primary); color: #fff; }
