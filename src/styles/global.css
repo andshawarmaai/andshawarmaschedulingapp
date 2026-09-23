@@ -119,6 +119,92 @@ html, body {
 .theme-toggle button.active { background: var(--color-primary); color: #fff; }
 [data-theme="dark"] .theme-toggle button.active { background: #f5f5f4; color: #0f0f10; }
 
+/* ─── Dark-mode catch-all ────────────────────────────────────────────
+   The rule above is intentional: anything with a hardcoded white
+   background should switch to the dark surface when dark mode is on.
+   `!important` is fine here because the whole point is to override
+   the per-component white. New components should use the
+   --color-bg / --color-bg-soft variables instead so they don't need
+   this. */
+[data-theme="dark"] .app-shell,
+[data-theme="dark"] .app-content,
+[data-theme="dark"] .app-topbar,
+[data-theme="dark"] .app-sidebar,
+[data-theme="dark"] .app-sidebar-footer,
+[data-theme="dark"] .card,
+[data-theme="dark"] .modal,
+[data-theme="dark"] .modal-header,
+[data-theme="dark"] .modal-footer,
+[data-theme="dark"] .input,
+[data-theme="dark"] .tile,
+[data-theme="dark"] .day-shift,
+[data-theme="dark"] .day-column,
+[data-theme="dark"] .day-column-header,
+[data-theme="dark"] .template-slot-empty,
+[data-theme="dark"] .calendar-day,
+[data-theme="dark"] .cal-month-cell,
+[data-theme="dark"] .cal-day-col,
+[data-theme="dark"] .login-card,
+[data-theme="dark"] .coverage-block,
+[data-theme="dark"] .roster-card,
+[data-theme="dark"] .context-menu,
+[data-theme="dark"] .view-toggle,
+[data-theme="dark"] .taker-pill,
+[data-theme="dark"] .toast,
+[data-theme="dark"] .day-column-progress,
+[data-theme="dark"] .modal-backdrop {
+  background-color: #1c1c1f !important;
+  color: #f5f5f4 !important;
+  border-color: #2e2e33 !important;
+}
+/* Subtle two-tone between the panel and the page behind it */
+[data-theme="dark"] .calendar-day,
+[data-theme="dark"] .cal-month-cell,
+[data-theme="dark"] .app-content { background-color: #18181b !important; }
+/* The "soft" surface — sidebar, header rows, custom column background */
+[data-theme="dark"] .cal-month-head,
+[data-theme="dark"] .calendar-head,
+[data-theme="dark"] .cal-week-headcell,
+[data-theme="dark"] .cal-month-cell.other-month,
+[data-theme="dark"] .calendar-day.other-month,
+[data-theme="dark"] .coverage-block.status-neutral,
+[data-theme="dark"] .app-sidebar,
+[data-theme="dark"] .app-topbar,
+[data-theme="dark"] .modal-footer { background-color: #232327 !important; }
+/* Inputs and form controls */
+[data-theme="dark"] .input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea { background-color: #0f0f10 !important; color: #f5f5f4 !important; border-color: #2e2e33 !important; }
+/* Secondary buttons — dark surface, light text */
+[data-theme="dark"] .btn-secondary { background-color: #2e2e33 !important; color: #f5f5f4 !important; border-color: #3f3f46 !important; }
+[data-theme="dark"] .btn-secondary:hover { background-color: #3f3f46 !important; }
+/* Shift exception column — keep its orange identity, just darker */
+[data-theme="dark"] .day-column-custom { background-color: #2a1d0a !important; border-color: #b45309 !important; }
+[data-theme="dark"] .day-column-custom .day-column-header { background-color: #b45309 !important; color: #fff !important; }
+[data-theme="dark"] .day-column-custom .day-column-progress { background-color: #fff !important; color: #92400e !important; }
+/* Shift lines and chips */
+[data-theme="dark"] .shift-line { color: #d4d4d8 !important; }
+[data-theme="dark"] .shift-line strong { color: #f5f5f4 !important; }
+[data-theme="dark"] .shift-chip { background-color: #14532d !important; color: #bbf7d0 !important; border-color: #16a34a !important; }
+[data-theme="dark"] .req-chip { background-color: #232327 !important; color: #f5f5f4 !important; border-left-color: #71717a !important; }
+[data-theme="dark"] .req-chip.flagged { background-color: #450a0a !important; color: #fecaca !important; border-color: #dc2626 !important; }
+[data-theme="dark"] .time-off-bar { background: repeating-linear-gradient(45deg, #2e2e33, #2e2e33 4px, #3f3f46 4px 8px) !important; color: #f5f5f4 !important; border-color: #52525b !important; }
+[data-theme="dark"] .timeoff-chip { background-color: #1e1b4b !important; color: #c7d2fe !important; border-color: #6366f1 !important; }
+/* Cards inside cards / list rows */
+[data-theme="dark"] hr.divider { border-top-color: #2e2e33 !important; }
+[data-theme="dark"] .list-item { border-bottom-color: #2e2e33 !important; }
+[data-theme="dark"] .user-row { border-bottom-color: #2e2e33 !important; }
+[data-theme="dark"] .card-sub { color: #a1a1aa !important; }
+[data-theme="dark"] .day-shift-time,
+[data-theme="dark"] .day-column-time,
+[data-theme="dark"] .day-shift-notes { color: #a1a1aa !important; }
+/* Login page brand image stays on a white tile so the logo is legible */
+[data-theme="dark"] .login-header img { background-color: #fff !important; }
+/* Modal backdrop stays semi-transparent black */
+[data-theme="dark"] .modal-backdrop { background-color: rgba(0, 0, 0, 0.7) !important; }
+/* Print: keep light background so printed schedules stay readable */
+[data-theme="dark"] @media print { body { background: #fff !important; color: #000 !important; } }
+
 h1, h2, h3, h4, .card h2, .login-title, .modal-header h2, .day-shift-name {
   font-family: var(--font-heading);
   letter-spacing: -0.015em;
