@@ -169,9 +169,21 @@ const user = Astro.locals.user;
     <p class="card-sub">Customize the colors used across the app for both light and dark modes, plus the logo in the sidebar. Changes save instantly and apply to every page on the next render — no deploy needed.</p>
 
     <div class="field" style="margin-top:1rem;">
-      <label for="theme-logo-url">Logo URL</label>
-      <input type="url" id="theme-logo-url" class="input" placeholder="https://example.com/logo.png or /logo.jpg" />
-      <p class="card-sub" style="margin:0.375rem 0 0;">Paste an https URL or a /-rooted path. Leave blank to keep the default logo.</p>
+      <label for="theme-logo-upload">Logo</label>
+      <div class="theme-logo-row">
+        <img id="theme-logo-preview" class="theme-logo-preview" alt="Current logo" />
+        <div class="theme-logo-controls">
+          <input type="file" id="theme-logo-upload" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" style="display:none;" />
+          <button type="button" class="btn-secondary" id="theme-logo-upload-btn">Upload new logo</button>
+          <button type="button" class="btn-secondary" id="theme-logo-clear-btn" hidden>Remove uploaded logo</button>
+          <p class="card-sub" id="theme-logo-status" style="margin:0.25rem 0 0;">PNG, JPEG, GIF, WebP, or SVG · max 512 KB.</p>
+        </div>
+      </div>
+      <details class="theme-logo-external" style="margin-top:0.5rem;">
+        <summary style="cursor:pointer;font-size:0.8125rem;color:var(--color-ink-light);">Use an external URL instead</summary>
+        <input type="url" id="theme-logo-url" class="input" placeholder="https://example.com/logo.png or /logo.jpg" style="margin-top:0.5rem;" />
+        <p class="card-sub" style="margin:0.375rem 0 0;">Paste an https URL or a /-rooted path. Leave blank to use the default logo.</p>
+      </details>
     </div>
 
     <hr class="divider" />
@@ -1352,6 +1364,13 @@ const user = Astro.locals.user;
     // a clean rainbow strip — what most non-designer admins actually
     // want when picking a brand color.
     //
+    // The logo lives above the color grid: a live preview of the
+    // currently-used logo, an "Upload new logo" button (multipart
+    // POST to /api/admin/theme-settings/logo), and a "Remove" button
+    // that shows up only when an upload is active. There's also a
+    // collapsed "Use an external URL instead" details section for
+    // admins who'd rather paste a URL than upload.
+    //
     // Per-field S/L constants were tuned by hand so the defaults land
     // near the original palette: brand red = (h:0, s:74%, l:48%),
     // body text = (h:30, s:6%, l:12%), page bg = (h:60, s:9%, l:96%),
@@ -1371,6 +1390,11 @@ const user = Astro.locals.user;
       accent_dark:   [28,  42], // deeper amber
     };
     const themeLogoUrl = document.getElementById('theme-logo-url');
+    const themeLogoPreview = document.getElementById('theme-logo-preview');
+    const themeLogoUpload = document.getElementById('theme-logo-upload');
+    const themeLogoUploadBtn = document.getElementById('theme-logo-upload-btn');
+    const themeLogoClearBtn = document.getElementById('theme-logo-clear-btn');
+    const themeLogoStatus = document.getElementById('theme-logo-status');
     const themeStatus = document.getElementById('theme-status');
     const themeSave = document.getElementById('theme-save');
     const themeReset = document.getElementById('theme-reset');
@@ -1382,6 +1406,11 @@ const user = Astro.locals.user;
       if (!themeStatus) return;
       themeStatus.textContent = msg;
       themeStatus.style.color = kind === 'error' ? '#dc2626' : kind === 'ok' ? '#16a34a' : '';
+    }
+    function setLogoStatus(msg, kind) {
+      if (!themeLogoStatus) return;
+      themeLogoStatus.textContent = msg;
+      themeLogoStatus.style.color = kind === 'error' ? '#dc2626' : kind === 'ok' ? '#16a34a' : '';
     }
 
     function hexToHsl(hex) {
@@ -1427,8 +1456,13 @@ const user = Astro.locals.user;
       html.setAttribute('data-theme-dark-vars', darkVars);
       const current = html.getAttribute('data-theme') || 'light';
       html.setAttribute('style', current === 'dark' ? darkVars : lightVars);
+      const logoSrc = theme.logo_data_url || theme.logo_url || '/logo.jpg';
       const logo = document.querySelector('.app-sidebar-brand img');
-      if (logo) logo.src = theme.logo_url || '/logo.jpg';
+      if (logo) logo.src = logoSrc;
+      // Update the in-card preview and the clear-button visibility so
+      // the form matches what's actually live.
+      if (themeLogoPreview) themeLogoPreview.src = logoSrc;
+      if (themeLogoClearBtn) themeLogoClearBtn.hidden = !theme.logo_data_url;
     }
 
     function fieldKey(field) { return field.split('.')[1]; }
@@ -1533,6 +1567,58 @@ const user = Astro.locals.user;
           suppressPreview = false;
         }
         setThemeStatus('Defaults loaded in the form — click Save to apply.');
+      });
+    }
+
+    // Logo upload — clicking the visible button opens the hidden file
+    // picker; on change we POST multipart to /api/admin/theme-settings/logo
+    // and apply the returned theme so the sidebar updates immediately.
+    if (themeLogoUploadBtn && themeLogoUpload) {
+      themeLogoUploadBtn.addEventListener('click', () => themeLogoUpload.click());
+      themeLogoUpload.addEventListener('change', async () => {
+        const file = themeLogoUpload.files && themeLogoUpload.files[0];
+        if (!file) return;
+        if (file.size > 512 * 1024) {
+          setLogoStatus(`Too large (${Math.round(file.size / 1024)} KB). Max is 512 KB.`, 'error');
+          themeLogoUpload.value = '';
+          return;
+        }
+        setLogoStatus(`Uploading ${file.name} (${Math.round(file.size / 1024)} KB)…`);
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch('/api/admin/theme-settings/logo', {
+          method: 'POST', credentials: 'same-origin', body: fd,
+        });
+        themeLogoUpload.value = '';
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          setLogoStatus(body.error || `Upload failed (${r.status}).`, 'error');
+          return;
+        }
+        const body = await r.json();
+        themeCurrent = body.theme;
+        applyThemeToHtml(themeCurrent);
+        setLogoStatus(`Uploaded ${file.name}.`, 'ok');
+      });
+    }
+
+    // Logo clear — wipes the uploaded data URL but leaves any external
+    // logo_url intact so the sidebar falls back to it (or to /logo.jpg).
+    if (themeLogoClearBtn) {
+      themeLogoClearBtn.addEventListener('click', async () => {
+        setLogoStatus('Removing…');
+        const r = await fetch('/api/admin/theme-settings/logo', {
+          method: 'DELETE', credentials: 'same-origin',
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          setLogoStatus(body.error || `Remove failed (${r.status}).`, 'error');
+          return;
+        }
+        const body = await r.json();
+        themeCurrent = body.theme;
+        applyThemeToHtml(themeCurrent);
+        setLogoStatus('Uploaded logo removed.', 'ok');
       });
     }
 

@@ -107,7 +107,7 @@ function rgbHex(h) { return h.startsWith('#') ? h.slice(1) : h; }
     <aside class="app-sidebar no-print" id="app-sidebar">
       <div class="app-sidebar-brand">
         <a href="/" class="app-sidebar-brand-link">
-          <img src={theme.logo_url || '/logo.jpg'} alt="&Shawarma" />
+          <img src={theme.logo_data_url || theme.logo_url || '/logo.jpg'} alt="&Shawarma" />
         </a>
         <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" type="button" aria-label="Collapse sidebar">
           <Icon name="chevron-left" size={16} />

@@ -2,24 +2,23 @@
 // the 'theme_settings' key as JSON, encrypted by SESSION_SECRET via the
 // same AES-256-GCM helper every other secret on the site uses.
 //
+// Logo persistence: this app's only persistent writable surface is the
+// database, so logo uploads are stored as base64 data URLs inside the
+// encrypted blob. Logos are typically <100 KB so the size cost is fine.
+// Anything bigger than 512 KB is rejected so an accidental upload of a
+// huge photo can't bloat the DB.
+//
 // The persisted shape (all fields optional):
 //   {
-//     logo_url:        "https://...",  // absolute https URL or path served by us
-//     light: {
-//       primary:       "#dc2626",      // brand red — buttons, links, accents
-//       primary_dark:  "#b91c1c",      // hover for primary buttons
-//       foh:           "#dc2626",      // front-of-house shift color
-//       boh:           "#2563eb",      // back-of-house shift color
-//       ink:           "#1c1917",      // primary text
-//       ink_light:     "#57534e",      // secondary text
-//       bg:            "#ffffff",      // page background
-//       bg_soft:       "#f5f5f4",      // sidebar / panel header rows
-//       border:        "#e7e5e4",      // dividers, input outlines
-//       accent:        "#f59e0b",      // chat accent / shift-exception
-//       accent_dark:   "#92400e",      // chat gradient deep
-//     },
+//     logo_url:        "https://...",   // absolute https URL (set by API caller)
+//     logo_data_url:   "data:image/png;base64,...", // set by POST /logo upload
+//     light: { primary, primary_dark, foh, boh, ink, ink_light, bg, bg_soft,
+//              border, accent, accent_dark },   // all hex
 //     dark:  { ...same keys... },
 //   }
+//
+// Logo precedence at render time: logo_data_url (uploaded) wins over
+// logo_url (external link). PATCH keeps whichever was last set.
 //
 // GET always returns the full object, merging stored values over the
 // built-in defaults so a brand-new install (or a half-set row) still
@@ -35,6 +34,7 @@ const SETTINGS_KEY = 'theme_settings';
 
 const DEFAULTS = {
   logo_url: null,
+  logo_data_url: null,
   light: {
     primary: '#dc2626',
     primary_dark: '#b91c1c',
@@ -92,11 +92,14 @@ function sanitizeLogo(v) {
 
 // Deep-merge user overrides on top of DEFAULTS so the response always
 // has every field a client might read.
-function buildTheme(stored) {
+export function buildTheme(stored) {
   const out = JSON.parse(JSON.stringify(DEFAULTS));
   if (!stored || typeof stored !== 'object') return out;
   if (stored.logo_url === null || typeof stored.logo_url === 'string') {
     out.logo_url = stored.logo_url || null;
+  }
+  if (stored.logo_data_url === null || typeof stored.logo_data_url === 'string') {
+    out.logo_data_url = stored.logo_data_url || null;
   }
   for (const mode of ['light', 'dark']) {
     if (stored[mode] && typeof stored[mode] === 'object') {
