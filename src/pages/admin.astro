@@ -490,7 +490,16 @@ const user = Astro.locals.user;
       <div class="modal-header"><h2 id="job-modal-title">Add job</h2><button class="modal-close" id="job-modal-close" type="button">&times;</button></div>
       <div class="modal-body">
         <div class="field"><label>Name</label><input type="text" id="job-name" class="input" placeholder="e.g. Shawarma Station" /></div>
-        <div class="field"><label>Department (optional)</label><input type="text" id="job-department" class="input" placeholder="e.g. BOH" /></div>
+        <div class="field">
+          <label for="job-department">Department</label>
+          <select id="job-department" class="input">
+            <option value="">— None —</option>
+            <option value="Front of House">Front of House</option>
+            <option value="Back of House">Back of House</option>
+            <option value="Other">Other</option>
+          </select>
+          <p class="card-sub" style="margin:0.375rem 0 0;">Optional — used to group roles by area (front of house / back of house / other). No one is assigned automatically; it's just a label for this job.</p>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-danger" id="job-delete" style="margin-right:auto;" type="button" hidden>Delete job</button>

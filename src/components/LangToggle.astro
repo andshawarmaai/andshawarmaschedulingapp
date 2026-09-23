@@ -13,8 +13,8 @@ interface Props {
 const { lang, variant = 'light' } = Astro.props as Props;
 ---
 <div class={`lang-toggle${variant === 'dark' ? ' on-dark' : ''}`} role="group" aria-label="Language / Idioma">
-  <button type="button" data-set-lang="en" class={lang === 'en' ? 'active' : ''} aria-pressed={lang === 'en'}>EN</button>
-  <button type="button" data-set-lang="es" class={lang === 'es' ? 'active' : ''} aria-pressed={lang === 'es'}>ES</button>
+  <button type="button" data-set-lang="en" class={lang === 'en' ? 'active' : ''} aria-pressed={lang === 'en'}>English</button>
+  <button type="button" data-set-lang="es" class={lang === 'es' ? 'active' : ''} aria-pressed={lang === 'es'}>Español</button>
 </div>
 <script>
   document.querySelectorAll('.lang-toggle [data-set-lang]').forEach((btn) => {

@@ -382,8 +382,9 @@ a:hover { text-decoration: underline; }
    card, the sidebar) uses the plain light variant. */
 .lang-toggle { display: inline-flex; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; }
 .lang-toggle button {
-  border: none; background: none; font-family: inherit; font-size: 0.6875rem; font-weight: 700;
-  padding: 0.3125rem 0.625rem; cursor: pointer; color: var(--color-ink-light);
+  border: none; background: none; font-family: inherit; font-size: 0.75rem; font-weight: 600;
+  padding: 0.375rem 0.75rem; cursor: pointer; color: var(--color-ink-light);
+  white-space: nowrap;
 }
 .lang-toggle button.active { background: var(--color-primary); color: #fff; }
 .lang-toggle.on-dark { border-color: rgba(255,255,255,0.4); }
