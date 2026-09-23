@@ -113,11 +113,32 @@ html, body {
 [data-theme="dark"] .req-chip { background-color: #232327 !important; color: #f5f5f4 !important; }
 [data-theme="dark"] .time-off-bar { background: repeating-linear-gradient(45deg, #2e2e33, #2e2e33 4px, #3f3f46 4px 8px) !important; color: #f5f5f4 !important; }
 
-/* Theme switch — iOS-style horizontal toggle. The track holds a sun
-   icon on the left and a moon icon on the right; a circular knob
-   slides between them showing the OPPOSITE icon (so the active state
-   is the one being switched TO, not the current one). This avoids the
-   problem of the active icon being hidden under the knob. */
+/* Theme switch — a row with three parts: Light label (sun + "Light"),
+   a small iOS-style switch in the middle (fixed-width pill track with
+   a perfectly circular knob), Dark label (moon + "Dark"). Mirrors
+   LangToggle's row layout so they read as a matched pair. */
+.theme-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+.theme-switch-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-ink-light);
+  transition: color 0.15s ease, opacity 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.theme-switch-side-icon { flex-shrink: 0; }
+.theme-switch-row[data-theme-state="light"] .theme-switch-side-light { color: var(--color-ink); }
+.theme-switch-row[data-theme-state="light"] .theme-switch-side-dark { opacity: 0.5; }
+.theme-switch-row[data-theme-state="dark"] .theme-switch-side-dark { color: var(--color-ink); }
+.theme-switch-row[data-theme-state="dark"] .theme-switch-side-light { opacity: 0.5; }
 .theme-switch {
   display: inline-flex;
   background: none;
@@ -125,69 +146,38 @@ html, body {
   padding: 0;
   cursor: pointer;
   font-family: inherit;
-  width: 100%;
+  flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
+  margin-left: auto;
+  margin-right: auto;
 }
 .theme-switch-track {
   position: relative;
   display: block;
-  width: 100%;
-  height: 1.75rem;
+  width: 2.5rem;
+  height: 1.375rem;
   border-radius: 9999px;
-  background: var(--color-bg-soft);
-  border: 1px solid var(--color-border);
-  transition: background 0.18s ease, border-color 0.18s ease;
-  overflow: hidden;
+  background: var(--color-border);
+  transition: background 0.18s ease;
   flex-shrink: 0;
 }
-.theme-switch-icon {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  transition: opacity 0.18s ease, color 0.18s ease;
+.theme-switch[data-theme-state="dark"] .theme-switch-track {
+  background: var(--color-primary);
 }
-.theme-switch-icon-sun { left: 0.375rem; color: var(--color-warning); }
-.theme-switch-icon-moon { right: 0.375rem; color: var(--color-primary); }
-
-/* Track icon visibility: in light mode the SUN is dim (because light
-   is already active), and in dark mode the MOON is dim. */
-.theme-switch[data-theme-state="light"] .theme-switch-icon-sun { opacity: 0.35; }
-.theme-switch[data-theme-state="light"] .theme-switch-icon-moon { opacity: 0.85; }
-.theme-switch[data-theme-state="dark"] .theme-switch-icon-sun { opacity: 0.85; }
-.theme-switch[data-theme-state="dark"] .theme-switch-icon-moon { opacity: 0.35; }
-
 .theme-switch-thumb {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc(50% - 3px);
-  border-radius: 9999px;
-  background: var(--color-bg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.18s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-ink);
+  top: 2px;
+  left: 2px;
+  width: calc(1.375rem - 4px);
+  height: calc(1.375rem - 4px);
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.theme-switch[data-theme-state="dark"] .theme-switch-thumb { transform: translateX(100%); }
-
-/* Inside the knob, show whichever icon represents the CURRENT state
-   (sun when light is active, moon when dark is active). The opposite
-   icon is hidden so the knob stays clean. */
-.theme-switch-thumb-icon { display: inline-flex; align-items: center; justify-content: center; }
-.theme-switch[data-theme-state="light"] .theme-switch-thumb-icon-sun { display: inline-flex; }
-.theme-switch[data-theme-state="light"] .theme-switch-thumb-icon-moon { display: none; }
-.theme-switch[data-theme-state="dark"] .theme-switch-thumb-icon-sun { display: none; }
-.theme-switch[data-theme-state="dark"] .theme-switch-thumb-icon-moon { display: inline-flex; }
-.theme-switch-thumb-icon-moon { color: var(--color-primary); }
-.theme-switch-thumb-icon-sun { color: var(--color-warning); }
-
+.theme-switch[data-theme-state="dark"] .theme-switch-thumb {
+  transform: translateX(calc(2.5rem - 1.375rem));
+}
 .theme-switch:focus-visible .theme-switch-track {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
@@ -380,7 +370,7 @@ a:hover { text-decoration: underline; }
 /* Language toggle — see components/LangToggle.astro. .on-dark exists for
    any future dark-background placement; every current spot (login's white
    card, the sidebar) uses the plain light variant. */
-.lang-toggle { display: inline-flex; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; }
+.lang-toggle { display: inline-flex; align-self: flex-start; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; }
 .lang-toggle button {
   border: none; background: none; font-family: inherit; font-size: 0.75rem; font-weight: 600;
   padding: 0.375rem 0.75rem; cursor: pointer; color: var(--color-ink-light);

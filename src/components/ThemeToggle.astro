@@ -1,30 +1,32 @@
 ---
-// Light/dark mode toggle. A single horizontal switch — left half is
-// light, right half is dark — so it stays the same width regardless of
-// which side is active. Stores the choice in localStorage so it
-// survives reloads, writes `data-theme="dark"` on <html>, and ALSO
-// swaps the inline --color-* variables between the admin-configured
-// light and dark palettes (read from `data-theme-light-vars` /
-// `data-theme-dark-vars` written by Layout.astro on every page).
+// Light/dark mode toggle. A row with three parts: a sun icon + "Light"
+// label on the left, a small iOS-style switch in the middle (round
+// knob sliding over a pill track), and a "Dark" + moon icon label on
+// the right. The icons/labels stay visible regardless of state; the
+// switch alone indicates the current mode. This mirrors the layout
+// of the LangToggle so the two read as a matched pair.
+//
+// Stores the choice in localStorage, writes `data-theme="dark"` on
+// <html>, and ALSO swaps the inline --color-* variables between the
+// admin-configured light and dark palettes (read from
+// `data-theme-light-vars` / `data-theme-dark-vars` written by
+// Layout.astro on every page).
 ---
-<button type="button" class="theme-switch" role="switch" aria-label="Light or dark mode" data-theme-state="light">
-  <span class="theme-switch-track" aria-hidden="true">
-    <span class="theme-switch-icon theme-switch-icon-sun">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-    </span>
-    <span class="theme-switch-icon theme-switch-icon-moon">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-    </span>
-    <span class="theme-switch-thumb">
-      <span class="theme-switch-thumb-icon theme-switch-thumb-icon-sun">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-      </span>
-      <span class="theme-switch-thumb-icon theme-switch-thumb-icon-moon">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      </span>
-    </span>
+<span class="theme-switch-row">
+  <span class="theme-switch-side theme-switch-side-light">
+    <svg class="theme-switch-side-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <span class="theme-switch-side-label">Light</span>
   </span>
-</button>
+  <button type="button" class="theme-switch" role="switch" aria-label="Light or dark mode" data-theme-state="light">
+    <span class="theme-switch-track" aria-hidden="true">
+      <span class="theme-switch-thumb"></span>
+    </span>
+  </button>
+  <span class="theme-switch-side theme-switch-side-dark">
+    <span class="theme-switch-side-label">Dark</span>
+    <svg class="theme-switch-side-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </span>
+</span>
 
 <script is:inline>
   // Apply theme as early as possible — set both the data-theme attribute
@@ -57,6 +59,9 @@
     document.querySelectorAll('.theme-switch').forEach((sw) => {
       sw.setAttribute('data-theme-state', theme);
       sw.setAttribute('aria-checked', theme === 'dark' ? 'true' : 'false');
+    });
+    document.querySelectorAll('.theme-switch-row').forEach((row) => {
+      row.setAttribute('data-theme-state', theme);
     });
   }
   paintTheme(document.documentElement.getAttribute('data-theme') || 'light');
