@@ -642,6 +642,25 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 .badge-full { background: var(--color-primary); color: #fff; }
 .badge-count { background: #6b7280; color: #fff; }
 
+/* Badges need their own dark-mode color pairs since they use
+   hardcoded light-mode backgrounds. We don't invert them (that
+   would make "approved" green look like "denied" red); we just
+   darken the backgrounds a touch and brighten the text so contrast
+   holds up against the dark page. */
+[data-theme="dark"] .badge-pending,
+[data-theme="dark"] .badge-open { background: #422006; color: #fde68a; }
+[data-theme="dark"] .badge-approved,
+[data-theme="dark"] .badge-closed { background: #052e16; color: #86efac; }
+[data-theme="dark"] .badge-denied,
+[data-theme="dark"] .badge-cancelled,
+[data-theme="dark"] .badge-foh { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .badge-boh { background: #172554; color: #93c5fd; }
+[data-theme="dark"] .badge-admin { background: #f5f5f4; color: #0f0f10; }
+[data-theme="dark"] .badge-manager { background: var(--color-primary); color: #fff; }
+[data-theme="dark"] .badge-staff { background: #3f3f46; color: #f5f5f4; }
+[data-theme="dark"] .badge-full { background: var(--color-primary); color: #fff; }
+[data-theme="dark"] .badge-count { background: #52525b; color: #fff; }
+
 /* ----- Lists ----- */
 .list-item { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.75rem 0; border-bottom: 1px solid var(--color-border); }
 .list-item:last-child { border-bottom: none; }
