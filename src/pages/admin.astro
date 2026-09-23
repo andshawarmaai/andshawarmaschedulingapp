@@ -1607,7 +1607,7 @@ const user = Astro.locals.user;
         const body = await r.json();
         themeCurrent = body.theme;
         applyThemeToHtml(themeCurrent);
-        setLogoStatus(`Uploaded ${file.name}.`, 'ok');
+        setLogoStatus(`Uploaded ${file.name} — previous logo replaced.`, 'ok');
       });
     }
 
