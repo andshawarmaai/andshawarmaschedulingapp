@@ -248,12 +248,26 @@ const lang = getLang(Astro);
     // whose start/end don't match any template. The header on each
     // template column shows "N of M" progress so the schedule template
     // quota is visible at a glance.
+    //
+    // Bucketing rule (order matters):
+    //   1. Any shift flagged is_custom=true (originated from an approved
+    //      staff "create" request) ALWAYS goes to the Shift Exception
+    //      column, even if its start/end happen to match a template slot
+    //      exactly. Staff-requested shifts need to remain visible as
+    //      exceptions so an admin's accidental template-button click in
+    //      the editor doesn't silently merge them into the matching
+    //      template bucket.
+    //   2. Remaining shifts go into the bucket whose template has the
+    //      same start_time|end_time as the shift (exact match).
+    //   3. Shifts still unmatched (no template has that key) fall into
+    //      the same Exception column.
     function renderDayColumns(iso, shifts) {
       const tplByKey = new Map();
       (data.shiftTemplates || []).forEach((t) => tplByKey.set(`${t.start_time}|${t.end_time}`, t));
       const buckets = new Map(); // key = `${start}|${end}`, value = { tpl, shifts }
       const custom = [];
       shifts.forEach((s) => {
+        if (s && s.is_custom) { custom.push(s); return; }
         const key = `${s.start_time}|${s.end_time}`;
         const tpl = tplByKey.get(key);
         if (tpl) {

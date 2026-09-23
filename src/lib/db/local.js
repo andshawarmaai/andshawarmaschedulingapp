@@ -320,6 +320,16 @@ export async function approveShiftRequestTx(reqId) {
       end_time: req.end_time,
       department: req.department,
       notes: req.notes,
+      // Mark any shift that originated from a staff request (approve flow)
+      // as 'custom', so the day-view bucket — which otherwise buckets by
+      // exact start/end match against shift templates — places it in the
+      // orange Shift Exception column regardless of whether its times line
+      // up with a template slot. This is what keeps a staff-requested
+      // shift visible as an exception instead of silently merging into
+      // the matching template column (which the user flagged as a bug).
+      is_custom: true,
+      import_id: null,
+      job_id: null,
       created_at: new Date().toISOString(),
     });
   } else if (req.action === 'update') {

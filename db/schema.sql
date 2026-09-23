@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS shifts (
   end_time      TEXT NOT NULL,
   department    TEXT,          -- 'FOH' | 'BOH' | NULL
   notes         TEXT,
+  is_custom     BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE for shifts created by approving a staff 'create' request; force-buckets them into the orange Shift Exception column regardless of exact-time match against templates
   import_id     TEXT REFERENCES shift_imports(id) ON DELETE CASCADE, -- set when created by a bulk CSV import; deleting the import undoes its shifts
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

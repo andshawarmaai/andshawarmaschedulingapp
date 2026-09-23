@@ -200,10 +200,18 @@ export async function approveShiftRequestTx(reqId) {
   if (!req) return { error: 'not_found' };
   if (req.status !== 'pending') return { error: 'already_resolved', status: req.status };
 
+  // Lazy idempotent migration: production's `shifts` table predates the
+  // is_custom column this flow relies on. Without this ALTER, the
+  // INSERT below errors. Wrapping in a try/catch + IF NOT EXISTS so
+  // it's a no-op on freshly-created databases.
+  try {
+    await sql`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS is_custom BOOLEAN NOT NULL DEFAULT FALSE`;
+  } catch (_) { /* ignore — IF NOT EXISTS in older PG versions throws */ }
+
   if (req.action === 'create') {
     await sql`
-      INSERT INTO shifts (user_id, date, start_time, end_time, department, notes)
-      VALUES (${req.user_id}, ${req.date}, ${req.start_time}, ${req.end_time}, ${req.department}, ${req.notes})
+      INSERT INTO shifts (user_id, date, start_time, end_time, department, notes, is_custom)
+      VALUES (${req.user_id}, ${req.date}, ${req.start_time}, ${req.end_time}, ${req.department}, ${req.notes}, ${true})
     `;
   } else if (req.action === 'update') {
     const shift = await getShiftById(req.shift_id);
