@@ -284,14 +284,25 @@ const user = Astro.locals.user;
     </div>
   </div>
 
-  <!-- Add user modal -->
+  <!-- Add user modal — defaults to first+last name as username and
+       password; admin can override either field before saving. Staff
+       are expected to change both from the Settings page after first
+       login. -->
   <div class="modal-backdrop" id="add-user-modal">
     <div class="modal">
       <div class="modal-header"><h2>Add new user</h2><button class="modal-close" id="add-user-close" type="button">&times;</button></div>
       <div class="modal-body">
-        <div class="field"><label>Full name</label><input type="text" id="au-name" class="input" required /></div>
-        <div class="field"><label>Username</label><input type="text" id="au-username" class="input" required /></div>
-        <div class="field"><label>Password</label><input type="text" id="au-password" class="input" required /></div>
+        <div class="field"><label>Full name</label><input type="text" id="au-name" class="input" required autocomplete="off" /></div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="au-username" class="input" required autocomplete="off" />
+          <p class="card-sub" style="margin:0.25rem 0 0;">Defaults to first+last name (lower-cased, no spaces) — e.g. "Rena Sanaa" → <code>renasanaa</code>.</p>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="text" id="au-password" class="input" required autocomplete="off" />
+          <p class="card-sub" style="margin:0.25rem 0 0;">Defaults to the same value as the username. The user changes it on first login.</p>
+        </div>
         <div class="field"><label>Role</label>
           <select id="au-role" class="input">
             <option value="staff">Staff</option>
@@ -587,6 +598,44 @@ const user = Astro.locals.user;
       document.getElementById('au-role').value = 'staff';
       document.getElementById('add-user-modal').classList.add('show');
     }
+    // Derive username/password from "First Last" \u2192 "firstlast" /
+    // "firstlast". Only overwrites the username/password if they are
+    // still empty OR match the last auto-derived value (so manual edits
+    // by the admin aren't clobbered). Both fields reset when the modal
+    // opens, so the rule in practice means: type a name, the two
+    // fields populate; clear a name and retype, both repopulate; type
+    // over the username manually and typing more letters in Full Name
+    // won't fight you.
+    function nameToLogin(fullName) {
+      return String(fullName || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^A-Za-z0-9 ]/g, ' ')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '');
+    }
+    let lastDerivedLogin = '';
+    document.getElementById('au-name').addEventListener('input', () => {
+      const cur = document.getElementById('au-username').value;
+      const curPw = document.getElementById('au-password').value;
+      // Don't fight manual edits. Replace only when the username/password
+      // are still empty or still equal to what we last derived.
+      if (!cur || cur === lastDerivedLogin) {
+        const next = nameToLogin(document.getElementById('au-name').value);
+        if (next) {
+          document.getElementById('au-username').value = next;
+          if (!curPw || curPw === lastDerivedLogin) {
+            document.getElementById('au-password').value = next;
+          }
+          lastDerivedLogin = next;
+        } else {
+          document.getElementById('au-username').value = '';
+          document.getElementById('au-password').value = '';
+          lastDerivedLogin = '';
+        }
+      }
+    });
     document.getElementById('add-user-btn').addEventListener('click', openAddUser);
     document.getElementById('add-user-close').addEventListener('click', () => document.getElementById('add-user-modal').classList.remove('show'));
     document.getElementById('au-save').addEventListener('click', async () => {
