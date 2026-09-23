@@ -40,11 +40,11 @@
 [data-theme="dark"] {
   --color-bg: #0f0f10;
   --color-bg-soft: #1c1c1f;
-  --color-border: #2e2e33;
+  --color-border: #3a3a40;
   --color-border-soft: #232327;
-  --color-muted: #a1a1aa;
+  --color-muted: #c4c4c8;
   --color-ink: #f5f5f4;
-  --color-ink-light: #d4d4d8;
+  --color-ink-light: #e4e4e7;
   --color-primary: #f87171;
   --color-primary-dark: #ef4444;
   --color-foh: #f87171;
@@ -349,7 +349,29 @@ html, body {
 [data-theme="dark"] .card-sub { color: #a1a1aa !important; }
 [data-theme="dark"] .day-shift-time,
 [data-theme="dark"] .day-column-time,
-[data-theme="dark"] .day-shift-notes { color: #a1a1aa !important; }
+[data-theme="dark"] .day-shift-notes,
+[data-theme="dark"] .coverage-time,
+[data-theme="dark"] .coverage-status,
+[data-theme="dark"] .coverage-roster-label,
+[data-theme="dark"] .roster-card-next,
+[data-theme="dark"] .roster-card-next.off,
+[data-theme="dark"] .roster-card-contact a,
+[data-theme="dark"] .shift-bar .when,
+[data-theme="dark"] .req-bar .when,
+[data-theme="dark"] .day-shift.off-shift,
+[data-theme="dark"] .card-sub,
+[data-theme="dark"] .cal-hour-label,
+[data-theme="dark"] .cal-timeoff-label,
+[data-theme="dark"] .cal-month-head,
+[data-theme="dark"] .cal-week-headcell,
+[data-theme="dark"] .calendar-head,
+[data-theme="dark"] .template-col-label,
+[data-theme="dark"] .template-slot-empty,
+[data-theme="dark"] .theme-row-hex,
+[data-theme="dark"] .list-item .meta { color: var(--color-muted) !important; }
+/* Cal-hour-label sits on top of dashed grid lines — give it a dark
+   backdrop so the hour text reads cleanly even when crossing a line. */
+[data-theme="dark"] .cal-hour-label { background: #0f0f10 !important; }
 /* Login page brand image stays on a white tile so the logo is legible */
 [data-theme="dark"] .login-header img { background-color: #fff !important; }
 /* Modal backdrop stays semi-transparent black */
