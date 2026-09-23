@@ -1,0 +1,51 @@
+---
+// Light/dark mode toggle. Pure client-side: stores the choice in
+// localStorage so it survives reloads, and writes `data-theme="dark"`
+// on the <html> element which the rest of the CSS reacts to. The
+// default is light mode and respects the OS preference if the user
+// hasn't picked yet (handled in the inline script below).
+//
+// The button mirrors the existing lang-toggle pill so the two live
+// nicely next to each other in the sidebar footer / login card.
+---
+<span class="theme-toggle" role="group" aria-label="Theme">
+  <button type="button" data-set-theme="light" aria-label="Light mode" title="Light mode">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    Light
+  </button>
+  <button type="button" data-set-theme="dark" aria-label="Dark mode" title="Dark mode">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    Dark
+  </button>
+</span>
+
+<script is:inline>
+  // Apply theme as early as possible to avoid a light-mode flash on
+  // a refresh from a dark-mode session.
+  (function () {
+    try {
+      var stored = localStorage.getItem('shawarma_theme');
+      var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var theme = stored || (sysDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (_) { /* localStorage may be blocked — fall back to light */ }
+  })();
+</script>
+
+<script>
+  function paintTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    document.querySelectorAll('.theme-toggle [data-set-theme]').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-set-theme') === theme);
+    });
+  }
+  // Sync the active state on initial paint (after the inline script ran)
+  paintTheme(document.documentElement.getAttribute('data-theme') || 'light');
+  document.querySelectorAll('.theme-toggle [data-set-theme]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.getAttribute('data-set-theme');
+      try { localStorage.setItem('shawarma_theme', next); } catch (_) {}
+      paintTheme(next);
+    });
+  });
+</script>

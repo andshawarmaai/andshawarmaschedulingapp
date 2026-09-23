@@ -170,7 +170,7 @@ const lang = getLang(Astro);
         const addBtn = `<button class="btn-primary" id="day-add" style="margin-top:0.5rem;">${ctx.canEdit ? t(lang, 'schedule.addShift') : t(lang, 'schedule.requestShift')}</button>`;
         container.innerHTML = (shifts.length === 0
           ? `<p class="empty">${t(lang, 'schedule.noShiftsOnDay')}</p>`
-          : `<div class="day-view">${shifts.map(renderDayShift).join('')}</div>`) + addBtn;
+          : `<div class="day-columns">${renderDayColumns(iso, shifts)}</div>`) + addBtn;
         wireDayView(iso, shifts);
         return;
       }
@@ -182,12 +182,17 @@ const lang = getLang(Astro);
       const body = cells.map((c) => {
         const dayShifts = shiftsForDate(c.iso);
         const timeOffHere = data.timeOffApproved.filter((b) => c.iso >= b.start_date && c.iso <= b.end_date);
-        const lines = dayShifts.slice(0, 3).map((s) => {
+        // Render up to 6 lines per cell — the previous limit of 3 was
+        // silently hiding approved shifts when a day had 4+ people on
+        // (e.g. an 8-staff opening day). CSS clamps with overflow
+        // ellipsis if a cell genuinely overflows, and clicking the cell
+        // opens the day detail which lists everyone.
+        const lines = dayShifts.slice(0, 6).map((s) => {
           const blocked = isBlocked(data.timeOffApproved, c.iso, s.user_id);
           const firstName = userName(s.user_id).split(' ')[0];
-          return `<span class="shift-line${blocked ? ' on-leave' : ''}"><strong>${escapeHtml(firstName)}</strong> ${formatTime12(s.start_time)}</span>`;
+          return `<span class="shift-line${blocked ? ' on-leave' : ''}" title="${escapeHtml(userName(s.user_id))} ${formatTime12(s.start_time)}–${formatTime12(s.end_time)}"><strong>${escapeHtml(firstName)}</strong> ${formatTime12(s.start_time)}</span>`;
         }).join('');
-        const more = dayShifts.length > 3 ? `<span class="shift-line">${t(lang, 'schedule.more', { n: dayShifts.length - 3 })}</span>` : '';
+        const more = dayShifts.length > 6 ? `<span class="shift-line">+${dayShifts.length - 6} more</span>` : '';
         // Outlook-style block: the bar only carries the name + reason on the
         // first day of a run; every day after that renders as a lighter
         // "continued" bar so a multi-day time-off reads as one span instead
@@ -238,12 +243,66 @@ const lang = getLang(Astro);
       });
     }
 
+    // Day-view grouping: one column per shift template that has at least
+    // one shift on this date, plus a Custom column (orange) for shifts
+    // whose start/end don't match any template. The header on each
+    // template column shows "N of M" progress so the schedule template
+    // quota is visible at a glance.
+    function renderDayColumns(iso, shifts) {
+      const tplByKey = new Map();
+      (data.shiftTemplates || []).forEach((t) => tplByKey.set(`${t.start_time}|${t.end_time}`, t));
+      const buckets = new Map(); // key = `${start}|${end}`, value = { tpl, shifts }
+      const custom = [];
+      shifts.forEach((s) => {
+        const key = `${s.start_time}|${s.end_time}`;
+        const tpl = tplByKey.get(key);
+        if (tpl) {
+          if (!buckets.has(key)) buckets.set(key, { tpl, shifts: [] });
+          buckets.get(key).shifts.push(s);
+        } else {
+          custom.push(s);
+        }
+      });
+      const cols = [];
+      // Sort template columns by start time so the earliest shift is leftmost
+      const orderedKeys = [...buckets.keys()].sort((a, b) => a.localeCompare(b));
+      orderedKeys.forEach((key) => {
+        const { tpl, shifts: tplShifts } = buckets.get(key);
+        const count = tplShifts.length;
+        const max = tpl.max_staff != null ? tpl.max_staff : null;
+        const progress = max != null ? `${count} of ${max}` : `${count}`;
+        cols.push(`
+          <div class="day-column">
+            <div class="day-column-header">
+              <div class="day-column-title">${escapeHtml(tpl.name)}</div>
+              <div class="day-column-progress">${escapeHtml(progress)}</div>
+              <div class="day-column-time">${formatTime12(tpl.start_time)} – ${formatTime12(tpl.end_time)}</div>
+            </div>
+            <div class="day-column-shifts">${tplShifts.map(renderDayShift).join('')}</div>
+          </div>
+        `);
+      });
+      if (custom.length) {
+        cols.push(`
+          <div class="day-column day-column-custom">
+            <div class="day-column-header">
+              <div class="day-column-title">Shift Exception</div>
+              <div class="day-column-progress">${custom.length}</div>
+              <div class="day-column-time">Custom times outside templates</div>
+            </div>
+            <div class="day-column-shifts">${custom.map(renderDayShift).join('')}</div>
+          </div>
+        `);
+      }
+      return cols.join('');
+    }
+
     function openDay(iso) {
       const shifts = shiftsForDate(iso);
       document.getElementById('modal-title').textContent = formatDate(iso, { lang });
       document.getElementById('modal-shifts').innerHTML = shifts.length === 0
         ? `<p class="empty">${t(lang, 'schedule.noShiftsScheduled')}</p>`
-        : shifts.map(renderDayShift).join('');
+        : `<div class="day-columns">${renderDayColumns(iso, shifts)}</div>`;
       const addBtn = `<button class="btn-primary" id="modal-add-shift">${ctx.canEdit ? t(lang, 'schedule.addShift') : t(lang, 'schedule.requestShift')}</button>`;
       document.getElementById('modal-actions').innerHTML = addBtn;
       document.getElementById('modal-add-shift').addEventListener('click', () => openEditor(iso, null));
@@ -277,11 +336,27 @@ const lang = getLang(Astro);
       });
       if (templates.length === 0) { field.hidden = true; picker.innerHTML = ''; return; }
       field.hidden = false;
-      picker.innerHTML = templates.map((tpl) =>
-        `<button type="button" class="template-pick-btn" data-start="${tpl.start_time}" data-end="${tpl.end_time}">${escapeHtml(tpl.name)} · ${formatTime12(tpl.start_time)}–${formatTime12(tpl.end_time)}</button>`
-      ).join('');
+      // For each template, count committed shifts on `iso` whose start/end
+      // match this template exactly. If that count >= max_staff, the slot
+      // is filled — mark it red and disable clicking. Staff can still
+      // type a custom time below.
+      const committed = iso ? (data.shifts || []).filter((s) => s.date === iso) : [];
+      picker.innerHTML = templates.map((tpl) => {
+        const matches = committed.filter((s) => s.start_time === tpl.start_time && s.end_time === tpl.end_time).length;
+        const filled = tpl.max_staff != null && matches >= tpl.max_staff;
+        const remaining = tpl.max_staff != null ? Math.max(0, tpl.max_staff - matches) : null;
+        const cls = filled ? 'template-pick-btn template-pick-btn-filled' : 'template-pick-btn';
+        const label = filled
+          ? `${tpl.name} · ${formatTime12(tpl.start_time)}–${formatTime12(tpl.end_time)} — filled`
+          : `${tpl.name} · ${formatTime12(tpl.start_time)}–${formatTime12(tpl.end_time)}${remaining != null ? ` (${remaining} left)` : ''}`;
+        return `<button type="button" class="${cls}" data-start="${tpl.start_time}" data-end="${tpl.end_time}" data-filled="${filled ? 'true' : 'false'}">${escapeHtml(label)}</button>`;
+      }).join('');
       picker.querySelectorAll('.template-pick-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
+          if (btn.getAttribute('data-filled') === 'true') {
+            window.shawarmaToast('This shift has been filled. Please pick a custom time below if you still want to be added.');
+            return;
+          }
           document.getElementById('ed-all-day').checked = false;
           document.getElementById('ed-start').disabled = false;
           document.getElementById('ed-end').disabled = false;

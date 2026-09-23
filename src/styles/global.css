@@ -33,6 +33,30 @@
   --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.08), 0 20px 44px -12px rgba(0, 0, 0, 0.28);
 }
 
+/* Dark mode: applied when `<html data-theme="dark">` is set by the
+   theme toggle in the app sidebar (see components/AppSidebar.astro).
+   The accent colors stay the same — red brand, orange shift-exception,
+   blue BOH — so dark mode is just a softer surface, not a recolor. */
+[data-theme="dark"] {
+  --color-bg: #0f0f10;
+  --color-bg-soft: #1c1c1f;
+  --color-border: #2e2e33;
+  --color-border-soft: #232327;
+  --color-muted: #a1a1aa;
+  --color-ink: #f5f5f4;
+  --color-ink-light: #d4d4d8;
+  --color-primary: #f87171;
+  --color-primary-dark: #ef4444;
+  --color-foh: #f87171;
+  --color-boh: #60a5fa;
+  --color-success: #4ade80;
+  --color-warning: #fb923c;
+  --color-pending: #facc15;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 24px -8px rgba(0, 0, 0, 0.6);
+  --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.5), 0 20px 44px -12px rgba(0, 0, 0, 0.7);
+  color-scheme: dark;
+}
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
@@ -40,11 +64,60 @@ html, body {
   margin: 0;
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #ffffff;
+  background: var(--color-bg, #ffffff);
   color: var(--color-ink);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Cards, modals, inputs, tables: switch to the dark surface when the
+   html element has data-theme="dark". Keeps the brand red for headers,
+   buttons, and accents. */
+[data-theme="dark"] body { background: #0f0f10; }
+[data-theme="dark"] .card,
+[data-theme="dark"] .modal,
+[data-theme="dark"] .input,
+[data-theme="dark"] .tile,
+[data-theme="dark"] .day-shift,
+[data-theme="dark"] .day-column,
+[data-theme="dark"] .day-column-header,
+[data-theme="dark"] .template-slot-empty,
+[data-theme="dark"] .calendar-day,
+[data-theme="dark"] .cal-month-cell,
+[data-theme="dark"] .cal-day-col,
+[data-theme="dark"] .app-sidebar,
+[data-theme="dark"] .app-topbar,
+[data-theme="dark"] .login-card,
+[data-theme="dark"] .coverage-block,
+[data-theme="dark"] .roster-card,
+[data-theme="dark"] .context-menu {
+  background-color: #1c1c1f !important;
+  color: #f5f5f4 !important;
+  border-color: #2e2e33 !important;
+}
+[data-theme="dark"] .calendar-day,
+[data-theme="dark"] .cal-month-cell { background-color: #18181b !important; }
+[data-theme="dark"] .cal-month-cell.other-month,
+[data-theme="dark"] .calendar-day.other-month,
+[data-theme="dark"] .cal-month-head,
+[data-theme="dark"] .calendar-head,
+[data-theme="dark"] .cal-week-headcell,
+[data-theme="dark"] .coverage-block.status-neutral { background-color: #232327 !important; }
+[data-theme="dark"] .input { background-color: #0f0f10 !important; color: #f5f5f4 !important; border-color: #2e2e33 !important; }
+[data-theme="dark"] .btn-secondary { background-color: #2e2e33 !important; color: #f5f5f4 !important; border-color: #3f3f46 !important; }
+[data-theme="dark"] .btn-secondary:hover { background-color: #3f3f46 !important; }
+[data-theme="dark"] .day-column-custom { background-color: #2a1d0a !important; border-color: #b45309 !important; }
+[data-theme="dark"] .day-column-custom .day-column-header { background-color: #b45309 !important; }
+[data-theme="dark"] .shift-line { color: #d4d4d8 !important; }
+[data-theme="dark"] .shift-chip { background-color: #14532d !important; color: #bbf7d0 !important; border-color: #16a34a !important; }
+[data-theme="dark"] .req-chip { background-color: #232327 !important; color: #f5f5f4 !important; }
+[data-theme="dark"] .time-off-bar { background: repeating-linear-gradient(45deg, #2e2e33, #2e2e33 4px, #3f3f46 4px 8px) !important; color: #f5f5f4 !important; }
+
+/* Theme toggle button — pill, like the existing lang-toggle. */
+.theme-toggle { display: inline-flex; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; }
+.theme-toggle button { border: none; background: none; font-family: inherit; font-size: 0.6875rem; font-weight: 700; padding: 0.3125rem 0.625rem; cursor: pointer; color: var(--color-ink-light); display: inline-flex; align-items: center; gap: 0.25rem; }
+.theme-toggle button.active { background: var(--color-primary); color: #fff; }
+[data-theme="dark"] .theme-toggle button.active { background: #f5f5f4; color: #0f0f10; }
 
 h1, h2, h3, h4, .card h2, .login-title, .modal-header h2, .day-shift-name {
   font-family: var(--font-heading);
@@ -175,6 +248,10 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
   cursor: pointer; font-family: inherit;
 }
 .template-pick-btn:hover { background: var(--color-border); }
+.template-pick-btn-filled {
+  background: #fee2e2; border-color: #dc2626; color: #991b1b; cursor: not-allowed;
+}
+.template-pick-btn-filled:hover { background: #fee2e2; filter: brightness(0.97); }
 
 .btn-primary, .btn-secondary, .btn-danger {
   display: inline-flex;
@@ -353,7 +430,7 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
    narrower than that floor. */
 .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(6.5rem, 1fr)); min-width: 45.5rem; border: 1px solid var(--color-border-soft); border-radius: 0.25rem; overflow: hidden; box-shadow: var(--shadow-card); }
 .calendar-head { background: var(--color-bg-soft); padding: 0.5rem; text-align: center; font-size: 0.6875rem; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--color-border); position: sticky; top: 0; z-index: 2; }
-.calendar-day { background: #fff; min-height: 7.5rem; padding: 0.5rem 0.375rem; cursor: pointer; transition: background 0.1s; position: relative; border-left: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.calendar-day { background: #fff; min-height: 11rem; padding: 0.5rem 0.375rem; cursor: pointer; transition: background 0.1s; position: relative; border-left: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
 .calendar-day:hover { background: color-mix(in srgb, var(--color-primary) 4%, white); }
 .calendar-day.other-month { background: var(--color-bg-soft); opacity: 0.55; }
 .calendar-day.today .day-num { background: var(--color-primary); color: #fff; border-radius: 9999px; }
@@ -377,6 +454,16 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 }
 
 .day-view { display: flex; flex-direction: column; gap: 0.5rem; }
+.day-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem; align-items: flex-start; }
+.day-column { background: var(--color-bg-soft); border: 1px solid var(--color-border-soft); border-radius: 0.375rem; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.day-column-custom { border-color: var(--color-accent); background: #fff7ed; }
+.day-column-custom .day-column-header { background: var(--color-accent); color: #fff; border-bottom-color: var(--color-accent-dark, #92400e); }
+.day-column-custom .day-column-progress { background: #fff; color: var(--color-accent-dark, #92400e); }
+.day-column-header { background: #fff; border: 1px solid var(--color-border-soft); border-radius: 0.25rem; padding: 0.5rem 0.625rem; display: flex; flex-direction: column; gap: 0.125rem; }
+.day-column-title { font-weight: 700; font-size: 0.875rem; }
+.day-column-progress { display: inline-flex; align-self: flex-start; background: var(--color-primary); color: #fff; font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.0625rem 0.5rem; border-radius: 9999px; margin-top: 0.125rem; }
+.day-column-time { font-size: 0.75rem; color: var(--color-ink-light); }
+.day-column-shifts { display: flex; flex-direction: column; gap: 0.375rem; }
 .day-shift { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--color-border-soft); border-left-width: 4px; border-radius: 0.25rem; background: #fff; box-shadow: var(--shadow-card); }
 .day-shift.foh { border-left-color: var(--color-foh); }
 .day-shift.boh { border-left-color: var(--color-boh); }
@@ -544,7 +631,7 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
    that doesn't require scrolling through a tall day-by-day timeline. */
 .cal-month-grid { display:grid; grid-template-columns: repeat(7, minmax(5.5rem, 1fr)); min-width:39rem; }
 .cal-month-head { padding:0.5rem 0.375rem; text-align:center; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--color-muted); border-bottom:1px solid var(--color-border); background:var(--color-bg-soft); position:sticky; top:0; z-index:2; }
-.cal-month-cell { position:relative; min-height:6.5rem; border-left:1px solid var(--color-border); border-bottom:1px solid var(--color-border); padding:0.375rem; cursor:pointer; }
+.cal-month-cell { position:relative; min-height:11rem; border-left:1px solid var(--color-border); border-bottom:1px solid var(--color-border); padding:0.375rem; cursor:pointer; }
 .cal-month-cell:hover { background: color-mix(in srgb, var(--color-primary) 4%, white); }
 .cal-month-cell.other-month { background: var(--color-bg-soft); opacity: 0.55; }
 .cal-month-cell.today .cal-month-daynum { background: var(--color-primary); color:#fff; border-radius:9999px; }

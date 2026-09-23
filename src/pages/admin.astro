@@ -43,17 +43,9 @@ const user = Astro.locals.user;
     <div id="jobs-list"><p class="empty">Loading...</p></div>
   </div>
 
-  <div class="card">
+  <div class="card" hidden>
     <h2><Icon name="clock" size={18} class="icon-inline" /> Location Check-In</h2>
-    <p class="card-sub">
-      Staff check themselves in/out from their phone on the Home page; this verifies a single GPS
-      reading at that moment against these coordinates — never ongoing tracking. Leave this unset and
-      check-in stays hidden from staff entirely.
-    </p>
-    <p class="card-sub" style="background:var(--color-bg-soft);padding:0.5rem 0.75rem;border-radius:0.5rem;">
-      Before turning this on for real staff, give them written notice that check-in verifies their
-      location — that's a compliance step outside this app, not something this form can satisfy for you.
-    </p>
+    <p class="card-sub">GPS / location check-in was removed in September 2026. The fields below stay in the DOM so any saved draft restores cleanly, but the form is hidden and the save endpoint is a no-op. If you ever want to bring this back, the original UI and backend live in commit history.</p>
     <div class="field-row">
       <div class="field"><label>Latitude</label><input type="number" id="geo-lat" class="input" step="any" placeholder="39.1434" /></div>
       <div class="field"><label>Longitude</label><input type="number" id="geo-lng" class="input" step="any" placeholder="-77.2014" /></div>
@@ -383,7 +375,7 @@ const user = Astro.locals.user;
         </div>`;
       });
       const warningHtml = (w) => w
-        ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.25rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;">${ALERT_SVG} Below minimum staffing: ${escapeHtml(w)}</div>`
+        ? `<div class="meta" style="color:#991b1b;background:#fee2e2;padding:0.375rem 0.5rem;border-radius:0.25rem;margin-top:0.25rem;line-height:1.4;">${ALERT_SVG} <strong>Heads up — coverage problem:</strong> ${escapeHtml(w)}</div>`
         : '';
       pendingShiftReqs.forEach((r) => {
         const label = r.action === 'create' ? 'new shift' : r.action === 'delete' ? 'remove shift' : 'change shift';
@@ -896,32 +888,15 @@ const user = Astro.locals.user;
         ? 'Check-in is live for staff.'
         : 'Not set up yet — staff won’t see a Check In button until all three fields are saved.';
     }
+    // GPS / location check-in was removed Sep 2026 — these handlers are
+    // intentionally no-ops so any leftover DOM lookups stay quiet. The
+    // card itself is `hidden`, so the buttons can't be reached normally.
     document.getElementById('geo-use-current').addEventListener('click', () => {
-      if (!navigator.geolocation) { window.shawarmaToast('This browser can’t read your location'); return; }
-      document.getElementById('geo-status').textContent = 'Reading your current location…';
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          document.getElementById('geo-lat').value = pos.coords.latitude.toFixed(6);
-          document.getElementById('geo-lng').value = pos.coords.longitude.toFixed(6);
-          document.getElementById('geo-status').textContent = 'Location read — review the radius, then Save.';
-        },
-        () => { document.getElementById('geo-status').textContent = 'Could not read your location — check browser permission and try again.'; },
-      );
+      window.shawarmaToast('Location check-in is no longer used.');
     });
     document.getElementById('geo-save').addEventListener('click', async () => {
-      const lat = document.getElementById('geo-lat').value.trim();
-      const lng = document.getElementById('geo-lng').value.trim();
-      const radius = document.getElementById('geo-radius').value.trim();
-      const r = await window.shawarmaApi('PATCH', '/api/admin/location-geofence', {
-        lat: lat === '' ? null : Number(lat),
-        lng: lng === '' ? null : Number(lng),
-        geofence_radius_meters: radius === '' ? null : Number(radius),
-      });
-      if (!r.ok) { window.shawarmaToast(r.error || 'Could not save'); return; }
-      window.shawarmaToast('Saved');
-      await loadGeofence();
+      window.shawarmaToast('Location check-in is no longer used.');
     });
-    loadGeofence();
 
     refreshAndRender();
 

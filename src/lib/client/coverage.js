@@ -11,6 +11,14 @@ function toMinutes(hhmm) {
   return h * 60 + m;
 }
 
+function format12(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = ((h + 11) % 12) + 1;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 function templateRange(template) {
   const start = toMinutes(template.start_time);
   let end = toMinutes(template.end_time);
@@ -143,7 +151,12 @@ export function computeShiftRequestConflicts(shiftTemplates, shifts, shiftReques
       if (template.max_staff == null) continue;
       const total = committed.length + pending.length;
       if (total > template.max_staff) {
-        const note = `${total} scheduled for "${template.name}" (${template.start_time}–${template.end_time}) — only ${template.max_staff} allowed at once.`;
+        const start12 = format12(template.start_time);
+        const end12 = format12(template.end_time);
+        const note =
+          `Too many people are scheduled for the "${template.name}" shift (${start12}–${end12}). ` +
+          `${total} are on the list, but this shift can only have ${template.max_staff} ${template.max_staff === 1 ? 'person' : 'people'} at a time. ` +
+          `Please move someone to a different shift.`;
         for (const r of pending) conflicts.set(r.id, note);
         for (const s of committed) conflicts.set(s.id, note);
       }

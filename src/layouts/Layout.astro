@@ -19,6 +19,7 @@
 import '../styles/global.css';
 import Icon from '../components/Icon.astro';
 import LangToggle from '../components/LangToggle.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
 import AgentChatPanel from '../components/AgentChatPanel.astro';
 import { getLang, t } from '../lib/i18n.js';
 import { getChatEnabled } from '../pages/api/admin/settings/chat-toggle.js';
@@ -121,7 +122,10 @@ const showLangToggle = active !== 'manage' && active !== 'schedule-builder';
         ))}
       </nav>
       <div class="app-sidebar-footer">
-        {showLangToggle && <div class="nav-label"><LangToggle lang={lang} /></div>}
+        <div class="nav-label" style="display:flex;flex-direction:column;gap:0.375rem;">
+          <ThemeToggle />
+          {showLangToggle && <LangToggle lang={lang} />}
+        </div>
         <div class="app-sidebar-user nav-label">
           <div class="name">{user.display_name}</div>
           <div class="role">{t(lang, `role.${user.role}`)}</div>

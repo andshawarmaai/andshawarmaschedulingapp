@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import Icon from '../components/Icon.astro';
 import LangToggle from '../components/LangToggle.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
 import { getLang, t } from '../lib/i18n.js';
 // middleware.js already redirects to "/" if a valid session cookie exists,
 // so if we're rendering at all, the visitor is genuinely signed out. The
@@ -28,7 +29,8 @@ const lang = getLang(Astro);
 <body>
   <div class="login-wrap">
     <div class="login-card">
-      <div style="display:flex;justify-content:flex-end;">
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;align-items:center;">
+        <ThemeToggle />
         <LangToggle lang={lang} />
       </div>
       <div class="login-header">

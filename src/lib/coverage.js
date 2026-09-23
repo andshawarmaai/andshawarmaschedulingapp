@@ -9,6 +9,23 @@ export function toMinutes(hhmm) {
   return h * 60 + m;
 }
 
+// "21:00" -> "9:00 PM" (so the warning reads naturally to a manager)
+function format12(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = ((h + 11) % 12) + 1;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+// "2026-09-24" -> "Thursday, September 24"
+function formatFriendlyDate(dateStr) {
+  if (!dateStr) return '';
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, mo - 1, d);
+  return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
 // End-exclusive minute range for `template` as it applies to the specific
 // calendar date it *starts* on. end can exceed 1440 when the block
 // crosses midnight (e.g. 16:30-02:30 => [990, 1590)).
@@ -85,7 +102,14 @@ function checkDateRemoval(templates, shifts, dateStr, userId) {
     if (!covering.some((s) => s.user_id === userId)) continue;
     const projected = covering.length - 1;
     if (projected < template.min_staff) {
-      warnings.push(`${dateStr}: "${template.name}" (${template.start_time}-${template.end_time}) would drop to ${projected} staff, below its minimum of ${template.min_staff}.`);
+      const start12 = format12(template.start_time);
+      const end12 = format12(template.end_time);
+      const friendly = formatFriendlyDate(dateStr);
+      warnings.push(
+        `Approving this will leave the ${friendly} ${start12}–${end12} "${template.name}" shift short-staffed. ` +
+        `Only ${projected} ${projected === 1 ? 'person' : 'people'} would be available, but ${template.min_staff} ${template.min_staff === 1 ? 'is' : 'are'} scheduled to work it. ` +
+        `Please find someone to cover this shift before approving.`
+      );
     }
   }
   return warnings;

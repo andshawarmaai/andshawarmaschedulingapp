@@ -19,9 +19,11 @@ const lang = getLang(Astro);
     </a>
   )}
 
-  <!-- Hidden until GET /api/state's checkInAvailable is true (no geofence
-       set up yet) — see admin.astro's "Location Check-In" card. -->
-  <div class="card" id="checkin-card" style="display:none;">
+  <!-- GPS / location check-in removed (Sep 2026). The /api/checkin and
+       /api/admin/location-geofence endpoints are now no-op stubs so any
+       stale links still return a friendly disabled message instead of
+       breaking. -->
+  <div class="card" id="checkin-card" style="display:none;" hidden>
     <h2><Icon name="clock" size={18} class="icon-inline" /> {t(lang, 'checkin.title')}</h2>
     <p class="card-sub">{t(lang, 'checkin.sub')}</p>
     <p id="checkin-status" style="font-weight:600;margin:0 0 0.75rem;"></p>
@@ -140,24 +142,22 @@ const lang = getLang(Astro);
     }
 
     // ----- Check In / Check Out -----
+    // GPS / location check-in was removed in Sep 2026 — the card stays
+    // in the DOM (hidden) so the i18n key bundle keeps shipping, but the
+    // geolocation hook and API call are intentionally disabled.
     let myOpenCheckIn = null;
-    function renderCheckIn(data) {
+    function renderCheckIn(_data) {
       const card = document.getElementById('checkin-card');
-      if (!data.checkInAvailable) { card.style.display = 'none'; return; }
-      card.style.display = 'block';
-      myOpenCheckIn = data.myOpenCheckIn || null;
-      const statusEl = document.getElementById('checkin-status');
-      const btn = document.getElementById('checkin-btn');
-      if (myOpenCheckIn) {
-        statusEl.textContent = t(lang, 'checkin.checkedInSince', { time: formatTime12(myOpenCheckIn.clock_in) });
-        btn.textContent = t(lang, 'checkin.checkOutBtn');
-      } else {
-        statusEl.textContent = t(lang, 'checkin.notCheckedIn');
-        btn.textContent = t(lang, 'checkin.checkInBtn');
-      }
+      if (!card) return;
+      card.style.display = 'none';
+      card.hidden = true;
     }
 
     document.getElementById('checkin-btn').addEventListener('click', () => {
+      // GPS / location check-in removed Sep 2026 — clicking this button
+      // (which the card makes invisible anyway) just shows a toast.
+      window.shawarmaToast('Location check-in is no longer used.');
+      return;
       if (!navigator.geolocation) { window.shawarmaToast(t(lang, 'checkin.noGeolocation')); return; }
       const btn = document.getElementById('checkin-btn');
       const statusEl = document.getElementById('checkin-status');
