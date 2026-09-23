@@ -373,6 +373,29 @@ html, body {
 /* Cal-hour-label sits on top of dashed grid lines — give it a dark
    backdrop so the hour text reads cleanly even when crossing a line. */
 [data-theme="dark"] .cal-hour-label { background: #0f0f10 !important; }
+/* Template column labels have a hardcoded white background that would
+   show light-on-light in dark mode. Flip it to a dark surface and let
+   the bright --color-muted text from the override above carry. */
+[data-theme="dark"] .template-col-label { background: #2e2e33 !important; color: var(--color-ink) !important; border-bottom-color: var(--color-border) !important; }
+/* Day-view day-column-header (template titles) — also has a hardcoded
+   white background that needs to darken in dark mode to keep the title
+   text legible. */
+[data-theme="dark"] .day-column-header { background-color: #2e2e33 !important; border-color: var(--color-border) !important; }
+/* request_chip + shift_chip backgrounds: light colors that show through
+   fine in light mode but need a slightly darker variant in dark mode to
+   keep text readable. */
+[data-theme="dark"] .req-chip { background-color: #2e2e33 !important; color: var(--color-ink) !important; border-color: var(--color-border) !important; }
+[data-theme="dark"] .shift-chip { background-color: #14532d !important; color: #bbf7d0 !important; border-color: #16a34a !important; }
+/* Coverage block tiles also use a hardcoded white background that would
+   sit invisibly against the dark page. */
+[data-theme="dark"] .coverage-block { background-color: #1c1c1f !important; border-color: var(--color-border) !important; }
+[data-theme="dark"] .coverage-block.status-filled { background-color: #052e16 !important; color: var(--color-ink) !important; }
+[data-theme="dark"] .coverage-block.status-under { background-color: #450a0a !important; }
+[data-theme="dark"] .coverage-block.status-over { background-color: #422006 !important; }
+[data-theme="dark"] .coverage-block.status-neutral { background-color: #232327 !important; }
+/* Roster chips (the draggable name pills in the schedule builder) have
+   a hardcoded white background. */
+[data-theme="dark"] .roster-chip { background-color: #1c1c1f !important; color: var(--color-ink) !important; border-color: var(--color-border) !important; }
 /* Login page brand image stays on a white tile so the logo is legible */
 [data-theme="dark"] .login-header img { background-color: #fff !important; }
 /* Modal backdrop stays semi-transparent black */
