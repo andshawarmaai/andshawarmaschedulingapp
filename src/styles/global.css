@@ -390,12 +390,17 @@ html, body {
    sit invisibly against the dark page. */
 [data-theme="dark"] .coverage-block { background-color: #1c1c1f !important; border-color: var(--color-border) !important; }
 [data-theme="dark"] .coverage-block.status-filled { background-color: #052e16 !important; color: var(--color-ink) !important; }
-[data-theme="dark"] .coverage-block.status-under { background-color: #450a0a !important; }
+/* Under-staffed tiles (count < min) — dark red surface with brighter
+   red text so an empty coverage block pops against the dark page in
+   the same way the light-pink surface does in light mode. */
+[data-theme="dark"] .coverage-block.status-under { background-color: #7f1d1d !important; border-color: #f87171 !important; }
+[data-theme="dark"] .coverage-block.status-under .coverage-count,
+[data-theme="dark"] .coverage-block.status-under .coverage-status { color: #fecaca !important; }
 [data-theme="dark"] .coverage-block.status-over { background-color: #422006 !important; }
 [data-theme="dark"] .coverage-block.status-neutral { background-color: #232327 !important; }
 /* Roster chips (the draggable name pills in the schedule builder) have
    a hardcoded white background. */
-[data-theme="dark"] .roster-chip { background-color: #1c1c1f !important; color: var(--color-ink) !important; border-color: var(--color-border) !important; }
+[data-theme="dark"] .roster-chip { background-color: #2e2e33 !important; color: var(--color-ink) !important; border-color: #4a4a52 !important; }
 /* Login page brand image stays on a white tile so the logo is legible */
 [data-theme="dark"] .login-header img { background-color: #fff !important; }
 /* Modal backdrop stays semi-transparent black */
