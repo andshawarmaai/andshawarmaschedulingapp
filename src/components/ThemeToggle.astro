@@ -1,31 +1,35 @@
 ---
-// Light/dark mode toggle. Pure client-side: stores the choice in
-// localStorage so it survives reloads, writes `data-theme="dark"` on
-// the <html> element, and ALSO swaps the inline --color-* variables
-// between the admin-configured light and dark palettes (read from
-// `data-theme-light-vars` / `data-theme-dark-vars` written by
-// Layout.astro on every page). This means dark mode actually uses
-// the admin-configured dark colors, not the CSS file's hardcoded
-// fallbacks.
-//
-// The button mirrors the existing lang-toggle pill so the two live
-// nicely next to each other in the sidebar footer / login card.
+// Light/dark mode toggle. A single horizontal switch — left half is
+// light, right half is dark — so it stays the same width regardless of
+// which side is active. Stores the choice in localStorage so it
+// survives reloads, writes `data-theme="dark"` on <html>, and ALSO
+// swaps the inline --color-* variables between the admin-configured
+// light and dark palettes (read from `data-theme-light-vars` /
+// `data-theme-dark-vars` written by Layout.astro on every page).
 ---
-<span class="theme-toggle" role="group" aria-label="Theme">
-  <button type="button" data-set-theme="light" aria-label="Light mode" title="Light mode">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-    Light
-  </button>
-  <button type="button" data-set-theme="dark" aria-label="Dark mode" title="Dark mode">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-    Dark
-  </button>
-</span>
+<button type="button" class="theme-switch" role="switch" aria-label="Light or dark mode" data-theme-state="light">
+  <span class="theme-switch-track" aria-hidden="true">
+    <span class="theme-switch-icon theme-switch-icon-sun">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    </span>
+    <span class="theme-switch-icon theme-switch-icon-moon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </span>
+    <span class="theme-switch-thumb">
+      <span class="theme-switch-thumb-icon theme-switch-thumb-icon-sun">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      </span>
+      <span class="theme-switch-thumb-icon theme-switch-thumb-icon-moon">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </span>
+    </span>
+  </span>
+</button>
 
 <script is:inline>
-  // Apply theme as early as possible to avoid a light-mode flash on
-  // a refresh from a dark-mode session, and to swap the inline CSS
-  // variables so dark mode uses the admin-configured dark palette.
+  // Apply theme as early as possible — set both the data-theme attribute
+  // AND swap the inline CSS variables so dark mode uses the admin-
+  // configured dark palette, not the CSS file's hardcoded fallback.
   (function () {
     try {
       var stored = localStorage.getItem('shawarma_theme');
@@ -33,10 +37,8 @@
       var theme = stored || (sysDark ? 'dark' : 'light');
       var html = document.documentElement;
       html.setAttribute('data-theme', theme);
-      if (theme === 'dark') {
-        var darkVars = html.getAttribute('data-theme-dark-vars');
-        if (darkVars) html.setAttribute('style', darkVars);
-      }
+      var darkVars = html.getAttribute('data-theme-dark-vars');
+      if (theme === 'dark' && darkVars) html.setAttribute('style', darkVars);
     } catch (_) { /* localStorage blocked — fall back to light */ }
   })();
 </script>
@@ -52,14 +54,16 @@
     } else if (lightVars) {
       html.setAttribute('style', lightVars);
     }
-    document.querySelectorAll('.theme-toggle [data-set-theme]').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-set-theme') === theme);
+    document.querySelectorAll('.theme-switch').forEach((sw) => {
+      sw.setAttribute('data-theme-state', theme);
+      sw.setAttribute('aria-checked', theme === 'dark' ? 'true' : 'false');
     });
   }
   paintTheme(document.documentElement.getAttribute('data-theme') || 'light');
-  document.querySelectorAll('.theme-toggle [data-set-theme]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      var next = btn.getAttribute('data-set-theme');
+  document.querySelectorAll('.theme-switch').forEach((sw) => {
+    sw.addEventListener('click', () => {
+      var current = sw.getAttribute('data-theme-state') || 'light';
+      var next = current === 'light' ? 'dark' : 'light';
       try { localStorage.setItem('shawarma_theme', next); } catch (_) {}
       paintTheme(next);
     });

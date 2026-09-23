@@ -178,40 +178,73 @@ const user = Astro.locals.user;
 
     <div class="theme-section">
       <h3 style="margin:0 0 0.5rem;font-size:1rem;">Light mode colors</h3>
-      <div class="theme-grid">
-        <label class="theme-swatch"><span class="theme-swatch-label">Brand / buttons</span>
-          <input type="color" data-theme-field="light.primary" /><span class="theme-swatch-name">primary</span><input type="text" data-theme-text="light.primary" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Brand hover</span>
-          <input type="color" data-theme-field="light.primary_dark" /><span class="theme-swatch-name">primary-dark</span><input type="text" data-theme-text="light.primary_dark" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Front-of-house</span>
-          <input type="color" data-theme-field="light.foh" /><span class="theme-swatch-name">foh</span><input type="text" data-theme-text="light.foh" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Back-of-house</span>
-          <input type="color" data-theme-field="light.boh" /><span class="theme-swatch-name">boh</span><input type="text" data-theme-text="light.boh" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Body text</span>
-          <input type="color" data-theme-field="light.ink" /><span class="theme-swatch-name">ink</span><input type="text" data-theme-text="light.ink" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Secondary text</span>
-          <input type="color" data-theme-field="light.ink_light" /><span class="theme-swatch-name">ink-light</span><input type="text" data-theme-text="light.ink_light" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Page background</span>
-          <input type="color" data-theme-field="light.bg" /><span class="theme-swatch-name">bg</span><input type="text" data-theme-text="light.bg" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Sidebar / panel</span>
-          <input type="color" data-theme-field="light.bg_soft" /><span class="theme-swatch-name">bg-soft</span><input type="text" data-theme-text="light.bg_soft" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Borders</span>
-          <input type="color" data-theme-field="light.border" /><span class="theme-swatch-name">border</span><input type="text" data-theme-text="light.border" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Chat accent</span>
-          <input type="color" data-theme-field="light.accent" /><span class="theme-swatch-name">accent</span><input type="text" data-theme-text="light.accent" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Chat gradient deep</span>
-          <input type="color" data-theme-field="light.accent_dark" /><span class="theme-swatch-name">accent-dark</span><input type="text" data-theme-text="light.accent_dark" class="input" />
-        </label>
+      <div class="theme-list">
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.primary"></span>
+          <label class="theme-row-label">Brand / buttons · primary</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.primary" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.primary"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.primary_dark"></span>
+          <label class="theme-row-label">Brand hover · primary-dark</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.primary_dark" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.primary_dark"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.foh"></span>
+          <label class="theme-row-label">Front-of-house · foh</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.foh" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.foh"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.boh"></span>
+          <label class="theme-row-label">Back-of-house · boh</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.boh" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.boh"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.ink"></span>
+          <label class="theme-row-label">Body text · ink</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.ink" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.ink"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.ink_light"></span>
+          <label class="theme-row-label">Secondary text · ink-light</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.ink_light" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.ink_light"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.bg"></span>
+          <label class="theme-row-label">Page background · bg</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.bg" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.bg"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.bg_soft"></span>
+          <label class="theme-row-label">Sidebar / panel · bg-soft</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.bg_soft" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.bg_soft"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.border"></span>
+          <label class="theme-row-label">Borders · border</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.border" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.border"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.accent"></span>
+          <label class="theme-row-label">Chat accent · accent</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.accent" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.accent"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="light.accent_dark"></span>
+          <label class="theme-row-label">Chat gradient deep · accent-dark</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="light.accent_dark" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="light.accent_dark"></span>
+        </div>
       </div>
     </div>
 
@@ -219,40 +252,73 @@ const user = Astro.locals.user;
 
     <div class="theme-section">
       <h3 style="margin:0 0 0.5rem;font-size:1rem;">Dark mode colors</h3>
-      <div class="theme-grid">
-        <label class="theme-swatch"><span class="theme-swatch-label">Brand / buttons</span>
-          <input type="color" data-theme-field="dark.primary" /><span class="theme-swatch-name">primary</span><input type="text" data-theme-text="dark.primary" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Brand hover</span>
-          <input type="color" data-theme-field="dark.primary_dark" /><span class="theme-swatch-name">primary-dark</span><input type="text" data-theme-text="dark.primary_dark" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Front-of-house</span>
-          <input type="color" data-theme-field="dark.foh" /><span class="theme-swatch-name">foh</span><input type="text" data-theme-text="dark.foh" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Back-of-house</span>
-          <input type="color" data-theme-field="dark.boh" /><span class="theme-swatch-name">boh</span><input type="text" data-theme-text="dark.boh" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Body text</span>
-          <input type="color" data-theme-field="dark.ink" /><span class="theme-swatch-name">ink</span><input type="text" data-theme-text="dark.ink" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Secondary text</span>
-          <input type="color" data-theme-field="dark.ink_light" /><span class="theme-swatch-name">ink-light</span><input type="text" data-theme-text="dark.ink_light" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Page background</span>
-          <input type="color" data-theme-field="dark.bg" /><span class="theme-swatch-name">bg</span><input type="text" data-theme-text="dark.bg" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Sidebar / panel</span>
-          <input type="color" data-theme-field="dark.bg_soft" /><span class="theme-swatch-name">bg-soft</span><input type="text" data-theme-text="dark.bg_soft" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Borders</span>
-          <input type="color" data-theme-field="dark.border" /><span class="theme-swatch-name">border</span><input type="text" data-theme-text="dark.border" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Chat accent</span>
-          <input type="color" data-theme-field="dark.accent" /><span class="theme-swatch-name">accent</span><input type="text" data-theme-text="dark.accent" class="input" />
-        </label>
-        <label class="theme-swatch"><span class="theme-swatch-label">Chat gradient deep</span>
-          <input type="color" data-theme-field="dark.accent_dark" /><span class="theme-swatch-name">accent-dark</span><input type="text" data-theme-text="dark.accent_dark" class="input" />
-        </label>
+      <div class="theme-list">
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.primary"></span>
+          <label class="theme-row-label">Brand / buttons · primary</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.primary" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.primary"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.primary_dark"></span>
+          <label class="theme-row-label">Brand hover · primary-dark</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.primary_dark" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.primary_dark"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.foh"></span>
+          <label class="theme-row-label">Front-of-house · foh</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.foh" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.foh"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.boh"></span>
+          <label class="theme-row-label">Back-of-house · boh</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.boh" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.boh"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.ink"></span>
+          <label class="theme-row-label">Body text · ink</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.ink" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.ink"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.ink_light"></span>
+          <label class="theme-row-label">Secondary text · ink-light</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.ink_light" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.ink_light"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.bg"></span>
+          <label class="theme-row-label">Page background · bg</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.bg" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.bg"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.bg_soft"></span>
+          <label class="theme-row-label">Sidebar / panel · bg-soft</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.bg_soft" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.bg_soft"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.border"></span>
+          <label class="theme-row-label">Borders · border</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.border" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.border"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.accent"></span>
+          <label class="theme-row-label">Chat accent · accent</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.accent" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.accent"></span>
+        </div>
+        <div class="theme-row">
+          <span class="theme-row-swatch" data-theme-preview="dark.accent_dark"></span>
+          <label class="theme-row-label">Chat gradient deep · accent-dark</label>
+          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.accent_dark" class="theme-hue" />
+          <span class="theme-row-hex" data-theme-hex="dark.accent_dark"></span>
+        </div>
       </div>
     </div>
 
@@ -1280,23 +1346,73 @@ const user = Astro.locals.user;
     loadChatAi();
 
     // ─── Theme & branding card ────────────────────────────────────────
-    // Each color row has a native <input type="color"> swatch AND a
-    // <input type="text"> for pasting an exact hex. They stay in sync so
-    // the admin can either pick from the picker or paste from their
-    // design tool. Save sends a PATCH to /api/admin/theme-settings; on
-    // success we re-inline the html's --color-* variables so the
-    // current page picks up the new colors with no reload.
+    // Each color row is a single horizontal hue slider (0–360) with a
+    // small swatch on the left and the current hex on the right. The
+    // saturation/lightness are kept stable so dragging the hue gives
+    // a clean rainbow strip — what most non-designer admins actually
+    // want when picking a brand color.
+    //
+    // Per-field S/L constants were tuned by hand so the defaults land
+    // near the original palette: brand red = (h:0, s:74%, l:48%),
+    // body text = (h:30, s:6%, l:12%), page bg = (h:60, s:9%, l:96%),
+    // etc. Anything that's already near-grayscale just tracks hue with
+    // very low saturation so dragging doesn't pop loud colors.
+    const SL_L = {
+      primary:       [74, 48],  // brand — saturated mid
+      primary_dark:  [74, 42],  // brand hover — slightly darker
+      foh:           [74, 48],
+      boh:           [74, 48],
+      ink:           [30,  12], // near-black, hue barely matters
+      ink_light:     [30,  32], // mid grey
+      bg:            [60,   9], // near-white
+      bg_soft:       [60,  20], // off-white panel
+      border:        [30,  24],
+      accent:        [38,  52], // warm amber
+      accent_dark:   [28,  42], // deeper amber
+    };
     const themeLogoUrl = document.getElementById('theme-logo-url');
     const themeStatus = document.getElementById('theme-status');
     const themeSave = document.getElementById('theme-save');
     const themeReset = document.getElementById('theme-reset');
-    let themeDefaults = null; // populated by loadTheme()
+    let themeDefaults = null;
     let themeCurrent = null;
+    let suppressPreview = false;
 
     function setThemeStatus(msg, kind) {
       if (!themeStatus) return;
       themeStatus.textContent = msg;
       themeStatus.style.color = kind === 'error' ? '#dc2626' : kind === 'ok' ? '#16a34a' : '';
+    }
+
+    function hexToHsl(hex) {
+      const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+      if (!m) return [0, 0, 0];
+      const n = parseInt(m[1], 16);
+      const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      let h = 0, s = 0; const l = (max + min) / 2;
+      if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+          case r: h = ((g - b) / d + (g < b ? 6 : 0)); break;
+          case g: h = ((b - r) / d + 2); break;
+          case b: h = ((r - g) / d + 4); break;
+        }
+        h *= 60;
+      }
+      return [Math.round(h), Math.round(s * 100), Math.round(l * 100)];
+    }
+
+    function hslToHex(h, s, l) {
+      s /= 100; l /= 100;
+      const a = s * Math.min(l, 1 - l);
+      const f = (n) => {
+        const k = (n + h / 30) % 12;
+        const c = l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+        return Math.round(255 * c).toString(16).padStart(2, '0');
+      };
+      return `#${f(0)}${f(8)}${f(4)}`;
     }
 
     function applyThemeToHtml(theme) {
@@ -1311,23 +1427,30 @@ const user = Astro.locals.user;
       html.setAttribute('data-theme-dark-vars', darkVars);
       const current = html.getAttribute('data-theme') || 'light';
       html.setAttribute('style', current === 'dark' ? darkVars : lightVars);
-      // Logo in the sidebar
       const logo = document.querySelector('.app-sidebar-brand img');
       if (logo) logo.src = theme.logo_url || '/logo.jpg';
     }
 
-    function paintSwatchRow(field, value) {
-      document.querySelectorAll(`[data-theme-field="${field}"]`).forEach((el) => {
-        if (el.type === 'color') el.value = value;
-      });
-      document.querySelectorAll(`[data-theme-text="${field}"]`).forEach((el) => {
-        el.value = value;
-      });
+    function fieldKey(field) { return field.split('.')[1]; }
+
+    function paintRow(field, hex) {
+      const sw = document.querySelector(`[data-theme-preview="${field}"]`);
+      const lbl = document.querySelector(`[data-theme-hex="${field}"]`);
+      const hue = document.querySelector(`[data-theme-hue="${field}"]`);
+      if (sw) sw.style.backgroundColor = hex;
+      if (lbl) lbl.textContent = hex.toUpperCase();
+      if (hue && !suppressPreview) {
+        const [h] = hexToHsl(hex);
+        hue.value = String(h);
+      }
     }
 
-    function readSwatchRow(field) {
-      const el = document.querySelector(`[data-theme-text="${field}"]`);
-      return el ? el.value.trim() : null;
+    function readRowHex(field) {
+      const hue = document.querySelector(`[data-theme-hue="${field}"]`);
+      if (!hue) return null;
+      const key = fieldKey(field);
+      const [s, l] = SL_L[key] || [50, 50];
+      return hslToHex(parseInt(hue.value, 10), s, l);
     }
 
     async function loadTheme() {
@@ -1338,9 +1461,11 @@ const user = Astro.locals.user;
       themeCurrent = body.theme;
       if (themeLogoUrl) themeLogoUrl.value = body.theme.logo_url || '';
       const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
+      suppressPreview = true;
       for (const mode of ['light', 'dark']) {
-        for (const k of fields) paintSwatchRow(`${mode}.${k}`, body.theme[mode][k]);
+        for (const k of fields) paintRow(`${mode}.${k}`, body.theme[mode][k]);
       }
+      suppressPreview = false;
     }
 
     function readForm() {
@@ -1348,7 +1473,7 @@ const user = Astro.locals.user;
       const out = { light: {}, dark: {} };
       for (const mode of ['light', 'dark']) {
         for (const k of fields) {
-          const v = readSwatchRow(`${mode}.${k}`);
+          const v = readRowHex(`${mode}.${k}`);
           if (v) out[mode][k] = v;
         }
       }
@@ -1357,6 +1482,22 @@ const user = Astro.locals.user;
         ...out,
       };
     }
+
+    // Live preview: as the admin drags a hue slider, update the swatch
+    // and hex label so they see the color they're picking in real time.
+    document.querySelectorAll('[data-theme-hue]').forEach((slider) => {
+      slider.addEventListener('input', () => {
+        if (suppressPreview) return;
+        const field = slider.getAttribute('data-theme-hue');
+        const key = fieldKey(field);
+        const [s, l] = SL_L[key] || [50, 50];
+        const hex = hslToHex(parseInt(slider.value, 10), s, l);
+        const sw = document.querySelector(`[data-theme-preview="${field}"]`);
+        const lbl = document.querySelector(`[data-theme-hex="${field}"]`);
+        if (sw) sw.style.backgroundColor = hex;
+        if (lbl) lbl.textContent = hex.toUpperCase();
+      });
+    });
 
     if (themeSave) {
       themeSave.addEventListener('click', async () => {
@@ -1381,45 +1522,19 @@ const user = Astro.locals.user;
     }
 
     if (themeReset) {
-      themeReset.addEventListener('click', async () => {
-        setThemeStatus('Resetting…');
-        // Send an empty PATCH with logo_url: null — server keeps absent
-        // fields, so this only clears the logo. To wipe colors, we'd
-        // need a dedicated DELETE; for now this resets the swatches
-        // visually but warns the admin to hit Save to apply.
+      themeReset.addEventListener('click', () => {
         themeLogoUrl.value = '';
         if (themeDefaults) {
           const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
+          suppressPreview = true;
           for (const mode of ['light', 'dark']) {
-            for (const k of fields) paintSwatchRow(`${mode}.${k}`, themeDefaults[mode][k]);
+            for (const k of fields) paintRow(`${mode}.${k}`, themeDefaults[mode][k]);
           }
+          suppressPreview = false;
         }
         setThemeStatus('Defaults loaded in the form — click Save to apply.');
       });
     }
-
-    // Two-way sync: typing a hex into the text box updates the swatch
-    // and vice versa. The browser's native <input type="color"> always
-    // emits #RRGGBB, so we normalize whatever the user types.
-    document.querySelectorAll('[data-theme-text]').forEach((text) => {
-      text.addEventListener('input', () => {
-        const field = text.getAttribute('data-theme-text');
-        const v = text.value.trim();
-        if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)) {
-          document.querySelectorAll(`[data-theme-field="${field}"]`).forEach((sw) => {
-            if (sw.type === 'color') sw.value = v;
-          });
-        }
-      });
-    });
-    document.querySelectorAll('[data-theme-field]').forEach((sw) => {
-      sw.addEventListener('input', () => {
-        const field = sw.getAttribute('data-theme-field');
-        document.querySelectorAll(`[data-theme-text="${field}"]`).forEach((tx) => {
-          tx.value = sw.value;
-        });
-      });
-    });
 
     loadTheme();
   </script>

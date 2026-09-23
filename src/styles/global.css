@@ -113,48 +113,157 @@ html, body {
 [data-theme="dark"] .req-chip { background-color: #232327 !important; color: #f5f5f4 !important; }
 [data-theme="dark"] .time-off-bar { background: repeating-linear-gradient(45deg, #2e2e33, #2e2e33 4px, #3f3f46 4px 8px) !important; color: #f5f5f4 !important; }
 
-/* Theme toggle button — pill, like the existing lang-toggle. */
-.theme-toggle { display: inline-flex; border-radius: 9999px; border: 1px solid var(--color-border); overflow: hidden; }
-.theme-toggle button { border: none; background: none; font-family: inherit; font-size: 0.6875rem; font-weight: 700; padding: 0.3125rem 0.625rem; cursor: pointer; color: var(--color-ink-light); display: inline-flex; align-items: center; gap: 0.25rem; }
-.theme-toggle button.active { background: var(--color-primary); color: #fff; }
-[data-theme="dark"] .theme-toggle button.active { background: #f5f5f4; color: #0f0f10; }
-
-/* Theme & branding card — clean grid of swatch + label + hex input.
-   The native <input type="color"> renders the OS color picker; we
-   hide the text label and round-corners the swatch. The text input
-   next to it lets the admin paste an exact hex without using the
-   picker (handy when matching a design tool). */
-.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; }
-.theme-swatch {
-  display: grid;
-  grid-template-columns: 2.25rem 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 0.625rem;
-  row-gap: 0.25rem;
+/* Theme switch — iOS-style horizontal toggle. The track holds a sun
+   icon on the left and a moon icon on the right; a circular knob
+   slides between them showing the OPPOSITE icon (so the active state
+   is the one being switched TO, not the current one). This avoids the
+   problem of the active icon being hidden under the knob. */
+.theme-switch {
+  display: inline-flex;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+.theme-switch-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 1.75rem;
+  border-radius: 9999px;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+  transition: background 0.18s ease, border-color 0.18s ease;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.theme-switch-icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.18s ease, color 0.18s ease;
+}
+.theme-switch-icon-sun { left: 0.375rem; color: var(--color-warning); }
+.theme-switch-icon-moon { right: 0.375rem; color: var(--color-primary); }
+
+/* Track icon visibility: in light mode the SUN is dim (because light
+   is already active), and in dark mode the MOON is dim. */
+.theme-switch[data-theme-state="light"] .theme-switch-icon-sun { opacity: 0.35; }
+.theme-switch[data-theme-state="light"] .theme-switch-icon-moon { opacity: 0.85; }
+.theme-switch[data-theme-state="dark"] .theme-switch-icon-sun { opacity: 0.85; }
+.theme-switch[data-theme-state="dark"] .theme-switch-icon-moon { opacity: 0.35; }
+
+.theme-switch-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 9999px;
+  background: var(--color-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.18s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink);
+}
+.theme-switch[data-theme-state="dark"] .theme-switch-thumb { transform: translateX(100%); }
+
+/* Inside the knob, show whichever icon represents the CURRENT state
+   (sun when light is active, moon when dark is active). The opposite
+   icon is hidden so the knob stays clean. */
+.theme-switch-thumb-icon { display: inline-flex; align-items: center; justify-content: center; }
+.theme-switch[data-theme-state="light"] .theme-switch-thumb-icon-sun { display: inline-flex; }
+.theme-switch[data-theme-state="light"] .theme-switch-thumb-icon-moon { display: none; }
+.theme-switch[data-theme-state="dark"] .theme-switch-thumb-icon-sun { display: none; }
+.theme-switch[data-theme-state="dark"] .theme-switch-thumb-icon-moon { display: inline-flex; }
+.theme-switch-thumb-icon-moon { color: var(--color-primary); }
+.theme-switch-thumb-icon-sun { color: var(--color-warning); }
+
+.theme-switch:focus-visible .theme-switch-track {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Theme & branding card — each color row is a swatch + label + horizontal
+   hue slider + hex readout. Saturation/lightness are kept stable per
+   field so dragging the hue gives a clean rainbow strip and the
+   preview swatch updates in real time. */
+.theme-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.theme-row {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr 4.5rem;
+  align-items: center;
+  column-gap: 0.75rem;
   padding: 0.5rem 0.625rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
+  border-radius: 0.5rem;
   background: var(--color-bg);
-  cursor: default;
 }
-.theme-swatch-label { grid-column: 2; grid-row: 1; font-size: 0.75rem; font-weight: 700; color: var(--color-ink-light); text-transform: uppercase; letter-spacing: 0.04em; }
-.theme-swatch-name { display: none; }
-.theme-swatch input[type="color"] {
-  grid-column: 1; grid-row: 1 / span 2;
-  width: 2.25rem; height: 2.25rem;
-  padding: 0; border: 1px solid var(--color-border); border-radius: 0.375rem;
-  background: transparent; cursor: pointer;
+.theme-row-swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
-.theme-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; border-radius: 0.25rem; }
-.theme-swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 0.25rem; }
-.theme-swatch input[type="color"]::-moz-color-swatch { border: none; border-radius: 0.25rem; }
-.theme-swatch input[type="text"] {
-  grid-column: 2; grid-row: 2;
+.theme-row-label { font-size: 0.8125rem; color: var(--color-ink); font-weight: 500; }
+.theme-row-hex {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.8125rem;
-  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-ink-light);
+  text-align: right;
+  letter-spacing: 0.02em;
 }
+.theme-hue {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 0.875rem;
+  border-radius: 9999px;
+  background: linear-gradient(to right,
+    hsl(0, 70%, 50%), hsl(30, 70%, 50%), hsl(60, 70%, 50%),
+    hsl(90, 70%, 50%), hsl(120, 70%, 50%), hsl(150, 70%, 50%),
+    hsl(180, 70%, 50%), hsl(210, 70%, 50%), hsl(240, 70%, 50%),
+    hsl(270, 70%, 50%), hsl(300, 70%, 50%), hsl(330, 70%, 50%),
+    hsl(360, 70%, 50%));
+  outline: none;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  padding: 0;
+  grid-column: 2;
+  grid-row: 1;
+}
+.theme-hue::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 9999px;
+  background: var(--color-bg);
+  border: 2px solid var(--color-ink-light);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+}
+.theme-hue::-webkit-slider-thumb:active { cursor: grabbing; }
+.theme-hue::-moz-range-thumb {
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 9999px;
+  background: var(--color-bg);
+  border: 2px solid var(--color-ink-light);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+}
+.theme-hue:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 30%, transparent); }
 
 /* ─── Dark-mode catch-all ────────────────────────────────────────────
    The rule above is intentional: anything with a hardcoded white
