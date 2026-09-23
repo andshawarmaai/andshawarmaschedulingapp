@@ -119,6 +119,43 @@ html, body {
 .theme-toggle button.active { background: var(--color-primary); color: #fff; }
 [data-theme="dark"] .theme-toggle button.active { background: #f5f5f4; color: #0f0f10; }
 
+/* Theme & branding card — clean grid of swatch + label + hex input.
+   The native <input type="color"> renders the OS color picker; we
+   hide the text label and round-corners the swatch. The text input
+   next to it lets the admin paste an exact hex without using the
+   picker (handy when matching a design tool). */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; }
+.theme-swatch {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.625rem;
+  row-gap: 0.25rem;
+  align-items: center;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  background: var(--color-bg);
+  cursor: default;
+}
+.theme-swatch-label { grid-column: 2; grid-row: 1; font-size: 0.75rem; font-weight: 700; color: var(--color-ink-light); text-transform: uppercase; letter-spacing: 0.04em; }
+.theme-swatch-name { display: none; }
+.theme-swatch input[type="color"] {
+  grid-column: 1; grid-row: 1 / span 2;
+  width: 2.25rem; height: 2.25rem;
+  padding: 0; border: 1px solid var(--color-border); border-radius: 0.375rem;
+  background: transparent; cursor: pointer;
+}
+.theme-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; border-radius: 0.25rem; }
+.theme-swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 0.25rem; }
+.theme-swatch input[type="color"]::-moz-color-swatch { border: none; border-radius: 0.25rem; }
+.theme-swatch input[type="text"] {
+  grid-column: 2; grid-row: 2;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  padding: 0.375rem 0.5rem;
+}
+
 /* ─── Dark-mode catch-all ────────────────────────────────────────────
    The rule above is intentional: anything with a hardcoded white
    background should switch to the dark surface when dark mode is on.

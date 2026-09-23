@@ -77,9 +77,16 @@ const pageHeading = title === '&Shawarma' ? t(lang, 'nav.home') : title.replace(
 // ask) — even though the sidebar itself is now shared with admin/manager,
 // don't show it while on the admin-only pages (Manage, Schedule Builder).
 const showLangToggle = active !== 'manage' && active !== 'schedule-builder';
+// Per-render theme: read the encrypted theme_settings row once and inline
+// its values as CSS variables on <html>, so the first paint is already
+// branded (no light-mode flash). Falls back to the hardcoded defaults
+// baked into global.css when no overrides are set.
+import { getThemeForRender } from '../pages/api/admin/theme-settings.js';
+const theme = await getThemeForRender();
+function rgbHex(h) { return h.startsWith('#') ? h.slice(1) : h; }
 ---
 <!doctype html>
-<html lang={lang} translate="no">
+<html lang={lang} translate="no" data-theme-light-vars={`--color-primary:${theme.light.primary};--color-primary-dark:${theme.light.primary_dark};--color-bg:${theme.light.bg};--color-bg-soft:${theme.light.bg_soft};--color-border:${theme.light.border};--color-border-soft:${theme.light.border};--color-ink:${theme.light.ink};--color-ink-light:${theme.light.ink_light};--color-foh:${theme.light.foh};--color-boh:${theme.light.boh};--color-accent:${theme.light.accent};--color-accent-dark:${theme.light.accent_dark};`} data-theme-dark-vars={`--color-primary:${theme.dark.primary};--color-primary-dark:${theme.dark.primary_dark};--color-bg:${theme.dark.bg};--color-bg-soft:${theme.dark.bg_soft};--color-border:${theme.dark.border};--color-border-soft:${theme.dark.border};--color-ink:${theme.dark.ink};--color-ink-light:${theme.dark.ink_light};--color-foh:${theme.dark.foh};--color-boh:${theme.dark.boh};--color-accent:${theme.dark.accent};--color-accent-dark:${theme.dark.accent_dark};`} style={`--color-primary:${theme.light.primary};--color-primary-dark:${theme.light.primary_dark};--color-bg:${theme.light.bg};--color-bg-soft:${theme.light.bg_soft};--color-border:${theme.light.border};--color-border-soft:${theme.light.border};--color-ink:${theme.light.ink};--color-ink-light:${theme.light.ink_light};--color-foh:${theme.light.foh};--color-boh:${theme.light.boh};--color-accent:${theme.light.accent};--color-accent-dark:${theme.light.accent_dark};`}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -100,7 +107,7 @@ const showLangToggle = active !== 'manage' && active !== 'schedule-builder';
     <aside class="app-sidebar no-print" id="app-sidebar">
       <div class="app-sidebar-brand">
         <a href="/" class="app-sidebar-brand-link">
-          <img src="/logo.jpg" alt="&Shawarma" />
+          <img src={theme.logo_url || '/logo.jpg'} alt="&Shawarma" />
         </a>
         <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" type="button" aria-label="Collapse sidebar">
           <Icon name="chevron-left" size={16} />

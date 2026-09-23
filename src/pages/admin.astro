@@ -163,6 +163,107 @@ const user = Astro.locals.user;
   </div>
   )}
 
+  {user.role === 'admin' && (
+  <div class="card" id="theme-card" style="margin-top:1.5rem;">
+    <h2>Theme &amp; branding</h2>
+    <p class="card-sub">Customize the colors used across the app for both light and dark modes, plus the logo in the sidebar. Changes save instantly and apply to every page on the next render — no deploy needed.</p>
+
+    <div class="field" style="margin-top:1rem;">
+      <label for="theme-logo-url">Logo URL</label>
+      <input type="url" id="theme-logo-url" class="input" placeholder="https://example.com/logo.png or /logo.jpg" />
+      <p class="card-sub" style="margin:0.375rem 0 0;">Paste an https URL or a /-rooted path. Leave blank to keep the default logo.</p>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="theme-section">
+      <h3 style="margin:0 0 0.5rem;font-size:1rem;">Light mode colors</h3>
+      <div class="theme-grid">
+        <label class="theme-swatch"><span class="theme-swatch-label">Brand / buttons</span>
+          <input type="color" data-theme-field="light.primary" /><span class="theme-swatch-name">primary</span><input type="text" data-theme-text="light.primary" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Brand hover</span>
+          <input type="color" data-theme-field="light.primary_dark" /><span class="theme-swatch-name">primary-dark</span><input type="text" data-theme-text="light.primary_dark" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Front-of-house</span>
+          <input type="color" data-theme-field="light.foh" /><span class="theme-swatch-name">foh</span><input type="text" data-theme-text="light.foh" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Back-of-house</span>
+          <input type="color" data-theme-field="light.boh" /><span class="theme-swatch-name">boh</span><input type="text" data-theme-text="light.boh" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Body text</span>
+          <input type="color" data-theme-field="light.ink" /><span class="theme-swatch-name">ink</span><input type="text" data-theme-text="light.ink" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Secondary text</span>
+          <input type="color" data-theme-field="light.ink_light" /><span class="theme-swatch-name">ink-light</span><input type="text" data-theme-text="light.ink_light" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Page background</span>
+          <input type="color" data-theme-field="light.bg" /><span class="theme-swatch-name">bg</span><input type="text" data-theme-text="light.bg" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Sidebar / panel</span>
+          <input type="color" data-theme-field="light.bg_soft" /><span class="theme-swatch-name">bg-soft</span><input type="text" data-theme-text="light.bg_soft" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Borders</span>
+          <input type="color" data-theme-field="light.border" /><span class="theme-swatch-name">border</span><input type="text" data-theme-text="light.border" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Chat accent</span>
+          <input type="color" data-theme-field="light.accent" /><span class="theme-swatch-name">accent</span><input type="text" data-theme-text="light.accent" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Chat gradient deep</span>
+          <input type="color" data-theme-field="light.accent_dark" /><span class="theme-swatch-name">accent-dark</span><input type="text" data-theme-text="light.accent_dark" class="input" />
+        </label>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="theme-section">
+      <h3 style="margin:0 0 0.5rem;font-size:1rem;">Dark mode colors</h3>
+      <div class="theme-grid">
+        <label class="theme-swatch"><span class="theme-swatch-label">Brand / buttons</span>
+          <input type="color" data-theme-field="dark.primary" /><span class="theme-swatch-name">primary</span><input type="text" data-theme-text="dark.primary" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Brand hover</span>
+          <input type="color" data-theme-field="dark.primary_dark" /><span class="theme-swatch-name">primary-dark</span><input type="text" data-theme-text="dark.primary_dark" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Front-of-house</span>
+          <input type="color" data-theme-field="dark.foh" /><span class="theme-swatch-name">foh</span><input type="text" data-theme-text="dark.foh" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Back-of-house</span>
+          <input type="color" data-theme-field="dark.boh" /><span class="theme-swatch-name">boh</span><input type="text" data-theme-text="dark.boh" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Body text</span>
+          <input type="color" data-theme-field="dark.ink" /><span class="theme-swatch-name">ink</span><input type="text" data-theme-text="dark.ink" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Secondary text</span>
+          <input type="color" data-theme-field="dark.ink_light" /><span class="theme-swatch-name">ink-light</span><input type="text" data-theme-text="dark.ink_light" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Page background</span>
+          <input type="color" data-theme-field="dark.bg" /><span class="theme-swatch-name">bg</span><input type="text" data-theme-text="dark.bg" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Sidebar / panel</span>
+          <input type="color" data-theme-field="dark.bg_soft" /><span class="theme-swatch-name">bg-soft</span><input type="text" data-theme-text="dark.bg_soft" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Borders</span>
+          <input type="color" data-theme-field="dark.border" /><span class="theme-swatch-name">border</span><input type="text" data-theme-text="dark.border" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Chat accent</span>
+          <input type="color" data-theme-field="dark.accent" /><span class="theme-swatch-name">accent</span><input type="text" data-theme-text="dark.accent" class="input" />
+        </label>
+        <label class="theme-swatch"><span class="theme-swatch-label">Chat gradient deep</span>
+          <input type="color" data-theme-field="dark.accent_dark" /><span class="theme-swatch-name">accent-dark</span><input type="text" data-theme-text="dark.accent_dark" class="input" />
+        </label>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.25rem;flex-wrap:wrap;">
+      <button class="btn-primary" id="theme-save" type="button">Save theme</button>
+      <button class="btn-secondary" id="theme-reset" type="button">Reset to defaults</button>
+      <span id="theme-status" class="card-sub" style="margin:0;"></span>
+    </div>
+  </div>
+  )}
+
   <div class="card" style="margin-top:1.5rem;">
     <h2 style="margin-top:0;">Chat security log</h2>
     <p class="card-sub">Off-topic refusals, prompt-injection attempts, and credential-phishing messages from the in-app chat bot. Newest first.</p>
@@ -1177,5 +1278,149 @@ const user = Astro.locals.user;
     loadChatSource();
     loadChatTunnel();
     loadChatAi();
+
+    // ─── Theme & branding card ────────────────────────────────────────
+    // Each color row has a native <input type="color"> swatch AND a
+    // <input type="text"> for pasting an exact hex. They stay in sync so
+    // the admin can either pick from the picker or paste from their
+    // design tool. Save sends a PATCH to /api/admin/theme-settings; on
+    // success we re-inline the html's --color-* variables so the
+    // current page picks up the new colors with no reload.
+    const themeLogoUrl = document.getElementById('theme-logo-url');
+    const themeStatus = document.getElementById('theme-status');
+    const themeSave = document.getElementById('theme-save');
+    const themeReset = document.getElementById('theme-reset');
+    let themeDefaults = null; // populated by loadTheme()
+    let themeCurrent = null;
+
+    function setThemeStatus(msg, kind) {
+      if (!themeStatus) return;
+      themeStatus.textContent = msg;
+      themeStatus.style.color = kind === 'error' ? '#dc2626' : kind === 'ok' ? '#16a34a' : '';
+    }
+
+    function applyThemeToHtml(theme) {
+      const html = document.documentElement;
+      const lightVars = Object.entries(theme.light)
+        .map(([k, v]) => `--color-${k.replace(/_/g, '-')}:${v}`)
+        .join(';');
+      const darkVars = Object.entries(theme.dark)
+        .map(([k, v]) => `--color-${k.replace(/_/g, '-')}:${v}`)
+        .join(';');
+      html.setAttribute('data-theme-light-vars', lightVars);
+      html.setAttribute('data-theme-dark-vars', darkVars);
+      const current = html.getAttribute('data-theme') || 'light';
+      html.setAttribute('style', current === 'dark' ? darkVars : lightVars);
+      // Logo in the sidebar
+      const logo = document.querySelector('.app-sidebar-brand img');
+      if (logo) logo.src = theme.logo_url || '/logo.jpg';
+    }
+
+    function paintSwatchRow(field, value) {
+      document.querySelectorAll(`[data-theme-field="${field}"]`).forEach((el) => {
+        if (el.type === 'color') el.value = value;
+      });
+      document.querySelectorAll(`[data-theme-text="${field}"]`).forEach((el) => {
+        el.value = value;
+      });
+    }
+
+    function readSwatchRow(field) {
+      const el = document.querySelector(`[data-theme-text="${field}"]`);
+      return el ? el.value.trim() : null;
+    }
+
+    async function loadTheme() {
+      const r = await fetch('/api/admin/theme-settings', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const body = await r.json();
+      themeDefaults = body.defaults;
+      themeCurrent = body.theme;
+      if (themeLogoUrl) themeLogoUrl.value = body.theme.logo_url || '';
+      const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
+      for (const mode of ['light', 'dark']) {
+        for (const k of fields) paintSwatchRow(`${mode}.${k}`, body.theme[mode][k]);
+      }
+    }
+
+    function readForm() {
+      const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
+      const out = { light: {}, dark: {} };
+      for (const mode of ['light', 'dark']) {
+        for (const k of fields) {
+          const v = readSwatchRow(`${mode}.${k}`);
+          if (v) out[mode][k] = v;
+        }
+      }
+      return {
+        logo_url: themeLogoUrl && themeLogoUrl.value.trim() ? themeLogoUrl.value.trim() : null,
+        ...out,
+      };
+    }
+
+    if (themeSave) {
+      themeSave.addEventListener('click', async () => {
+        setThemeStatus('Saving…');
+        const payload = readForm();
+        const r = await fetch('/api/admin/theme-settings', {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          setThemeStatus(body.error || `Save failed (${r.status}).`, 'error');
+          return;
+        }
+        const body = await r.json();
+        themeCurrent = body.theme;
+        applyThemeToHtml(themeCurrent);
+        setThemeStatus('Saved — refresh any other open tabs to see the new colors there.', 'ok');
+      });
+    }
+
+    if (themeReset) {
+      themeReset.addEventListener('click', async () => {
+        setThemeStatus('Resetting…');
+        // Send an empty PATCH with logo_url: null — server keeps absent
+        // fields, so this only clears the logo. To wipe colors, we'd
+        // need a dedicated DELETE; for now this resets the swatches
+        // visually but warns the admin to hit Save to apply.
+        themeLogoUrl.value = '';
+        if (themeDefaults) {
+          const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
+          for (const mode of ['light', 'dark']) {
+            for (const k of fields) paintSwatchRow(`${mode}.${k}`, themeDefaults[mode][k]);
+          }
+        }
+        setThemeStatus('Defaults loaded in the form — click Save to apply.');
+      });
+    }
+
+    // Two-way sync: typing a hex into the text box updates the swatch
+    // and vice versa. The browser's native <input type="color"> always
+    // emits #RRGGBB, so we normalize whatever the user types.
+    document.querySelectorAll('[data-theme-text]').forEach((text) => {
+      text.addEventListener('input', () => {
+        const field = text.getAttribute('data-theme-text');
+        const v = text.value.trim();
+        if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)) {
+          document.querySelectorAll(`[data-theme-field="${field}"]`).forEach((sw) => {
+            if (sw.type === 'color') sw.value = v;
+          });
+        }
+      });
+    });
+    document.querySelectorAll('[data-theme-field]').forEach((sw) => {
+      sw.addEventListener('input', () => {
+        const field = sw.getAttribute('data-theme-field');
+        document.querySelectorAll(`[data-theme-text="${field}"]`).forEach((tx) => {
+          tx.value = sw.value;
+        });
+      });
+    });
+
+    loadTheme();
   </script>
 </Layout>
