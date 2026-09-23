@@ -188,75 +188,28 @@ const user = Astro.locals.user;
 
     <hr class="divider" />
 
+    <!-- Per-mode color picker: pick which color slot this picker
+         controls from the dropdown, then drag the OS color picker to
+         set its value. One picker + one dropdown replaces the 22-row
+         list we used to have — much easier to scan. -->
     <div class="theme-section">
       <h3 style="margin:0 0 0.5rem;font-size:1rem;">Light mode colors</h3>
-      <div class="theme-list">
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.primary"></span>
-          <label class="theme-row-label">Brand / buttons · primary</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.primary" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.primary"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.primary_dark"></span>
-          <label class="theme-row-label">Brand hover · primary-dark</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.primary_dark" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.primary_dark"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.foh"></span>
-          <label class="theme-row-label">Front-of-house · foh</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.foh" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.foh"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.boh"></span>
-          <label class="theme-row-label">Back-of-house · boh</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.boh" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.boh"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.ink"></span>
-          <label class="theme-row-label">Body text · ink</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.ink" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.ink"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.ink_light"></span>
-          <label class="theme-row-label">Secondary text · ink-light</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.ink_light" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.ink_light"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.bg"></span>
-          <label class="theme-row-label">Page background · bg</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.bg" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.bg"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.bg_soft"></span>
-          <label class="theme-row-label">Sidebar / panel · bg-soft</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.bg_soft" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.bg_soft"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.border"></span>
-          <label class="theme-row-label">Borders · border</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.border" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.border"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.accent"></span>
-          <label class="theme-row-label">Chat accent · accent</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.accent" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.accent"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="light.accent_dark"></span>
-          <label class="theme-row-label">Chat gradient deep · accent-dark</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="light.accent_dark" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="light.accent_dark"></span>
-        </div>
+      <div class="theme-picker-row">
+        <select id="theme-light-slot" class="input theme-picker-select" aria-label="Which light-mode color to edit">
+          <option value="primary">Brand / buttons</option>
+          <option value="primary_dark">Brand hover</option>
+          <option value="foh">Front of House (FOH)</option>
+          <option value="boh">Back of House (BOH)</option>
+          <option value="ink">Body text</option>
+          <option value="ink_light">Secondary text</option>
+          <option value="bg">Page background</option>
+          <option value="bg_soft">Sidebar / panel</option>
+          <option value="border">Borders</option>
+          <option value="accent">Chat accent</option>
+          <option value="accent_dark">Chat gradient deep</option>
+        </select>
+        <input type="color" id="theme-light-color" class="theme-picker-color" />
+        <span id="theme-light-hex" class="theme-picker-hex">#000000</span>
       </div>
     </div>
 
@@ -264,73 +217,22 @@ const user = Astro.locals.user;
 
     <div class="theme-section">
       <h3 style="margin:0 0 0.5rem;font-size:1rem;">Dark mode colors</h3>
-      <div class="theme-list">
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.primary"></span>
-          <label class="theme-row-label">Brand / buttons · primary</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.primary" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.primary"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.primary_dark"></span>
-          <label class="theme-row-label">Brand hover · primary-dark</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.primary_dark" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.primary_dark"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.foh"></span>
-          <label class="theme-row-label">Front-of-house · foh</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.foh" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.foh"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.boh"></span>
-          <label class="theme-row-label">Back-of-house · boh</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.boh" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.boh"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.ink"></span>
-          <label class="theme-row-label">Body text · ink</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.ink" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.ink"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.ink_light"></span>
-          <label class="theme-row-label">Secondary text · ink-light</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.ink_light" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.ink_light"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.bg"></span>
-          <label class="theme-row-label">Page background · bg</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.bg" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.bg"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.bg_soft"></span>
-          <label class="theme-row-label">Sidebar / panel · bg-soft</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.bg_soft" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.bg_soft"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.border"></span>
-          <label class="theme-row-label">Borders · border</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.border" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.border"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.accent"></span>
-          <label class="theme-row-label">Chat accent · accent</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.accent" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.accent"></span>
-        </div>
-        <div class="theme-row">
-          <span class="theme-row-swatch" data-theme-preview="dark.accent_dark"></span>
-          <label class="theme-row-label">Chat gradient deep · accent-dark</label>
-          <input type="range" min="0" max="360" step="1" data-theme-hue="dark.accent_dark" class="theme-hue" />
-          <span class="theme-row-hex" data-theme-hex="dark.accent_dark"></span>
-        </div>
+      <div class="theme-picker-row">
+        <select id="theme-dark-slot" class="input theme-picker-select" aria-label="Which dark-mode color to edit">
+          <option value="primary">Brand / buttons</option>
+          <option value="primary_dark">Brand hover</option>
+          <option value="foh">Front of House (FOH)</option>
+          <option value="boh">Back of House (BOH)</option>
+          <option value="ink">Body text</option>
+          <option value="ink_light">Secondary text</option>
+          <option value="bg">Page background</option>
+          <option value="bg_soft">Sidebar / panel</option>
+          <option value="border">Borders</option>
+          <option value="accent">Chat accent</option>
+          <option value="accent_dark">Chat gradient deep</option>
+        </select>
+        <input type="color" id="theme-dark-color" class="theme-picker-color" />
+        <span id="theme-dark-hex" class="theme-picker-hex">#000000</span>
       </div>
     </div>
 
@@ -1366,38 +1268,20 @@ const user = Astro.locals.user;
     loadChatTunnel();
     loadChatAi();
 
-    // ─── Theme & branding card ────────────────────────────────────────
-    // Each color row is a single horizontal hue slider (0–360) with a
-    // small swatch on the left and the current hex on the right. The
-    // saturation/lightness are kept stable so dragging the hue gives
-    // a clean rainbow strip — what most non-designer admins actually
-    // want when picking a brand color.
+    // ─── Theme & branding card ───────────────────────────────────────────────────────
+    // One color picker per mode (light + dark). Each picker has a
+    // dropdown that names which slot the picker currently controls
+    // (brand, body text, page background, etc.) and a native
+    // <input type="color"> swatch. The OS color picker IS the histogram
+    // slider with R/G/B/HSL fields built in — admins can drag the
+    // sat slider, dial in a hue, or type a hex directly.
     //
-    // The logo lives above the color grid: a live preview of the
-    // currently-used logo, an "Upload new logo" button (multipart
-    // POST to /api/admin/theme-settings/logo), and a "Remove" button
-    // that shows up only when an upload is active. There's also a
-    // collapsed "Use an external URL instead" details section for
-    // admins who'd rather paste a URL than upload.
-    //
-    // Per-field S/L constants were tuned by hand so the defaults land
-    // near the original palette: brand red = (h:0, s:74%, l:48%),
-    // body text = (h:30, s:6%, l:12%), page bg = (h:60, s:9%, l:96%),
-    // etc. Anything that's already near-grayscale just tracks hue with
-    // very low saturation so dragging doesn't pop loud colors.
-    const SL_L = {
-      primary:       [74, 48],  // brand — saturated mid
-      primary_dark:  [74, 42],  // brand hover — slightly darker
-      foh:           [74, 48],
-      boh:           [74, 48],
-      ink:           [30,  12], // near-black, hue barely matters
-      ink_light:     [30,  32], // mid grey
-      bg:            [60,   9], // near-white
-      bg_soft:       [60,  20], // off-white panel
-      border:        [30,  24],
-      accent:        [38,  52], // warm amber
-      accent_dark:   [28,  42], // deeper amber
-    };
+    // The logo section (preview + upload + clear + URL fallback) still
+    // lives above the color card, untouched by this rewrite.
+    const themeFields = [
+      'primary', 'primary_dark', 'foh', 'boh', 'ink', 'ink_light',
+      'bg', 'bg_soft', 'border', 'accent', 'accent_dark',
+    ];
     const themeLogoUrl = document.getElementById('theme-logo-url');
     const themeLogoPreview = document.getElementById('theme-logo-preview');
     const themeLogoUpload = document.getElementById('theme-logo-upload');
@@ -1407,9 +1291,13 @@ const user = Astro.locals.user;
     const themeStatus = document.getElementById('theme-status');
     const themeSave = document.getElementById('theme-save');
     const themeReset = document.getElementById('theme-reset');
+    const themePickers = {
+      light: { select: document.getElementById('theme-light-slot'), input: document.getElementById('theme-light-color'), hex: document.getElementById('theme-light-hex') },
+      dark:  { select: document.getElementById('theme-dark-slot'),  input: document.getElementById('theme-dark-color'),  hex: document.getElementById('theme-dark-hex') },
+    };
     let themeDefaults = null;
     let themeCurrent = null;
-    let suppressPreview = false;
+    let suppressPickerInputs = false;
 
     function setThemeStatus(msg, kind) {
       if (!themeStatus) return;
@@ -1422,45 +1310,12 @@ const user = Astro.locals.user;
       themeLogoStatus.style.color = kind === 'error' ? '#dc2626' : kind === 'ok' ? '#16a34a' : '';
     }
 
-    function hexToHsl(hex) {
-      const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-      if (!m) return [0, 0, 0];
-      const n = parseInt(m[1], 16);
-      const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
-      const max = Math.max(r, g, b), min = Math.min(r, g, b);
-      let h = 0, s = 0; const l = (max + min) / 2;
-      if (max !== min) {
-        const d = max - min;
-        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-        switch (max) {
-          case r: h = ((g - b) / d + (g < b ? 6 : 0)); break;
-          case g: h = ((b - r) / d + 2); break;
-          case b: h = ((r - g) / d + 4); break;
-        }
-        h *= 60;
-      }
-      return [Math.round(h), Math.round(s * 100), Math.round(l * 100)];
-    }
-
-    function hslToHex(h, s, l) {
-      s /= 100; l /= 100;
-      const a = s * Math.min(l, 1 - l);
-      const f = (n) => {
-        const k = (n + h / 30) % 12;
-        const c = l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
-        return Math.round(255 * c).toString(16).padStart(2, '0');
-      };
-      return `#${f(0)}${f(8)}${f(4)}`;
-    }
-
     function applyThemeToHtml(theme) {
       const html = document.documentElement;
       const lightVars = Object.entries(theme.light)
-        .map(([k, v]) => `--color-${k.replace(/_/g, '-')}:${v}`)
-        .join(';');
+        .map(([k, v]) => `--color-${k.replace(/_/g, '-')}:${v}`).join(';');
       const darkVars = Object.entries(theme.dark)
-        .map(([k, v]) => `--color-${k.replace(/_/g, '-')}:${v}`)
-        .join(';');
+        .map(([k, v]) => `--color-${k.replace(/_/g, '-')}:${v}`).join(';');
       html.setAttribute('data-theme-light-vars', lightVars);
       html.setAttribute('data-theme-dark-vars', darkVars);
       const current = html.getAttribute('data-theme') || 'light';
@@ -1468,32 +1323,30 @@ const user = Astro.locals.user;
       const logoSrc = theme.logo_data_url || theme.logo_url || '/logo.jpg';
       const logo = document.querySelector('.app-sidebar-brand img');
       if (logo) logo.src = logoSrc;
-      // Update the in-card preview and the clear-button visibility so
-      // the form matches what's actually live.
       if (themeLogoPreview) themeLogoPreview.src = logoSrc;
       if (themeLogoClearBtn) themeLogoClearBtn.hidden = !theme.logo_data_url;
     }
 
-    function fieldKey(field) { return field.split('.')[1]; }
-
-    function paintRow(field, hex) {
-      const sw = document.querySelector(`[data-theme-preview="${field}"]`);
-      const lbl = document.querySelector(`[data-theme-hex="${field}"]`);
-      const hue = document.querySelector(`[data-theme-hue="${field}"]`);
-      if (sw) sw.style.backgroundColor = hex;
-      if (lbl) lbl.textContent = hex.toUpperCase();
-      if (hue && !suppressPreview) {
-        const [h] = hexToHsl(hex);
-        hue.value = String(h);
-      }
-    }
-
-    function readRowHex(field) {
-      const hue = document.querySelector(`[data-theme-hue="${field}"]`);
-      if (!hue) return null;
-      const key = fieldKey(field);
-      const [s, l] = SL_L[key] || [50, 50];
-      return hslToHex(parseInt(hue.value, 10), s, l);
+    // Repaint a single picker (the one currently showing the slot)
+    // when the admin changes the dropdown OR the color value. Also
+    // applies the change live to the page so the admin sees the
+    // effect immediately without first hitting Save.
+    function paintPicker(mode) {
+      const p = themePickers[mode];
+      if (!p || !p.input || !themeCurrent) return;
+      const slot = p.select.value;
+      const hex = themeCurrent[mode][slot];
+      suppressPickerInputs = true;
+      p.input.value = hex;
+      suppressPickerInputs = false;
+      if (p.hex) p.hex.textContent = hex.toUpperCase();
+      // Live preview: temporarily inject this slot's value into the
+      // matching CSS variable so the page reflects the picker as it
+      // moves. On Save we commit the whole palette; on Reset we
+      // restore the loaded palette.
+      const html = document.documentElement;
+      const cssVar = `--color-${slot.replace(/_/g, '-')}`;
+      html.style.setProperty(cssVar, hex);
     }
 
     async function loadTheme() {
@@ -1503,22 +1356,19 @@ const user = Astro.locals.user;
       themeDefaults = body.defaults;
       themeCurrent = body.theme;
       if (themeLogoUrl) themeLogoUrl.value = body.theme.logo_url || '';
-      const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
-      suppressPreview = true;
-      for (const mode of ['light', 'dark']) {
-        for (const k of fields) paintRow(`${mode}.${k}`, body.theme[mode][k]);
-      }
-      suppressPreview = false;
+      paintPicker('light');
+      paintPicker('dark');
     }
 
     function readForm() {
-      const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
-      const out = { light: {}, dark: {} };
+      // Build the save payload from the live preview state. Any slot
+      // the admin touched has its current value already on the DOM; any
+      // slot they HAVEN'T touched was never changed so we leave the
+      // loaded themeCurrent value in place.
+      const out = { light: { ...themeCurrent.light }, dark: { ...themeCurrent.dark } };
       for (const mode of ['light', 'dark']) {
-        for (const k of fields) {
-          const v = readRowHex(`${mode}.${k}`);
-          if (v) out[mode][k] = v;
-        }
+        const p = themePickers[mode];
+        if (p && p.input.value) out[mode][p.select.value] = p.input.value;
       }
       return {
         logo_url: themeLogoUrl && themeLogoUrl.value.trim() ? themeLogoUrl.value.trim() : null,
@@ -1526,21 +1376,23 @@ const user = Astro.locals.user;
       };
     }
 
-    // Live preview: as the admin drags a hue slider, update the swatch
-    // and hex label so they see the color they're picking in real time.
-    document.querySelectorAll('[data-theme-hue]').forEach((slider) => {
-      slider.addEventListener('input', () => {
-        if (suppressPreview) return;
-        const field = slider.getAttribute('data-theme-hue');
-        const key = fieldKey(field);
-        const [s, l] = SL_L[key] || [50, 50];
-        const hex = hslToHex(parseInt(slider.value, 10), s, l);
-        const sw = document.querySelector(`[data-theme-preview="${field}"]`);
-        const lbl = document.querySelector(`[data-theme-hex="${field}"]`);
-        if (sw) sw.style.backgroundColor = hex;
-        if (lbl) lbl.textContent = hex.toUpperCase();
+    // Wire up the pickers: changing the dropdown repaints; dragging
+    // the color keeps the dropdown's slot and updates the matching
+    // themeCurrent value + the live CSS var.
+    for (const mode of ['light', 'dark']) {
+      const p = themePickers[mode];
+      if (!p) continue;
+      p.select.addEventListener('change', () => paintPicker(mode));
+      p.input.addEventListener('input', () => {
+        if (suppressPickerInputs || !themeCurrent) return;
+        const slot = p.select.value;
+        const hex = p.input.value;
+        themeCurrent[mode][slot] = hex;
+        if (p.hex) p.hex.textContent = hex.toUpperCase();
+        const cssVar = `--color-${slot.replace(/_/g, '-')}`;
+        document.documentElement.style.setProperty(cssVar, hex);
       });
-    });
+    }
 
     if (themeSave) {
       themeSave.addEventListener('click', async () => {
@@ -1566,16 +1418,14 @@ const user = Astro.locals.user;
 
     if (themeReset) {
       themeReset.addEventListener('click', () => {
-        themeLogoUrl.value = '';
+        if (themeLogoUrl) themeLogoUrl.value = '';
         if (themeDefaults) {
-          const fields = ['primary','primary_dark','foh','boh','ink','ink_light','bg','bg_soft','border','accent','accent_dark'];
-          suppressPreview = true;
-          for (const mode of ['light', 'dark']) {
-            for (const k of fields) paintRow(`${mode}.${k}`, themeDefaults[mode][k]);
-          }
-          suppressPreview = false;
+          themeCurrent = JSON.parse(JSON.stringify(themeDefaults));
+          paintPicker('light');
+          paintPicker('dark');
+          applyThemeToHtml(themeCurrent);
         }
-        setThemeStatus('Defaults loaded in the form — click Save to apply.');
+        setThemeStatus('Defaults loaded — click Save to apply.');
       });
     }
 
