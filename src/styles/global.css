@@ -405,8 +405,10 @@ html, body {
 [data-theme="dark"] .login-header img { background-color: #fff !important; }
 /* Modal backdrop stays semi-transparent black */
 [data-theme="dark"] .modal-backdrop { background-color: rgba(0, 0, 0, 0.7) !important; }
-/* Print: keep light background so printed schedules stay readable */
-[data-theme="dark"] @media print { body { background: #fff !important; color: #000 !important; } }
+/* Print: respect the user's current theme — dark if dark mode is on,
+   light if light mode is on. Removed the previous forced-light rule so the
+   print preview matches what the user sees on screen (and so the schedule
+   shows correctly in dark mode for users who prefer dark). */
 
 h1, h2, h3, h4, .card h2, .login-title, .modal-header h2, .day-shift-name {
   font-family: var(--font-heading);
