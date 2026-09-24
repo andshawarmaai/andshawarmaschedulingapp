@@ -360,17 +360,22 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
       return `<div class="${cls}${approvedCls}${flagged ? ' flagged' : ''}" draggable="${draggable}" data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}>${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</div>`;
     }
 
-    function barHtml(kind, id, label, when, top, height, leftCss, widthCss, flagged, note) {
+    function barHtml(kind, id, label, when, top, height, leftCss, widthCss, flagged, note, shiftNote) {
       const cls = kind === 'shift-approved' ? 'shift-bar' : 'req-bar';
       const hint = kind === 'shift-approved' ? 'Click to edit, drag to move' : '';
       const titleAttr = flagged ? '' : `title="${escapeHtml(hint)}"`;
       const noteAttr = flagged ? `data-conflict-note="${escapeHtml(note)}"` : '';
+      // shiftNote is the human-typed staff member name (e.g. "Alex - opener")
+      // written by the manager — display it under the who/when if present so
+      // exception-column shifts are clearly identified by name.
+      const noteHtml = shiftNote ? `<span class="shift-bar-note">${escapeHtml(shiftNote)}</span>` : '';
       return `
         <div class="${cls}${flagged ? ' flagged' : ''}" draggable="true"
              data-kind="${kind}" data-id="${id}" ${titleAttr} ${noteAttr}
              style="top:${top}%;height:${height}%;left:calc(${leftCss} + 0.125rem);width:calc(${widthCss} - 0.25rem);">
           <span class="who">${escapeHtml(label)}${flagged ? ' ' + ALERT_SVG : ''}</span>
           <span class="when">${escapeHtml(when)}</span>
+          ${noteHtml}
         </div>
       `;
     }
@@ -498,13 +503,53 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         const [dispStart, dispEnd] = displayRange(group.template.start_time, group.template.end_time, startMin);
         return { start: Math.max(0, dispStart), end: Math.min(dispEnd, windowMin), kind: 'template-group', group };
       });
-      const unmatchedItems = unmatched.map(({ kind, row }) => {
+
+      // Match items by user_id OR notes-starts-with-name so a manager-added shift
+      // for a staff user (with custom time) shows up in BOTH the template column
+      // (if time matches a template) AND the Exceptions column (always). Same
+      // fallback as the print filter — keeps behavior consistent.
+      const myDisplay = (data.me?.display_name || '').toLowerCase();
+      const myUsername = (data.me?.username || '').toLowerCase();
+      const myFirstName = myDisplay.split(/\s+/)[0];
+      const matchesMe = (s) => {
+        if (s.user_id === ctx.myUserId) return true;
+        const note = (s.notes || '').toLowerCase();
+        if (!note) return false;
+        if (myFirstName && (note.startsWith(myFirstName + ' ') || note.startsWith(myFirstName + '-'))) return true;
+        if (myUsername && (note.startsWith(myUsername + ' ') || note.startsWith(myUsername + '-'))) return true;
+        return false;
+      };
+
+      // Custom-time shifts (don't fit any template) ALWAYS render in the
+      // dedicated Exceptions column on the right. Exception column also catches
+      // ANY shift the manager added with a custom time that doesn't perfectly
+      // match a template — the shift still appears in its template column
+      // if the times match, but the Exception column ensures custom times
+      // are visible without competing for packing space with template columns.
+      const exceptionItems = unmatched.map(({ kind, row }) => {
         const [dispStart, dispEnd] = displayRange(row.start_time, row.end_time, startMin);
         return { start: Math.max(0, dispStart), end: Math.min(dispEnd, windowMin), kind, row };
       });
 
-      const packed = packNoReuse([...groupItems, ...unmatchedItems]);
-      const totalCols = packed.reduce((max, item) => Math.max(max, item.cols), 1);
+      // Pack template-fit groups normally (they get the leftmost columns).
+      const packed = packNoReuse(groupItems);
+      const templateColCount = packed.reduce((max, item) => Math.max(max, item.cols), 0);
+
+      // Exception column is always rendered, even if empty, so the day view
+      // visually communicates that custom shifts are tracked separately. It
+      // sits to the right of all template columns.
+      const exceptionCol = templateColCount; // 0-indexed
+      const exceptionLeftCss = `${exceptionCol * DAY_COL_WIDTH_REM}rem`;
+      const exceptionHtml = exceptionItems.map((item) => {
+        const { start, end, kind, row } = item;
+        const top = Math.max(0, (start / windowMin) * 100);
+        const height = Math.max(3, ((end - start) / windowMin) * 100);
+        const note = conflicts.get(row.id);
+        const shiftNote = (row.notes || '').trim();
+        return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, exceptionLeftCss, DAY_COL_WIDTH_REM + 'rem', !!note, note, shiftNote);
+      }).join('');
+
+      // Template column HTML — rendered into the packed columns.
       const html = packed.map((item) => {
         const { start, end, col, kind } = item;
         const top = Math.max(0, (start / windowMin) * 100);
@@ -514,9 +559,15 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         if (kind === 'template-group') return templateColumnHtml(item.group, conflicts, top, height, leftCss, widthCss);
         const row = item.row;
         const note = conflicts.get(row.id);
-        return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftCss, widthCss, !!note, note);
+        const shiftNote = (row.notes || '').trim();
+        return barHtml(kind, row.id, userName(row.user_id), timeLabel(row), top, height, leftCss, widthCss, !!note, note, shiftNote);
       }).join('');
-      return { html, cols: totalCols };
+
+      // Exception column label is drawn by the day-view HTML container that
+      // calls this function — see renderDay() below. The label and column
+      // border/background are CSS-driven via .cal-exception-col.
+      const totalCols = templateColCount + 1; // +1 for the exception column
+      return { html: html + exceptionHtml, cols: totalCols };
     }
 
     function renderMonth() {
@@ -671,6 +722,12 @@ import ShiftTemplatesPanel from '../../components/ShiftTemplatesPanel.astro';
         <div class="cal-timeoff-row" style="grid-template-columns:3.5rem 1fr;">
           <div class="cal-timeoff-label">Shift times</div>
           <div class="cal-timeoff-cell"></div>
+        </div>
+        <div class="cal-day-header" style="display:grid;grid-template-columns:3.5rem repeat(${cols},${DAY_COL_WIDTH_REM}rem);min-width:calc(3.5rem + ${cols * DAY_COL_WIDTH_REM}rem);">
+          <div></div>
+          <div class="cal-day-header-spacer"></div>
+          ${cols >= 2 ? Array.from({length: cols - 1}, (_, i) => `<div class="cal-day-header-cell">Template ${i + 1}</div>`).join('') : ''}
+          <div class="cal-exception-header" title="Custom-time shifts that don't fit any template">Exceptions</div>
         </div>
         <div class="cal-day-body">
           <div class="cal-hours">${hourLabels.join('')}</div>
