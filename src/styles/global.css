@@ -824,7 +824,12 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
    dark-mode rules above force .day-shift onto a dark surface, but the
    cards inside .day-column-custom can inherit a light-mint tint. Forcing
    the text dark here guarantees it stays readable in both cases. */
+/* Day-shift bubble text: dark green on the (possibly light-mint) bubble
+   background so it's readable. Higher-specificity [data-theme="dark"] rule
+   below overrides the theme-aware --color-muted fallback in case the
+   bubble ends up on a light surface (e.g. .day-column-custom's mint tint). */
 .day-shift-name, .day-shift-time, .day-shift-notes { color: #14532d !important; }
+[data-theme="dark"] .day-shift-name, [data-theme="dark"] .day-shift-time, [data-theme="dark"] .day-shift-notes { color: #14532d !important; }
 
 .day-shift.foh { border-left-color: var(--color-foh); }
 .day-shift.boh { border-left-color: var(--color-boh); }
