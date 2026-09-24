@@ -805,6 +805,13 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 
 .day-view { display: flex; flex-direction: column; gap: 0.5rem; }
 .day-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem; align-items: flex-start; }
+/* The Shift Exception column must always render as its own row, full-width,
+   so it never visually merges with or appears to be "inside" a template
+   column. The grid auto-fit would otherwise wrap the Exception column onto
+   whatever row has space left, which made it look like custom shifts were
+   sitting inside the last template bucket — the exact bug the user flagged.
+   `1 / -1` = span every column from start to end. */
+.day-column-custom { grid-column: 1 / -1; }
 .day-column { background: var(--color-bg-soft); border: 1px solid var(--color-border-soft); border-radius: 0.375rem; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 .day-column-custom { border-color: var(--color-accent); background: #fff7ed; }
 .day-column-custom .day-column-header { background: var(--color-accent); color: #fff; border-bottom-color: var(--color-accent-dark, #92400e); }
