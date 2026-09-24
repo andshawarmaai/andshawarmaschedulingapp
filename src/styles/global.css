@@ -1140,6 +1140,14 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
    of absolutely positioned against the whole timeline — one row per
    person instead of one column per person. */
 .slot-inline { position:static !important; flex-shrink:0; min-height:2.25rem; width:100%; }
+
+/* Dark-mode .shift-bar: the light-mode rule gives it a mint-green fill
+   (#dcfce7), but in dark mode that mint stays light against the dark
+   canvas and the dark-green inherited text becomes unreadable. Flip it
+   to dark green with light text, matching the existing .shift-chip
+   dark-mode pattern. */
+[data-theme="dark"] .shift-bar { background-color: #14532d !important; border-color: #16a34a !important; color: #bbf7d0 !important; }
+[data-theme="dark"] .shift-bar .when { color: #bbf7d0 !important; }
 .slot-pending { display:flex; flex-direction:column; gap:0.125rem; }
 .slot-approve-btn {
   align-self:flex-start; margin-top:0.0625rem; border:none; background:var(--color-primary); color:#fff;
