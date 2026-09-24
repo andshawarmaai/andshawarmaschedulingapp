@@ -221,21 +221,36 @@ export function computeDayCoverage(shiftTemplates, shifts, shiftRequests, dateSt
 // (still needs someone). The coverage PANEL above the timeline (see
 // computeDayCoverage) is unrelated and unchanged — this only reshapes the
 // timeline underneath it.
-export function groupDayItemsByTemplate(shiftTemplates, shifts, shiftRequests, dateStr) {
+// Exact match: same start AND end as the template. Used for the Day view's
+// columns — a shift only sits in a template's column when its times ARE that
+// template; anything else gets its own custom-time column (owner's rule: never
+// snap a custom time into a template just because it fits inside it).
+function exactTemplate(templatesForThisDate, row) {
+  const [rStart, rEnd] = rowRange(row);
+  return templatesForThisDate.find((t) => {
+    const [tStart, tEnd] = templateRange(t);
+    return tStart === rStart && tEnd === rEnd;
+  }) || null;
+}
+
+// `exact: true` groups by exact time match (Day view columns). The default
+// best-fit containment is kept for coverage counts and conflict checks.
+export function groupDayItemsByTemplate(shiftTemplates, shifts, shiftRequests, dateStr, { exact = false } = {}) {
   const templates = templatesForDate(shiftTemplates, dateStr);
+  const match = exact ? exactTemplate : bestFitTemplate;
   const byTemplate = new Map(); // template -> { approved: [], pending: [] }
   const unmatched = [];
 
   for (const s of shifts) {
     if (s.date !== dateStr) continue;
-    const template = bestFitTemplate(templates, s);
+    const template = match(templates, s);
     if (!template) { unmatched.push({ kind: 'shift-approved', row: s }); continue; }
     if (!byTemplate.has(template)) byTemplate.set(template, { approved: [], pending: [] });
     byTemplate.get(template).approved.push(s);
   }
   for (const r of shiftRequests) {
     if (r.date !== dateStr) continue;
-    const template = bestFitTemplate(templates, r);
+    const template = match(templates, r);
     if (!template) { unmatched.push({ kind: 'shift-pending', row: r }); continue; }
     if (!byTemplate.has(template)) byTemplate.set(template, { approved: [], pending: [] });
     byTemplate.get(template).pending.push(r);
