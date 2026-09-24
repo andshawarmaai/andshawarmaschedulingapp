@@ -33,11 +33,11 @@ const lang = getLang(Astro);
        the page is hidden by default in print, see main.app-page's rule. -->
   <div class="print-only print-keep" id="print-shift-list">
     <div class="print-sheet-header">
-      <h1>{user.display_name} — {t(lang, 'schedule.print')}</h1>
+      <h1>{t(lang, 'schedule.printTitle')}</h1>
       <p id="print-period"></p>
     </div>
     <table class="print-month-grid" id="print-month-grid"></table>
-    <h2 class="print-list-heading">{t(lang, 'schedule.print')}</h2>
+    <h2 class="print-list-heading">{t(lang, 'schedule.printList')}</h2>
     <table class="print-shift-table">
       <thead><tr><th>{t(lang, 'schedule.date')}</th><th>{t(lang, 'schedule.startTime')}</th><th>{t(lang, 'schedule.endTime')}</th><th>{t(lang, 'common.notes')}</th></tr></thead>
       <tbody id="print-shift-rows"></tbody>
