@@ -839,6 +839,12 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 [data-theme="dark"] .day-column-custom .day-shift .day-shift-time,
 [data-theme="dark"] .day-column-custom .day-shift .day-shift-notes { color: #14532d !important; }
 
+/* Dark-mode bg for .day-shift (not in custom column) — dark surface + dark
+   green left border. Inside .day-column-custom the bubble keeps the
+   light-mint tint from the column's own bg, and the dark-green text
+   above stays readable on it. */
+[data-theme="dark"] .day-shift { background-color: #1c1c1f !important; border-color: #2e2e33 !important; }
+
 .day-shift.foh { border-left-color: var(--color-foh); }
 .day-shift.boh { border-left-color: var(--color-boh); }
 .day-shift.off-shift { border-left-color: var(--color-muted); opacity: 0.75; }
