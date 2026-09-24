@@ -78,7 +78,6 @@ html, body {
 [data-theme="dark"] .modal,
 [data-theme="dark"] .input,
 [data-theme="dark"] .tile,
-[data-theme="dark"] .day-shift,
 [data-theme="dark"] .day-column,
 [data-theme="dark"] .day-column-header,
 [data-theme="dark"] .template-slot-empty,
@@ -290,7 +289,6 @@ html, body {
 [data-theme="dark"] .modal-footer,
 [data-theme="dark"] .input,
 [data-theme="dark"] .tile,
-[data-theme="dark"] .day-shift,
 [data-theme="dark"] .day-column,
 [data-theme="dark"] .day-column-header,
 [data-theme="dark"] .template-slot-empty,
@@ -822,6 +820,12 @@ label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.
 .day-column-time { font-size: 0.75rem; color: var(--color-ink-light); }
 .day-column-shifts { display: flex; flex-direction: column; gap: 0.375rem; }
 .day-shift { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--color-border-soft); border-left-width: 4px; border-radius: 0.25rem; background: #fff; box-shadow: var(--shadow-card); }
+/* Day-shift bubble text must stay dark regardless of theme — the multi-selector
+   dark-mode rules above force .day-shift onto a dark surface, but the
+   cards inside .day-column-custom can inherit a light-mint tint. Forcing
+   the text dark here guarantees it stays readable in both cases. */
+.day-shift-name, .day-shift-time, .day-shift-notes { color: #14532d !important; }
+
 .day-shift.foh { border-left-color: var(--color-foh); }
 .day-shift.boh { border-left-color: var(--color-boh); }
 .day-shift.off-shift { border-left-color: var(--color-muted); opacity: 0.75; }
