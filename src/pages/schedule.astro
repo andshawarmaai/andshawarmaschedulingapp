@@ -440,9 +440,22 @@ const lang = getLang(Astro);
       if (!el) return;
       document.getElementById('print-period').textContent = formatDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-01`, { lang, monthYear: true });
       const cells = getMonthCells(viewYear, viewMonth);
+      // Same user_id + notes-name fallback filter as renderPrintList() so both
+      // print views (month grid + flat list) show the same shifts.
+      const myDisplay = (data.me?.display_name || '').toLowerCase();
+      const myUsername = (data.me?.username || '').toLowerCase();
+      const myFirstName = myDisplay.split(/\s+/)[0];
+      const matchesMe = (s) => {
+        if (s.user_id === ctx.myUserId) return true;
+        const note = (s.notes || '').toLowerCase();
+        if (!note) return false;
+        if (myFirstName && (note.startsWith(myFirstName + ' ') || note.startsWith(myFirstName + '-'))) return true;
+        if (myUsername && (note.startsWith(myUsername + ' ') || note.startsWith(myUsername + '-'))) return true;
+        return false;
+      };
       const mineByDate = new Map();
       for (const s of data.shifts) {
-        if (s.user_id !== ctx.myUserId) continue;
+        if (!matchesMe(s)) continue;
         if (!mineByDate.has(s.date)) mineByDate.set(s.date, []);
         mineByDate.get(s.date).push(s);
       }
@@ -465,8 +478,30 @@ const lang = getLang(Astro);
       const rows = document.getElementById('print-shift-rows');
       if (!rows) return;
       renderPrintMonthGrid();
+      // Match shifts by user_id OR by notes containing the staff user's display name /
+      // username (a workaround managers use when the staff user's row has a
+      // different id from the one the shift was assigned to). The notes fallback
+      // is conservative: only matches when the staff name is the FIRST word(s) of
+      // the notes field (i.e. "Alex - opener", "Alex Smith covering"). This catches
+      // the real-world case where the manager types the staff name instead of
+      // selecting from the dropdown.
+      const myDisplay = (data.me?.display_name || '').toLowerCase();
+      const myUsername = (data.me?.username || '').toLowerCase();
+      const myFirstName = myDisplay.split(/\s+/)[0];
       const mine = data.shifts
-        .filter((s) => s.user_id === ctx.myUserId && s.date >= today)
+        .filter((s) => {
+          if (s.date < today) return false;
+          if (s.user_id === ctx.myUserId) return true;
+          const note = (s.notes || '').toLowerCase();
+          if (!note) return false;
+          // Match if notes START with the staff's first name (most common pattern)
+          if (myFirstName && note.startsWith(myFirstName + ' ')) return true;
+          if (myFirstName && note.startsWith(myFirstName + '-')) return true;
+          // Match exact username in notes (e.g. "alex - swap")
+          if (myUsername && note.startsWith(myUsername + ' ')) return true;
+          if (myUsername && note.startsWith(myUsername + '-')) return true;
+          return false;
+        })
         .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
       document.getElementById('print-generated-at').textContent =
         t(lang, 'schedule.printGeneratedAt', { date: new Date().toLocaleDateString(lang === 'es' ? 'es' : 'en-US', { dateStyle: 'medium' }) });
