@@ -138,7 +138,29 @@ const avatarSrc = avatar || '/logo.jpg';
   .asst .asst-icon-btn:hover { background: var(--color-bg-soft); color: var(--color-ink); }
   .asst .asst-send { width: 34px; height: 34px; flex: none; border-radius: 50%; border: none; background: var(--color-ink); color: var(--color-bg); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
   .asst .asst-send:disabled { opacity: 0.35; cursor: default; }
-  .asst .asst-files { font-size: 0.8rem; color: var(--color-muted); padding: 0 0.5rem 0.4rem; }
+  .asst .asst-files { padding: 0 0.5rem 0.4rem; }
+  .asst .asst-files-header { font-size: 0.72rem; color: var(--color-muted); padding: 0 0.15rem 0.3rem; }
+  .asst .asst-files-header.asst-files-over { color: var(--asst-danger); font-weight: 600; }
+  .asst .asst-files-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .asst .asst-file-chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.25rem 0.3rem 0.25rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    font-size: 0.76rem;
+    max-width: 100%;
+  }
+  .asst .asst-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 11rem; }
+  .asst .asst-file-size { color: var(--color-muted); flex: none; }
+  .asst .asst-file-x {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.25rem; height: 1.25rem; flex: none;
+    background: none; border: none; border-radius: 50%; cursor: pointer;
+    color: var(--color-muted); padding: 0;
+  }
+  .asst .asst-file-x svg { width: 0.65rem; height: 0.65rem; }
+  .asst .asst-file-x:hover { color: var(--color-ink); background: var(--color-bg-soft); }
   .asst .asst-hint { font-size: 0.7rem; color: var(--color-muted); text-align: center; margin: 0.4rem 0 0; }
   .asst .asst-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -175,6 +197,15 @@ const avatarSrc = avatar || '/logo.jpg';
     let pollTimer: number | undefined;
     let tickTimer: number | undefined;
     let mode = 'hermes';
+
+    // Files go out base64-encoded inside one JSON POST (see the submit
+    // handler below), which inflates their raw size by ~37%. Vercel
+    // Serverless Functions have a hard 4.5 MB request body limit that no
+    // app config can raise - so the RAW budget has to leave room for both
+    // that inflation and the JSON wrapper, not just target 4.5 MB itself.
+    // 3 MB raw -> ~4.1 MB encoded, safely under the real ceiling.
+    const MAX_TOTAL_BYTES = 3 * 1024 * 1024;
+    const prettyBytes = (n: number) => n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1024 * 1024)).toFixed(2)} MB`;
 
     const el = (tag: string, className: string, text?: string) => {
       const node = document.createElement(tag);
@@ -342,9 +373,35 @@ const avatarSrc = avatar || '/logo.jpg';
     });
 
     // ---- Composer ----
+    function totalPickedBytes() { return picked.reduce((sum, f) => sum + f.size, 0); }
+    function removePicked(file: File) {
+      picked = picked.filter((f) => f !== file);
+      showFiles();
+    }
     function showFiles() {
       fileList.hidden = picked.length === 0;
-      fileList.textContent = picked.map((f) => f.name).join(', ');
+      fileList.replaceChildren();
+      if (picked.length === 0) { sendBtn.disabled = false; return; }
+      const total = totalPickedBytes();
+      const overBudget = total > MAX_TOTAL_BYTES;
+      const header = el('div', 'asst-files-header', `${picked.length} file${picked.length === 1 ? '' : 's'} · ${prettyBytes(total)} / ${prettyBytes(MAX_TOTAL_BYTES)}`);
+      if (overBudget) header.classList.add('asst-files-over');
+      fileList.append(header);
+      const row = el('div', 'asst-files-row');
+      for (const f of picked) {
+        const chip = el('span', 'asst-file-chip');
+        chip.append(el('span', 'asst-file-name', f.name), el('span', 'asst-file-size', prettyBytes(f.size)));
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'asst-file-x';
+        x.setAttribute('aria-label', `Remove ${f.name}`);
+        x.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        x.addEventListener('click', () => removePicked(f));
+        chip.append(x);
+        row.append(chip);
+      }
+      fileList.append(row);
+      sendBtn.disabled = overBudget;
     }
     const toB64 = (file: File) => new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -363,6 +420,7 @@ const avatarSrc = avatar || '/logo.jpg';
       e.preventDefault();
       const message = textarea.value.trim();
       if (!message && !picked.length) return;
+      if (totalPickedBytes() > MAX_TOTAL_BYTES) return; // defense in depth - button is already disabled for this
       sendBtn.disabled = true;
       const files = picked;
       if (log.querySelector('.asst-empty')) log.replaceChildren();
