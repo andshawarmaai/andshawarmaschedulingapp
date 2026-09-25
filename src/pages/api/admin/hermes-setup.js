@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import db from '../../../lib/db/index.js';
 import { generateApiKey, keyPrefix, hashApiKey } from '../../../lib/apiKey.js';
 import { sealSecret } from '../../../lib/assistant.js';
+import { publicOrigin } from '../../../lib/publicOrigin.js';
 
 export const prerender = false;
 
@@ -23,5 +24,6 @@ export async function POST(context) {
     code_hash: crypto.createHash('sha256').update(code).digest('hex'),
     sealed_key: sealSecret(key), created_by: me.id, expires_at: expiresAt,
   });
-  return Response.json({ ok: true, command: `curl -fsSL ${context.url.origin}/install-relay.sh | SHAWARMA_URL=${context.url.origin} bash -s -- ${code}`, expiresAt });
+  const origin = publicOrigin(context);
+  return Response.json({ ok: true, command: `curl -fsSL ${origin}/install-relay.sh | SHAWARMA_URL=${origin} bash -s -- ${code}`, expiresAt });
 }

@@ -4,6 +4,7 @@
 // (their role's permissions), never as the relay key's owner.
 import db from '../../../../../lib/db/index.js';
 import { finalizeTurn, failTurn } from '../../../../../lib/assistant.js';
+import { publicOrigin } from '../../../../../lib/publicOrigin.js';
 
 export const prerender = false;
 
@@ -29,6 +30,6 @@ export async function POST(context) {
     .map((f) => ({ name: String(f.name || 'file').replace(/[^\w.\- ]+/g, '_').slice(-120), type: String(f.content_type || 'application/octet-stream').slice(0, 100), b64: String(f.content_b64 || ''), output: true }))
     .map((f) => ({ ...f, size: Math.floor(f.b64.length * 0.75) }))
     .filter((f) => f.b64 && f.size <= MAX_FILE_BYTES);
-  const answer = await finalizeTurn({ userMsg, user, text: reply, origin: context.url.origin, files });
+  const answer = await finalizeTurn({ userMsg, user, text: reply, origin: publicOrigin(context), files });
   return Response.json({ ok: true, id: answer.id });
 }

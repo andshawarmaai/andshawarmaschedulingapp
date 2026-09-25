@@ -8,6 +8,7 @@ import { waitUntil } from '@vercel/functions';
 import db from '../../../../lib/db/index.js';
 import { chatMode, greetingReply, buildHermesPrompt, answerWithCloud } from '../../../../lib/assistant.js';
 import { getActiveProviderConfig } from '../../admin/settings/ai.js';
+import { publicOrigin } from '../../../../lib/publicOrigin.js';
 
 export const prerender = false;
 
@@ -67,7 +68,7 @@ export async function POST(context) {
     return json({ ok: true }, 201);
   }
 
-  const origin = context.url.origin;
+  const origin = publicOrigin(context);
   if ((await chatMode()) === 'cloud') {
     waitUntil(answerWithCloud({ userMsg, user, origin }));
   } else {

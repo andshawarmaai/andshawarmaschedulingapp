@@ -4,11 +4,12 @@
 // AGENT-TRAINING.md. Same auth exemption as index.js (see its comment).
 import { buildAgentGuide } from '../../../lib/agentGuide/build.js';
 import { renderAgentGuideMarkdown } from '../../../lib/agentGuide/markdown.js';
+import { publicOrigin } from '../../../lib/publicOrigin.js';
 
 export const prerender = false;
 
 export async function GET(context) {
-  const md = renderAgentGuideMarkdown(buildAgentGuide(), { baseUrl: context.url.origin });
+  const md = renderAgentGuideMarkdown(buildAgentGuide(), { baseUrl: publicOrigin(context) });
   return new Response(md, {
     status: 200,
     headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
