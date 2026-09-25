@@ -1111,9 +1111,18 @@ const user = Astro.locals.user;
       window.shawarmaToast(r.ok ? (radio.value === 'cloud' ? 'Chat now answers with Cloud AI.' : 'Chat now answers with your Hermes.') : (r.error || 'Save failed.'));
     }));
     let relayTimer;
+    // Keep the raw command string here and write THIS on copy, never
+    // re-read the <pre>'s textContent. A DOM round-trip is exactly what
+    // let a URL-rendering pass (seen with Hermes desktop's link-chip
+    // renderer, which prefixes any https:// it displays with "@url:")
+    // sneak into the clipboard - the string here never touches the DOM
+    // a second time, so nothing can re-process it between display and
+    // clipboard write. See CHATBOT_URL_PASTE_BUG.md.
+    let caiRawCommand = '';
     document.getElementById('cai-setup').addEventListener('click', async () => {
       const r = await window.shawarmaApi('POST', '/api/admin/hermes-setup', {});
       if (!r.ok) { window.shawarmaToast(r.error || 'Could not start setup.'); return; }
+      caiRawCommand = r.command;
       document.getElementById('cai-cmd').textContent = r.command;
       document.getElementById('cai-expiry').textContent = `Works once, until ${new Date(r.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
       document.getElementById('cai-cmd-wrap').hidden = false;
@@ -1125,7 +1134,7 @@ const user = Astro.locals.user;
       }, 5000);
     });
     document.getElementById('cai-copy').addEventListener('click', async () => {
-      await navigator.clipboard.writeText(document.getElementById('cai-cmd').textContent || '');
+      await navigator.clipboard.writeText(caiRawCommand || '');
       document.getElementById('cai-copy').textContent = 'Copied';
     });
 
