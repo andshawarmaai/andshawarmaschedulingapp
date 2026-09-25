@@ -1,22 +1,14 @@
-// Chat source configuration — picks WHERE the orchestrator sends
-// messages. The owner (admin) picks this in the Settings panel, no env
-// vars or redeploys needed.
+// Chat source configuration — who answers the chat. Picked in Manage →
+// Chat Bot (no env vars or redeploys needed).
 //
 // Modes:
-//   - 'hermes'      — POST every message to the tunnel URL (free, runs
-//                      on the admin's Mac via hermes-bridge.mjs).
-//                      The tunnel URL is set via the Tunnel card.
-//   - 'cloud'       — Use the Chat Bot cloud provider (Claude / OpenAI
-//                      / MiniMax) configured in the AI card. Billed per
-//                      token.
-//   - 'hybrid'      — Try Hermes first; if the tunnel doesn't respond
-//                      within ~2s, automatically fall back to cloud.
-//                      Default choice when both are set up.
-//   - 'stub'        — No AI at all; the orchestrator replies with
-//                      helpful plain-language stub messages.
+//   - 'hermes' — the restaurant's own Hermes, via the relay installed on
+//                their computer (outbound HTTPS only, no tunnel). See
+//                src/lib/assistant.js and public/install-relay.sh.
+//   - 'cloud'  — the provider key in the AI card (Claude / OpenAI / MiniMax).
 //
-// One row in app_settings: key='chat_source', value JSON:
-//   { mode: 'hermes'|'cloud'|'hybrid'|'stub' }
+// Stored value: { mode: 'hermes'|'cloud' }. Older saved values ('hybrid',
+// 'stub') are read as 'hermes'.
 
 import dbCore from '../../../../lib/db/index.js';
 import { encryptSecret, decryptSecret } from '../../../../lib/settingsCrypto.js';
@@ -65,8 +57,8 @@ export async function POST(context) {
   if (!isStaffOrAbove(me.role)) return json({ error: 'Forbidden' }, 403);
   const body = await context.request.json().catch(() => null);
   const mode = body?.mode;
-  if (!['hermes', 'cloud', 'hybrid'].includes(mode)) {
-    return json({ error: 'mode must be one of: hermes, cloud, hybrid.' }, 400);
+  if (!['hermes', 'cloud'].includes(mode)) {
+    return json({ error: 'mode must be hermes or cloud.' }, 400);
   }
   const encrypted = encryptSecret(JSON.stringify({ mode }));
   await dbCore.setSetting(SETTINGS_KEY, encrypted, me.id);
@@ -76,16 +68,16 @@ export async function POST(context) {
 // Used by the chat orchestrator: returns { mode, tunnelUrl? }. tunnelUrl
 // is included so the orchestrator doesn't need to make a second DB call.
 export async function getActiveChatSource() {
+  // 'hermes' = the restaurant's own Hermes via the relay (no tunnel);
+  // 'cloud' = the provider key in the AI card. Older saved values
+  // ('hybrid', 'stub') mean Hermes now.
   const raw = await dbCore.getSetting(SETTINGS_KEY);
   let mode = 'hermes';
   if (raw) {
     try {
       const v = JSON.parse(decryptSecret(raw));
-      mode = v.mode || 'hermes';
-    } catch (_) { /* corrupt */ }
+      mode = v.mode === 'cloud' ? 'cloud' : 'hermes';
+    } catch (_) { /* corrupt: default */ }
   }
-  // Lazily import to avoid a circular dep
-  const { getActiveTunnelUrl } = await import('./tunnel.js');
-  const tunnelUrl = await getActiveTunnelUrl();
-  return { mode, tunnelUrl };
+  return { mode };
 }

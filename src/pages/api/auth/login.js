@@ -1,6 +1,5 @@
 import bcrypt from 'bcryptjs';
 import db from '../../../lib/db/index.js';
-import * as chat from '../../../lib/agentChat.js';
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from '../../../lib/session.js';
 
 export const prerender = false;

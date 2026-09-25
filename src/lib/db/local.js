@@ -87,6 +87,8 @@ function load() {
   if (!data.agent_chat_attachments) data.agent_chat_attachments = [];
     if (!data.chat_security_log) data.chat_security_log = [];
   if (!data.app_settings) data.app_settings = [];
+  if (!data.assistant_messages) data.assistant_messages = [];
+  if (!data.setup_codes) data.setup_codes = [];
   return data;
 }
 
@@ -1257,4 +1259,53 @@ export async function deleteSetting(key) {
   d.app_settings = d.app_settings.filter((s) => s.key !== key);
   save(d);
   return d.app_settings.length < before;
+}
+
+// ─── Schedule assistant chat (mirrors neon.js) ─────────────────────────────
+export async function createAssistantMessage({ user_id, role, body = '', status = 'pending', prompt = null, attachments = [], actions = [], reply_to = null }) {
+  const data = load();
+  const row = {
+    id: crypto.randomUUID(), user_id, role, body, status, prompt, attachments, actions, reply_to,
+    created_at: new Date().toISOString(),
+  };
+  data.assistant_messages.push(row);
+  save(data);
+  return row;
+}
+export async function listAssistantMessages(user_id, limit = 60) {
+  return load().assistant_messages.filter((m) => m.user_id === user_id).slice(-limit);
+}
+export async function getAssistantMessage(id) {
+  return load().assistant_messages.find((m) => m.id === id) || null;
+}
+export async function listPendingAssistantPrompts(limit = 10) {
+  return load().assistant_messages
+    .filter((m) => m.role === 'user' && m.status === 'pending' && m.prompt)
+    .slice(0, limit);
+}
+export async function updateAssistantMessage(id, fields) {
+  const data = load();
+  const row = data.assistant_messages.find((m) => m.id === id);
+  if (!row) return null;
+  Object.assign(row, fields);
+  save(data);
+  return row;
+}
+export async function clearAssistantMessages(user_id) {
+  const data = load();
+  data.assistant_messages = data.assistant_messages.filter((m) => m.user_id !== user_id);
+  save(data);
+}
+export async function createSetupCode({ code_hash, sealed_key, created_by, expires_at }) {
+  const data = load();
+  data.setup_codes.push({ code_hash, sealed_key, created_by, expires_at, used_at: null });
+  save(data);
+}
+export async function claimSetupCode(code_hash) {
+  const data = load();
+  const row = data.setup_codes.find((c) => c.code_hash === code_hash && !c.used_at && c.expires_at > new Date().toISOString());
+  if (!row) return null;
+  row.used_at = new Date().toISOString();
+  save(data);
+  return row;
 }

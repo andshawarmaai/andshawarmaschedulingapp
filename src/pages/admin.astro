@@ -73,29 +73,40 @@ const user = Astro.locals.user;
 
     <hr style="margin:1.25rem 0;border:none;border-top:1px solid var(--color-border);" />
 
-    <h3 style="margin:0 0 0.5rem;font-size:1rem;">Source</h3>
-    <p class="card-sub">Where the AI runs.</p>
-    <div class="field-row">
-      <div class="field" style="flex:2;">
-        <select id="chat-source-mode" class="input">
-          <option value="hermes">Hermes &mdash; local, runs on your Mac, free</option>
-          <option value="cloud">Cloud API &mdash; Anthropic / OpenAI / MiniMax, paid per message</option>
-          <option value="hybrid">Hybrid &mdash; Hermes first, cloud as fallback</option>
-        </select>
-      </div>
-      <button type="button" class="btn-primary" id="chat-source-save">Save source</button>
+    <h3 style="margin:0 0 0.5rem;font-size:1rem;">Who answers the chat</h3>
+    <div class="cai-modes" role="radiogroup" aria-label="Who answers the chat">
+      <label class="cai-mode"><input type="radio" name="cai-mode" value="hermes" />
+        <span><strong>Hermes on my computer</strong><br /><span class="card-sub">Uses your own Hermes and its AI. No tunnel. Also works from Telegram through Hermes.</span></span></label>
+      <label class="cai-mode"><input type="radio" name="cai-mode" value="cloud" />
+        <span><strong>Cloud AI</strong><br /><span class="card-sub">No computer needed. Uses the Anthropic, OpenAI or MiniMax key below.</span></span></label>
     </div>
-    <p class="card-sub" id="chat-source-status" style="margin-top:0.5rem;"></p>
 
-    <div id="chat-tunnel-section" style="margin-top:1.25rem;">
-      <h3 style="margin:0 0 0.5rem;font-size:1rem;">Hermes tunnel URL <span style="font-weight:normal;color:var(--color-muted);">&mdash; needed for Hermes + Hybrid</span></h3>
-      <p class="card-sub">Public URL of the Hermes bridge on your Mac. Run <code>scripts/hermes-bridge.mjs</code> + a tunnel (Tailscale Funnel, Cloudflare, ngrok) on the Mac.</p>
-      <div class="field-row">
-        <input type="url" id="chat-tunnel-url" class="input" placeholder="https://your-tunnel.example.com" style="flex:1;" />
-        <button type="button" class="btn-primary" id="chat-tunnel-save">Save &amp; Test</button>
-        <button type="button" class="btn-secondary" id="chat-tunnel-clear">Remove</button>
-      </div>
-      <p class="card-sub" id="chat-tunnel-status" style="margin-top:0.5rem;"></p>
+    <div id="cai-hermes" hidden>
+      <p class="cai-status" id="cai-relay-status"></p>
+      <ol class="cai-steps">
+        <li><strong>Get your setup command.</strong>
+          <button type="button" class="btn-secondary" id="cai-setup">Set up Hermes</button>
+          <div id="cai-cmd-wrap" hidden>
+            <pre class="cai-cmd" id="cai-cmd"></pre>
+            <button type="button" class="btn-primary" id="cai-copy">Copy command</button>
+            <span class="card-sub" id="cai-expiry"></span>
+          </div>
+        </li>
+        <li><strong>Open Terminal</strong> on the computer that runs Hermes.
+          <span class="card-sub">Mac: press <kbd>Cmd</kbd> + <kbd>Space</kbd>, type <em>Terminal</em>, press <kbd>Return</kbd>. Linux: open your terminal app.</span></li>
+        <li><strong>Paste and run.</strong>
+          <span class="card-sub">Click in Terminal, press <kbd>Cmd</kbd> + <kbd>V</kbd> (Linux: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd>), then <kbd>Return</kbd>. It takes about a minute and ends with <em>Connected</em>.</span></li>
+        <li><strong>Done.</strong> <span class="card-sub">This page updates by itself when your computer connects.</span></li>
+      </ol>
+      <p class="card-sub">Your private key is never shown here: the command holds a one-time code that works once and expires in 15 minutes. Don't share the command.</p>
+      <details class="card-sub"><summary>Something went wrong?</summary>
+        <ul>
+          <li><em>Node.js 18+ is required</em>: install it from nodejs.org, then click Set up Hermes again.</li>
+          <li><em>Hermes isn't installed</em>: install Hermes, or choose Cloud AI above.</li>
+          <li><em>Setup code didn't work</em>: it expired or was used; click Set up Hermes for a new one.</li>
+          <li>Still stuck: run <code>tail -20 ~/.andshawarma/relay.log</code> in Terminal.</li>
+        </ul>
+      </details>
     </div>
 
     <div id="chat-identity-section" style="margin-top:1.25rem;">
@@ -243,15 +254,6 @@ const user = Astro.locals.user;
     </div>
   </div>
   )}
-
-  <div class="card" style="margin-top:1.5rem;">
-    <h2 style="margin-top:0;">Chat security log</h2>
-    <p class="card-sub">Off-topic refusals, prompt-injection attempts, and credential-phishing messages from the in-app chat bot. Newest first.</p>
-    <div id="chat-security-log" style="max-height:24rem;overflow-y:auto;border:1px solid var(--color-border);border-radius:0.5rem;padding:0.5rem;background:var(--color-surface);font-size:0.9rem;">
-      <p style="color:var(--color-muted);margin:0.5rem;">Loading…</p>
-    </div>
-    <button type="button" class="btn-secondary" id="chat-security-refresh" style="margin-top:0.75rem;">Refresh</button>
-  </div>
 
   <div class="card">
     <h2>API Keys</h2>
@@ -1045,11 +1047,6 @@ const user = Astro.locals.user;
     // they're consolidated here under Manage for clarity.
     const chatToggle = document.getElementById('chat-enabled-toggle');
     const chatEnabledStatus = document.getElementById('chat-enabled-status');
-    const chatSourceMode = document.getElementById('chat-source-mode');
-    const chatSourceStatus = document.getElementById('chat-source-status');
-    const chatTunnelSection = document.getElementById('chat-tunnel-section');
-    const chatTunnelUrl = document.getElementById('chat-tunnel-url');
-    const chatTunnelStatus = document.getElementById('chat-tunnel-status');
     const chatAiSection = document.getElementById('chat-ai-section');
     const chatAiProvider = document.getElementById('chat-ai-provider');
     const chatAiModel = document.getElementById('chat-ai-model');
@@ -1085,31 +1082,53 @@ const user = Astro.locals.user;
       }
     });
 
+    // === Who answers: Hermes (relay, no tunnel) or Cloud AI ===
+    const caiRadios = document.querySelectorAll('input[name=cai-mode]');
+    function showCaiMode(mode) {
+      document.getElementById('cai-hermes').hidden = mode !== 'hermes';
+      chatAiSection.hidden = mode !== 'cloud';
+    }
+    function showRelayStatus(lastSeen) {
+      const seen = lastSeen ? new Date(lastSeen) : null;
+      const fresh = !!seen && Date.now() - seen.getTime() < 2 * 60 * 1000;
+      document.getElementById('cai-relay-status').textContent = fresh
+        ? 'Hermes is connected.'
+        : seen ? `Hermes last checked in ${seen.toLocaleString()}.` : 'Hermes has not connected yet.';
+      return fresh;
+    }
     async function loadChatSource() {
-      try {
-        const r = await fetch('/api/admin/settings/chat-source', { credentials: 'same-origin' });
-        if (!r.ok) return;
-        const cfg = await r.json();
-        if (cfg.mode) chatSourceMode.value = cfg.mode;
-        chatSourceStatus.textContent = `Current source: ${cfg.mode || 'hermes'}.`;
-        updateChatDependencyVisibility(cfg.mode);
-      } catch (_) { chatSourceStatus.textContent = 'Failed to load source.'; }
+      const r = await fetch('/api/admin/settings/assistant', { credentials: 'same-origin' });
+      if (!r.ok) return null;
+      const cfg = await r.json();
+      caiRadios.forEach((radio) => { radio.checked = radio.value === cfg.mode; });
+      showCaiMode(cfg.mode);
+      showRelayStatus(cfg.relayLastSeen);
+      return cfg;
     }
-
-    function updateChatDependencyVisibility(mode) {
-      // Hermes + Hybrid need the tunnel URL. Cloud + Hybrid need the AI provider.
-      chatTunnelSection.hidden = !(mode === 'hermes' || mode === 'hybrid');
-      chatAiSection.hidden = !(mode === 'cloud' || mode === 'hybrid');
-    }
-    chatSourceMode.addEventListener('change', () => updateChatDependencyVisibility(chatSourceMode.value));
-
-    document.getElementById('chat-source-save').addEventListener('click', async () => {
-      const r = await window.shawarmaApi('POST', '/api/admin/settings/chat-source', { mode: chatSourceMode.value });
-      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed.'); return; }
-      window.shawarmaToast('Source saved.');
-      await loadChatSource();
+    caiRadios.forEach((radio) => radio.addEventListener('change', async () => {
+      showCaiMode(radio.value);
+      const r = await window.shawarmaApi('POST', '/api/admin/settings/assistant', { mode: radio.value });
+      window.shawarmaToast(r.ok ? (radio.value === 'cloud' ? 'Chat now answers with Cloud AI.' : 'Chat now answers with your Hermes.') : (r.error || 'Save failed.'));
+    }));
+    let relayTimer;
+    document.getElementById('cai-setup').addEventListener('click', async () => {
+      const r = await window.shawarmaApi('POST', '/api/admin/hermes-setup', {});
+      if (!r.ok) { window.shawarmaToast(r.error || 'Could not start setup.'); return; }
+      document.getElementById('cai-cmd').textContent = r.command;
+      document.getElementById('cai-expiry').textContent = `Works once, until ${new Date(r.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
+      document.getElementById('cai-cmd-wrap').hidden = false;
+      document.getElementById('cai-copy').textContent = 'Copy command';
+      clearInterval(relayTimer);
+      relayTimer = setInterval(async () => {
+        const cfg = await fetch('/api/admin/settings/assistant', { credentials: 'same-origin' }).then((x) => x.json()).catch(() => ({}));
+        if (showRelayStatus(cfg.relayLastSeen)) { clearInterval(relayTimer); document.getElementById('cai-cmd-wrap').hidden = true; }
+      }, 5000);
     });
-    
+    document.getElementById('cai-copy').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(document.getElementById('cai-cmd').textContent || '');
+      document.getElementById('cai-copy').textContent = 'Copied';
+    });
+
     // === Chat Bot identity (name + avatar) — admin only ===
     function loadChatIdentity() {
       const nameInput = document.getElementById('chat-identity-name');
@@ -1194,85 +1213,6 @@ const user = Astro.locals.user;
 
     loadChatIdentity();
 
-// === Chat security log ===
-    async function loadChatSecurityLog() {
-      const el = document.getElementById('chat-security-log');
-      if (!el) return;
-      el.innerHTML = '<p style="color:var(--color-muted);margin:0.5rem;">Loading…</p>';
-      try {
-        const r = await fetch('/api/admin/agent-chat/security', { credentials: 'same-origin' });
-        if (!r.ok) {
-          el.innerHTML = `<p style="color:var(--color-muted);margin:0.5rem;">Failed to load (${r.status}).</p>`;
-          return;
-        }
-        const data = await r.json();
-        const events = data.events || [];
-        if (events.length === 0) {
-          el.innerHTML = '<p style="color:var(--color-muted);margin:0.5rem;">No security events yet — this log will fill up if anyone tries to abuse the chat.</p>';
-          return;
-        }
-        const KIND_LABEL = {
-          off_topic_refusal: 'off-topic',
-          prompt_injection: 'injection attempt',
-          credential_phish: 'credential phish',
-          abuse: 'abuse',
-        };
-        el.innerHTML = events.map((e) => {
-          const label = KIND_LABEL[e.kind] || e.kind;
-          const when = new Date(e.created_at).toLocaleString();
-          const msg = (e.message_excerpt || '').slice(0, 200) || '(empty)';
-          const reply = (e.agent_reply || '').slice(0, 200);
-          return `<div style="padding:0.5rem 0.25rem;border-bottom:1px solid var(--color-border);">
-            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-              <span class="badge badge-denied">${escapeHtml(label)}</span>
-              <strong>${escapeHtml(e.user_display_name || e.user_id)}</strong>
-              <span style="color:var(--color-muted);font-size:0.85rem;">${escapeHtml(when)}</span>
-            </div>
-            <div style="margin-top:0.25rem;color:var(--color-muted);font-size:0.85rem;"><strong>asked:</strong> ${escapeHtml(msg)}</div>
-            ${reply ? `<div style="margin-top:0.25rem;color:var(--color-muted);font-size:0.85rem;"><strong>bot replied:</strong> ${escapeHtml(reply)}</div>` : ''}
-          </div>`;
-        }).join('');
-      } catch (e) {
-        el.innerHTML = `<p style="color:var(--color-muted);margin:0.5rem;">Failed to load: ${escapeHtml(String(e.message || e))}</p>`;
-      }
-    }
-    document.getElementById('chat-security-refresh')?.addEventListener('click', loadChatSecurityLog);
-    loadChatSecurityLog();
-
-
-    async function loadChatTunnel() {
-      try {
-        const r = await fetch('/api/admin/settings/tunnel', { credentials: 'same-origin' });
-        if (!r.ok) return;
-        const cfg = await r.json();
-        if (cfg.tunnel_url) chatTunnelUrl.value = cfg.tunnel_url;
-        if (cfg.reachable) {
-          chatTunnelStatus.textContent = `Connected to ${cfg.tunnel_url}.`;
-        } else if (cfg.tunnel_url) {
-          chatTunnelStatus.textContent = `Saved URL: ${cfg.tunnel_url}, but it's not responding right now.`;
-        } else {
-          chatTunnelStatus.textContent = 'No tunnel URL set.';
-        }
-      } catch (_) { chatTunnelStatus.textContent = 'Failed to load tunnel config.'; }
-    }
-
-    document.getElementById('chat-tunnel-save').addEventListener('click', async () => {
-      if (!chatTunnelUrl.value.trim()) { window.shawarmaToast('Paste a tunnel URL.'); return; }
-      const r = await window.shawarmaApi('POST', '/api/admin/settings/tunnel', { tunnel_url: chatTunnelUrl.value.trim() });
-      if (!r.ok) { window.shawarmaToast(r.error || 'Save failed.'); return; }
-      window.shawarmaToast('Tunnel saved.');
-      await loadChatTunnel();
-    });
-
-    document.getElementById('chat-tunnel-clear').addEventListener('click', async () => {
-      if (!confirm('Remove the tunnel URL?')) return;
-      const r = await window.shawarmaApi('DELETE', '/api/admin/settings/tunnel');
-      if (!r.ok) { window.shawarmaToast('Failed.'); return; }
-      window.shawarmaToast('Removed.');
-      chatTunnelUrl.value = '';
-      await loadChatTunnel();
-    });
-
     async function loadChatAi() {
       try {
         const r = await fetch('/api/admin/settings/ai', { credentials: 'same-origin' });
@@ -1314,7 +1254,6 @@ const user = Astro.locals.user;
 
     loadChatEnabled();
     loadChatSource();
-    loadChatTunnel();
     loadChatAi();
 
     // ─── Theme & branding card ───────────────────────────────────────────────────────

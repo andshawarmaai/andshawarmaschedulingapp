@@ -1258,3 +1258,13 @@ main.app-page { max-width: 90rem; margin: 0 auto; padding: 1.5rem; overflow-x: a
    instead of the wall-of-text paragraph it replaced. */
 .help-list { margin:0; padding-left:1.25rem; display:flex; flex-direction:column; gap:0.625rem; font-size:0.875rem; line-height:1.5; }
 .help-list li { padding-left:0.125rem; }
+
+/* Manage → Chat Bot: who answers + guided Hermes setup (same as Chef Nerd AI). */
+.cai-modes { display: grid; gap: 0.5rem; margin: 0.5rem 0 1rem; }
+.cai-mode { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.65rem 0.8rem; border: 1px solid var(--color-border); border-radius: 10px; cursor: pointer; }
+.cai-mode:has(input:checked) { border-color: var(--color-accent, #f59e0b); }
+.cai-steps { padding-left: 1.2rem; display: grid; gap: 0.6rem; line-height: 1.5; }
+.cai-steps .card-sub { display: block; }
+.cai-cmd { white-space: pre-wrap; word-break: break-all; background: var(--color-bg, #f6f6f6); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.6rem; font-size: 0.8rem; margin: 0.4rem 0; }
+.cai-status { font-weight: 600; }
+.cai-steps kbd { font: inherit; font-size: 0.8em; padding: 0.05rem 0.35rem; border: 1px solid var(--color-border); border-radius: 4px; }

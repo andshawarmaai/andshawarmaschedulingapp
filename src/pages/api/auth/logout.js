@@ -1,5 +1,5 @@
 import { SESSION_COOKIE } from '../../../lib/session.js';
-import * as chat from '../../../lib/agentChat.js';
+import db from '../../../lib/db/index.js';
 
 export const prerender = false;
 
@@ -10,7 +10,7 @@ export async function POST(context) {
   context.cookies.delete(SESSION_COOKIE, { path: '/' });
   if (userId) {
     try {
-      await chat.clearChatForUser(userId);
+      await db.clearAssistantMessages(userId);
     } catch (_) {
       // Non-fatal — never block sign-out on a chat cleanup failure.
     }

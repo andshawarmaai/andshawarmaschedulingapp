@@ -990,3 +990,81 @@ export async function deleteSetting(key) {
   const r = await sql`DELETE FROM app_settings WHERE key = ${key}`;
   return r.length > 0;
 }
+
+// ─── Schedule assistant chat ───────────────────────────────────────────────
+// One thread per person. A user message waits as 'pending' until the
+// restaurant's Hermes (relay) or cloud AI answers; `prompt` holds the fully
+// built prompt the relay hands to Hermes. Attachments/files are small and
+// stored inline (base64) so nothing depends on a server's disk.
+let assistantSchemaReady = null;
+function ensureAssistantSchema() {
+  assistantSchemaReady ??= (async () => {
+    await sql`
+      CREATE TABLE IF NOT EXISTS assistant_messages (
+        id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        user_id     TEXT NOT NULL,
+        role        TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        body        TEXT NOT NULL DEFAULT '',
+        status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'answered', 'failed')),
+        prompt      TEXT,
+        attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+        actions     JSONB NOT NULL DEFAULT '[]'::jsonb,
+        reply_to    TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+    await sql`CREATE INDEX IF NOT EXISTS assistant_messages_user_idx ON assistant_messages (user_id, created_at)`;
+    await sql`CREATE INDEX IF NOT EXISTS assistant_messages_pending_idx ON assistant_messages (status) WHERE role = 'user'`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS setup_codes (
+        code_hash  TEXT PRIMARY KEY,
+        sealed_key TEXT NOT NULL,
+        created_by TEXT,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at    TIMESTAMPTZ
+      )`;
+  })().catch((err) => { assistantSchemaReady = null; throw err; });
+  return assistantSchemaReady;
+}
+export async function createAssistantMessage({ user_id, role, body = '', status = 'pending', prompt = null, attachments = [], actions = [], reply_to = null }) {
+  await ensureAssistantSchema();
+  return row0(await sql`
+    INSERT INTO assistant_messages (user_id, role, body, status, prompt, attachments, actions, reply_to)
+    VALUES (${user_id}, ${role}, ${body}, ${status}, ${prompt}, ${JSON.stringify(attachments)}, ${JSON.stringify(actions)}, ${reply_to})
+    RETURNING *`);
+}
+export async function listAssistantMessages(user_id, limit = 60) {
+  await ensureAssistantSchema();
+  const rows = await sql`SELECT * FROM assistant_messages WHERE user_id = ${user_id} ORDER BY created_at DESC LIMIT ${limit}`;
+  return rows.reverse();
+}
+export async function getAssistantMessage(id) {
+  await ensureAssistantSchema();
+  return row0(await sql`SELECT * FROM assistant_messages WHERE id = ${id}`);
+}
+export async function listPendingAssistantPrompts(limit = 10) {
+  await ensureAssistantSchema();
+  return sql`
+    SELECT * FROM assistant_messages
+    WHERE role = 'user' AND status = 'pending' AND prompt IS NOT NULL
+    ORDER BY created_at ASC LIMIT ${limit}`;
+}
+export async function updateAssistantMessage(id, { status, prompt }) {
+  await ensureAssistantSchema();
+  if (prompt !== undefined) return row0(await sql`UPDATE assistant_messages SET status = COALESCE(${status ?? null}, status), prompt = ${prompt} WHERE id = ${id} RETURNING *`);
+  return row0(await sql`UPDATE assistant_messages SET status = ${status} WHERE id = ${id} RETURNING *`);
+}
+export async function clearAssistantMessages(user_id) {
+  await ensureAssistantSchema();
+  await sql`DELETE FROM assistant_messages WHERE user_id = ${user_id}`;
+}
+export async function createSetupCode({ code_hash, sealed_key, created_by, expires_at }) {
+  await ensureAssistantSchema();
+  await sql`INSERT INTO setup_codes (code_hash, sealed_key, created_by, expires_at) VALUES (${code_hash}, ${sealed_key}, ${created_by}, ${expires_at})`;
+}
+export async function claimSetupCode(code_hash) {
+  await ensureAssistantSchema();
+  return row0(await sql`
+    UPDATE setup_codes SET used_at = now()
+    WHERE code_hash = ${code_hash} AND used_at IS NULL AND expires_at > now()
+    RETURNING sealed_key`);
+}
