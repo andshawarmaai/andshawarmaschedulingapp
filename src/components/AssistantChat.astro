@@ -29,7 +29,7 @@ const avatarSrc = avatar || '/logo.jpg';
       <span class="asst-avatar" aria-hidden="true"><img src={avatarSrc} alt="" /></span>
       <div class="asst-head-text">
         <strong>{title}</strong>
-        <span class="asst-sub" id="asst-sub">Answered by your Hermes</span>
+        <span class="asst-sub" id="asst-sub"><span class="asst-dot"></span><span class="asst-status">Online</span></span>
       </div>
       <button type="button" class="asst-clear" title="Clear this conversation">Clear</button>
     </header>
@@ -49,7 +49,7 @@ const avatarSrc = avatar || '/logo.jpg';
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         </button>
       </div>
-      <p class="asst-hint">Enter to send, Shift + Enter for a new line. Try "Put Jorge on Friday 11 to 7".</p>
+      <p class="asst-hint">Enter to send · Shift + Enter for a new line</p>
     </form>
   </section>
 </div>
@@ -141,6 +141,19 @@ const avatarSrc = avatar || '/logo.jpg';
   .asst .asst-files { font-size: 0.8rem; color: var(--color-muted); padding: 0 0.5rem 0.4rem; }
   .asst .asst-hint { font-size: 0.7rem; color: var(--color-muted); text-align: center; margin: 0.4rem 0 0; }
   .asst .asst-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Left/right conversation: the agent's bubble on the left beside its logo,
+     the person's bubble on the right. Text inside bubbles is left-aligned. */
+  .asst .asst-msg.assistant { max-width: 88%; align-self: flex-start; }
+  .asst .asst-msg.assistant .asst-text { background: var(--color-bg-soft); border: 1px solid var(--color-border-soft, var(--color-border)); padding: 0.6rem 0.95rem; border-radius: 18px; border-top-left-radius: 6px; margin-top: 0; text-align: left; }
+  .asst .asst-msg.assistant .asst-name { line-height: 1.2; margin-bottom: 0.25rem; }
+  .asst .asst-msg.assistant .asst-avatar { align-self: start; margin-top: 1.1rem; }
+  .asst .asst-msg.user .asst-text { border-top-right-radius: 6px; text-align: left; }
+  .asst .asst-avatar img { object-fit: contain; padding: 2px; }
+  .asst .asst-hint { text-align: left; padding: 0 0.9rem; margin: 0.35rem 0 0; font-size: 0.7rem; color: var(--color-muted); }
+  .asst .asst-sub { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .asst .asst-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
+  .asst .asst-sub.away .asst-dot { background: #a1a1aa; box-shadow: none; }
 </style>
 
 <script>
@@ -220,14 +233,14 @@ const avatarSrc = avatar || '/logo.jpg';
       const wrap = el('div', 'asst-msg assistant');
       const label = el('span', 'asst-thinking', 'Thinking');
       const meta = el('div', 'asst-thinking-meta', '');
-      const body = el('div', '');
+      const body = el('div', 'asst-text');
       body.append(label, meta);
       wrap.append(avatar(), el('div', 'asst-name', title), body);
       const tick = () => {
         const sec = Math.max(0, (Date.now() - since) / 1000);
         const late = mode === 'hermes' && sec >= 60;
-        label.textContent = sec < 25 ? 'Thinking' : late ? 'Waiting for Hermes' : 'Working';
-        meta.textContent = late ? `${Math.floor(sec / 60)}m · Hermes answers when it's running on your computer.` : `${sec.toFixed(0)}s`;
+        label.textContent = sec < 25 ? 'Thinking' : late ? 'Away, replies soon' : 'Working';
+        meta.textContent = late ? "I'll answer here as soon as I'm back online." : `${sec.toFixed(0)}s`;
       };
       tick();
       clearInterval(tickTimer);
@@ -235,11 +248,10 @@ const avatarSrc = avatar || '/logo.jpg';
       return wrap;
     }
 
+    // Empty chat: the agent opens the conversation, on the left like any reply.
     function empty(text: string) {
-      const wrap = el('div', 'asst-empty');
-      const a = avatar();
-      a.style.cssText = 'width:44px;height:44px;margin:0 auto 0.6rem;display:flex;';
-      wrap.append(a, el('div', '', text));
+      const wrap = el('div', 'asst-msg assistant');
+      wrap.append(avatar(), el('div', 'asst-name', title), el('div', 'asst-text', text));
       log.replaceChildren(wrap);
     }
 
@@ -248,7 +260,8 @@ const avatarSrc = avatar || '/logo.jpg';
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { empty(data.error || 'Could not load the chat.'); return; }
       mode = data.mode || 'hermes';
-      sub.textContent = mode === 'cloud' ? 'Answered by your cloud AI' : 'Answered by your Hermes';
+      sub.classList.toggle('away', !data.online);
+      sub.querySelector('.asst-status')!.textContent = data.online ? 'Online' : 'Away, replies soon';
       clearInterval(tickTimer);
       if (!data.messages.length) { empty(`Hi, I'm your ${title}. Ask me to add, move or swap shifts, check who's working, or handle time off.`); return; }
       log.replaceChildren();

@@ -7,6 +7,7 @@
 import { waitUntil } from '@vercel/functions';
 import db from '../../../../lib/db/index.js';
 import { chatMode, greetingReply, buildHermesPrompt, answerWithCloud } from '../../../../lib/assistant.js';
+import { getActiveProviderConfig } from '../../admin/settings/ai.js';
 
 export const prerender = false;
 
@@ -30,7 +31,18 @@ export async function GET(context) {
   const me = context.locals.user;
   if (!canChat(me.role)) return json({ error: 'Forbidden' }, 403);
   const messages = await db.listAssistantMessages(me.id);
-  return json({ ok: true, mode: await chatMode(), messages: messages.map(publicMessage) });
+  const mode = await chatMode();
+  // Online = can answer right now: a cloud key is saved, or the restaurant's
+  // Hermes relay checked in within the last 2 minutes. The model/provider is
+  // never exposed to the chat.
+  let online;
+  if (mode === 'cloud') online = !!(await getActiveProviderConfig())?.api_key;
+  else {
+    const keys = await db.listApiKeys();
+    const seen = keys.filter((k) => !k.revoked && /^Hermes relay/.test(k.label || '') && k.last_used_at).map((k) => new Date(k.last_used_at).getTime());
+    online = seen.length > 0 && Date.now() - Math.max(...seen) < 2 * 60 * 1000;
+  }
+  return json({ ok: true, mode, online, messages: messages.map(publicMessage) });
 }
 
 export async function POST(context) {

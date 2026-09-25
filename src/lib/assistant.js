@@ -47,7 +47,15 @@ Include one JSON block (the person never sees it; the app runs it for you):
 }
 \`\`\`
 
-Then your plain-English reply outside the block. Each summary is shown to the person as a small confirmation, so write it for a human. Only include actions for real changes they asked for; questions need no block.`;
+Then your plain-English reply outside the block. Each summary is shown to the person as a small confirmation, so write it for a human. Only include actions for real changes they asked for; questions need no block.
+
+GIVING THE PERSON A FILE
+When a file would help (for example a spreadsheet of the week's schedule), include it as a block like this; it becomes a download under your reply:
+\`\`\`file name="schedule-week-oct-5.csv"
+date,name,start,end
+2026-10-05,Jorge,11:00,19:00
+\`\`\`
+Use .csv for spreadsheets (opens in Excel, Numbers and Google Sheets), .md or .txt for documents. Mention the file in your reply.`;
 
 // Endpoints the assistant may never call, whatever the person's role.
 const BLOCKED_ENDPOINTS = [/^\/api\/auth\//, /^\/api\/admin\/settings/, /^\/api\/admin\/api-keys/, /^\/api\/admin\/hermes-setup/, /^\/api\/agent\//, /\/(approve|deny|decision)(\/|$)/];
@@ -117,6 +125,24 @@ export async function buildHermesPrompt({ user, message, origin }) {
 }
 
 // ---- Parsing & execution ------------------------------------------------------
+// ```file name="x.csv"``` blocks in a reply become downloadable files.
+const FILE_BLOCK = /```file\s+name="([^"\n]{1,120})"[^\n]*\n([\s\S]*?)```/g;
+const FILE_TYPES = { csv: 'text/csv', md: 'text/markdown', txt: 'text/plain', json: 'application/json', html: 'text/html', tsv: 'text/tab-separated-values' };
+export function extractFileBlocks(text) {
+  const files = [];
+  const rest = String(text || '').replace(FILE_BLOCK, (_, name, body) => {
+    if (files.length >= 5) return '';
+    const safe = name.replace(/[^\w.\- ]+/g, '_').slice(-120);
+    const ext = safe.split('.').pop().toLowerCase();
+    const data = Buffer.from(body.replace(/\n$/, ''), 'utf8');
+    if (data.length && data.length <= 3 * 1024 * 1024) {
+      files.push({ name: safe, type: FILE_TYPES[ext] || 'text/plain', size: data.length, b64: data.toString('base64'), output: true });
+    }
+    return '';
+  });
+  return { text: rest.trim(), files };
+}
+
 export function parseAgentOutput(text) {
   let content = String(text || '');
   let actions = [];
@@ -165,7 +191,9 @@ async function runActions(actions, { user, origin }) {
 // actions as them, replaces over-confident text if something failed, and
 // records what happened.
 export async function finalizeTurn({ userMsg, user, text, origin, files = [] }) {
-  let { content, actions } = parseAgentOutput(text);
+  const extracted = extractFileBlocks(text);
+  files = [...files, ...extracted.files].slice(0, 5);
+  let { content, actions } = parseAgentOutput(extracted.text);
   const executed = await runActions(actions, { user, origin });
   const failed = executed.filter((a) => !a.ok);
   if (failed.length) {
